@@ -14,12 +14,12 @@
 
 from typing import Optional
 
-from nemo.collections.common.tokenizers.char_tokenizer import CharTokenizer
+from nemo.collections.common.tokenizers.tokenizer_spec import TokenizerSpec
 
 __all__ = ['WordTokenizer']
 
 
-class WordTokenizer(CharTokenizer):
+class WordTokenizer(TokenizerSpec):
     "Tokenizes at word boundary"
 
     def __init__(
@@ -45,17 +45,55 @@ class WordTokenizer(CharTokenizer):
             cls_token: class token. Usually equal to bos_token
             unk_token: token to use for unknown tokens
         """
+        vocab_list = open(vocab_file, "r").readlines()
+        self.vocab = {vocab_list[i].strip(): i for i in range(len(vocab_list))}
 
-        super().__init__(
-            vocab_file=vocab_file,
-            mask_token=mask_token,
-            bos_token=bos_token,
-            eos_token=eos_token,
-            pad_token=pad_token,
-            unk_token=unk_token,
-            sep_token=sep_token,
-            cls_token=cls_token,
-        )
+        special_tokens_dict = {}
+        if unk_token:
+            special_tokens_dict["unk_token"] = unk_token
+        if sep_token:
+            special_tokens_dict["sep_token"] = sep_token
+        if mask_token:
+            special_tokens_dict["mask_token"] = mask_token
+        if bos_token:
+            special_tokens_dict["bos_token"] = bos_token
+        if eos_token:
+            special_tokens_dict["eos_token"] = eos_token
+        if pad_token:
+            special_tokens_dict["pad_token"] = pad_token
+        if cls_token:
+            special_tokens_dict["cls_token"] = cls_token
+
+        self.add_special_tokens(special_tokens_dict)
+        self.inv_vocab = {v: k for k, v in self.vocab.items()}
+        self.vocab_size = len(self.vocab)
+        self.special_tokens = self.tokens_to_ids(special_tokens_dict.values())
+
+    def add_special_tokens(self, special_tokens_dict: dict) -> int:
+        """
+        Adds a dictionary of special tokens (eos, pad, cls...).
+        If special tokens are NOT in the vocabulary, they are added
+        to it (indexed starting from the last index of the current vocabulary).
+        Args:
+            special_tokens_dict: dict of special tokens
+        """
+        for token in special_tokens_dict:
+            token_str = special_tokens_dict[token]
+            if token_str not in self.vocab:
+                self.vocab[token_str] = len(self.vocab)
+            setattr(self, token, token_str)
+
+    def ids_to_tokens(self, ids):
+        return [self.inv_vocab[id] for id in ids]
+
+    def text_to_ids(self, text):
+        return [self.vocab[token] for token in self.text_to_tokens(text)]
+
+    def tokens_to_ids(self, tokens):
+        return [self.vocab[token] for token in tokens]
+
+    def tokens_to_text(self, tokens):
+        return self.ids_to_text(self.tokens_to_ids(tokens))
 
     def text_to_tokens(self, text):
         token_candidates = text.strip().split()
