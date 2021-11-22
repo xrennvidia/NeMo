@@ -63,7 +63,7 @@ def get_targets(documents: List[Dict[str, Any]], extract_topics: bool = False) \
             data.append((abstract_text, labels))
         else:
             data.append((abstract_text, labels, topics, expected_entities))
-
+        
     return data
 
 
@@ -148,3 +148,4 @@ if __name__ == "__main__":
             load_and_write_topics(input_file, args.output_dir, base_name, args.prompt_start, args.prompt_end)
         else:
             load_and_write_data(input_file, args.output_dir, base_name, args.prompt_start, args.prompt_end)
+
