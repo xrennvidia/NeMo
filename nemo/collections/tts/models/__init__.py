@@ -26,6 +26,7 @@ try:
     from nemo.collections.tts.models.squeezewave import SqueezeWaveModel
     from nemo.collections.tts.models.tacotron2 import Tacotron2Model
     from nemo.collections.tts.models.talknet import TalkNetDursModel, TalkNetPitchModel, TalkNetSpectModel
+    from nemo.collections.tts.models.t5_g2p import T5G2PModel
     from nemo.collections.tts.models.two_stages import GriffinLimModel, MelPsuedoInverseModel, TwoStagesModel
     from nemo.collections.tts.models.uniglow import UniGlowModel
     from nemo.collections.tts.models.waveglow import WaveGlowModel
@@ -46,6 +47,7 @@ __all__ = [
     "TalkNetDursModel",
     "TalkNetPitchModel",
     "TalkNetSpectModel",
+    "T5G2PModel",
     "UniGlowModel",
     "MelGanModel",
     "HifiGanModel",

@@ -54,6 +54,7 @@ import soundfile as sf
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm
+from transformers import PreTrainedTokenizerBase
 
 from nemo.collections.asr.parts.preprocessing.features import WaveformFeaturizer
 from nemo.collections.asr.parts.preprocessing.segment import AudioSegment
@@ -766,3 +767,87 @@ class FastSpeech2Dataset(Dataset):
                 energies_batched,
             )
         return (audio_signal, audio_lengths, tokens, tokens_lengths, duration_batched, None, None)
+
+
+class T5G2PDataset(Dataset):
+    """
+    Creates a dataset to train a T5G2P model.
+    """
+
+    @property
+    def output_types(self) -> Optional[Dict[str, NeuralType]]:
+        """Returns definitions of module output ports."""
+        return {
+            "input_ids": NeuralType(('B', 'T'), TokenIndex()),
+            "attention_mask": NeuralType(('B', 'T'), MaskType(), optional=True),
+            "labels": NeuralType(('B', 'T'), LabelsType()),
+        }
+
+    def __init__(
+        self,
+        manifest_filepath: str,
+        tokenizer: PreTrainedTokenizerBase,
+        max_source_len: int = 512,
+        max_target_len: int = 512,
+    ):
+        # TODO: docstring
+        super().__init__()
+
+        self.tokenizer = tokenizer
+        self.max_source_len = max_source_len
+        self.max_target_len = max_target_len
+
+        self.data = []
+
+        num_filtered = 0
+
+        # Load grapheme/phoneme sequence pairs into self.data
+        with open(manifest_filepath, 'r') as f_in:
+            logging.info(f"Loading dataset from: {manifest_filepath}")
+            for line in f_in:
+                # TODO: better filtering of max source/target length? tokenize first??
+                item = json.loads(line)
+                """
+                if len(item["text"]) > max_source_len:
+                    num_filtered += 1
+                    continue
+                if len(item["pred_text"]) > max_target_len:
+                    num_filtered += 1
+                    continue
+                """
+                # TODO: change pred_text to something more sensible
+                self.data.append({"graphemes": item["text"], "phonemes": item["pred_text"]})
+
+        # print(f"=======> Filtered {num_filtered} entries.")
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        return self.data[index]
+
+    def _collate_fn(self, batch):
+        graphemes_batch = [entry["graphemes"] for entry in batch]
+        # TODO: Should I add a task prefix?
+        phonemes_batch = [entry["phonemes"] for entry in batch]
+
+        # Encode inputs (graphemes)
+        input_encoding = self.tokenizer(
+            graphemes_batch, padding='longest', max_length=self.max_source_len, truncation=True, return_tensors='pt',
+        )
+        input_ids, attention_mask = input_encoding.input_ids, input_encoding.attention_mask
+
+        # Encode targets (phonemes)
+        target_encoding = self.tokenizer(
+            phonemes_batch, padding='longest', max_length=self.max_target_len, truncation=True,
+        )
+        labels = target_encoding.input_ids
+
+        # Need to replace padding tokens w/ -100 for loss to ignore them
+        labels = [
+            [(label if label != self.tokenizer.pad_token_id else -100) for label in labels_example]
+            for labels_example in labels
+        ]
+        labels = torch.tensor(labels)
+
+        return (input_ids, attention_mask, labels)  # grapheme IDs, attention mask, phoneme IDs
