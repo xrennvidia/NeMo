@@ -101,9 +101,7 @@ class T5G2PModel(ModelPT):  # TODO: Check parent class
         input_ids, attention_mask, labels = batch
 
         # Get loss from forward step
-        print("starting validation...")
         val_loss = self.forward(input_ids=input_ids, attention_mask=attention_mask, labels=labels,)
-        print("got val loss.")
 
         # Get preds from generate function and calculate PER
         labels_str = self._tokenizer.batch_decode(
@@ -111,9 +109,7 @@ class T5G2PModel(ModelPT):  # TODO: Check parent class
             torch.ones_like(labels) * ((labels == -100) * 100) + labels,
             skip_special_tokens=True,
         )
-        print("Is something weird happening here?")
         generated_str, _, _ = self._generate_predictions(input_ids=input_ids, model_max_target_len=self.max_target_len)
-        print("about to get PER")
         per = word_error_rate(hypotheses=generated_str, references=labels_str)
 
         return {'val_loss': val_loss, 'per': per}
@@ -127,8 +123,9 @@ class T5G2PModel(ModelPT):  # TODO: Check parent class
         self.log('val_loss', avg_loss, sync_dist=True)
 
         # TODO: Add better PER calculation and logging.
-        for x in outputs:
-            self.log('PER', x['per'])
+        avg_per = sum([x['per'] for x in outputs]) / len(outputs)
+        self.log('val_per', avg_per)
+        print(f"---------------> PER: {avg_per}")
 
         return {'loss': avg_loss}
 

@@ -5,8 +5,8 @@ train_dataset: ???
 validation_dataset: ???
 
 model:
-  max_source_len: 512
-  max_target_len: 512
+  max_source_len: 150
+  max_target_len: 730
 
   train_ds:
     dataset:
@@ -14,7 +14,7 @@ model:
       manifest_filepath: ${train_dataset}
     dataloader_params:
       drop_last: false
-      shuffle: false ########################## change this back
+      shuffle: true
       batch_size: 32 #32
       num_workers: 4
 
@@ -25,7 +25,7 @@ model:
     dataloader_params:
       drop_last: false
       shuffle: false
-      batch_size: 2 #64
+      batch_size: 32 #64
       num_workers: 4
 
   optim:
@@ -55,7 +55,7 @@ trainer:
   logger: False  # Provided by exp_manager
   flush_logs_every_n_steps: 1000
   log_every_n_steps: 200
-  check_val_every_n_epoch: 25
+  check_val_every_n_epoch: 1
 
 exp_manager:
   exp_dir: null

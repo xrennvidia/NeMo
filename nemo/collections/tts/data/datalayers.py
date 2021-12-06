@@ -815,7 +815,7 @@ class T5G2PDataset(Dataset):
                     num_filtered += 1
                     continue
                 """
-                # TODO: change pred_text to something more sensible
+                # TODO: change pred_text to something more sensible in manifest
                 self.data.append({"graphemes": item["text"], "phonemes": item["pred_text"]})
 
         # print(f"=======> Filtered {num_filtered} entries.")

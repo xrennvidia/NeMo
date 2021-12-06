@@ -797,11 +797,8 @@ class NeMoModelCheckpoint(ModelCheckpoint):
             return output
 
     def on_train_end(self, trainer, pl_module):
-        logging.info("a - on train end start")
         if trainer.fast_dev_run:
             return None
-
-        logging.info("b - on train end past conditions")
 
         # Load the best model and then re-save it
         if self.save_best_model:
