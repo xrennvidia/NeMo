@@ -19,13 +19,13 @@ WANDB="${wandb}" # replace with your own WandB API key
 # total_tokens = max_steps * global_batch_size_in_tokens
 # global_batch_size_in_tokens = micro_batch_size * data_parallel_size * accumulate_grad_batches * seq_length
 # data_parallel_size = num_nodes * num_gpus_per_node (no model parallel)
-MAX_STEPS=300000
+MAX_STEPS=400000
 VAL_CHECK_INTERVAL=2000
 LOG_EVERY_N_STEPS=100
 
 # Logging
 PROJECT="autoregressive_punctuation_capitalization"
-EXPNAME="evelina_wiki_wmt_large_lr6e-5_steps300k_from_scratch_bs160k"
+EXPNAME="evelina_wiki_wmt_large_lr3e-5_steps400k_from_scratch_bs160k"
 
 # Mounts
 SLURM_ACCOUNT='ent_aiapps'
@@ -77,8 +77,8 @@ echo "*******STARTING********" \
 	exp_manager.checkpoint_callback_params.monitor=IWSLT_tst2019_val_punct_f1 \
 	exp_manager.checkpoint_callback_params.mode=max \
 	+exp_manager.checkpoint_callback_params.always_save_nemo=False \
-	model.optim.lr=6e-5 \
-	model.optim.sched.warmup_ratio=0.05
+	model.optim.lr=3e-5 \
+	model.optim.sched.warmup_ratio=0.1
 EOF
 
 srun -o $OUTFILE -e $ERRFILE --container-image="$CONTAINER" $MOUNTS bash -c "${cmd}"
