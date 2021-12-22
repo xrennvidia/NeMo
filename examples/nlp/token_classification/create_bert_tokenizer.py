@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 
 from tokenizers import Tokenizer
+from tokenizers.decoders import WordPiece as WordPieceDecoder
 from tokenizers.models import WordPiece
 from tokenizers.normalizers import BertNormalizer
 from tokenizers.pre_tokenizers import BertPreTokenizer
@@ -39,6 +40,7 @@ def main() -> None:
             ("[SEP]", tokenizer.token_to_id("[SEP]")),
         ],
     )
+    tokenizer.decoder = WordPieceDecoder()
     tokenizer.save(path=str(args.output_file), pretty=True)
 
 
