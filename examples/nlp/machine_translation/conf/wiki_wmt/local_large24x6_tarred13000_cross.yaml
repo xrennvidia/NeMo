@@ -124,7 +124,7 @@ model:
     attn_score_dropout: 0.1
     attn_layer_dropout: 0.1
     hidden_act: relu
-    pre_ln: false
+    pre_ln: true
     pre_ln_final_layer_norm: true
 
   head:
