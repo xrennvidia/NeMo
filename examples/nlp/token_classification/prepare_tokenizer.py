@@ -28,6 +28,7 @@ def main() -> None:
     trainer = WordPieceTrainer(vocab_size=25000, special_tokens=["[UNK]", "[CLS]", "[SEP]", "[PAD]", "[MASK]"])
     tokenizer.normalizer = BertNormalizer()
     tokenizer.pre_tokenizer = BertPreTokenizer()
+    tokenizer.train(trainer, [args.text])
     tokenizer.post_processor = TemplateProcessing(
         single="[CLS] $A [SEP]",
         pair="[CLS] $A [SEP] $B:1 [SEP]:1",
@@ -36,7 +37,6 @@ def main() -> None:
             ("[SEP]", tokenizer.token_to_id("[SEP]")),
         ],
     )
-    tokenizer.train(trainer, [args.text])
     tokenizer.save(args.output)
 
 
