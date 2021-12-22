@@ -39,7 +39,7 @@ def main() -> None:
             ("[SEP]", tokenizer.token_to_id("[SEP]")),
         ],
     )
-    tokenizer.save(path=str(args.output), pretty=True)
+    tokenizer.save(path=str(args.output_file), pretty=True)
 
 
 if __name__ == "__main__":
