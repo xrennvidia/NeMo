@@ -30,7 +30,7 @@ def main() -> None:
     )
     tokenizer.normalizer = BertNormalizer()
     tokenizer.pre_tokenizer = BertPreTokenizer()
-    tokenizer.train(trainer=trainer, files=[args.train_text])
+    tokenizer.train(trainer=trainer, files=[str(args.train_text)])
     tokenizer.post_processor = TemplateProcessing(
         single="[CLS] $A [SEP]",
         pair="[CLS] $A [SEP] $B:1 [SEP]:1",
@@ -39,7 +39,7 @@ def main() -> None:
             ("[SEP]", tokenizer.token_to_id("[SEP]")),
         ],
     )
-    tokenizer.save(args.output)
+    tokenizer.save(path=str(args.output), pretty=True)
 
 
 if __name__ == "__main__":
