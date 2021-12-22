@@ -25,10 +25,12 @@ def get_args() -> argparse.Namespace:
 def main() -> None:
     args = get_args()
     tokenizer = Tokenizer(WordPiece(unk_token="[UNK]"))
-    trainer = WordPieceTrainer(vocab_size=25000, special_tokens=["[UNK]", "[CLS]", "[SEP]", "[PAD]", "[MASK]"])
+    trainer = WordPieceTrainer(
+        vocab_size=args.vocab_size, special_tokens=["[UNK]", "[CLS]", "[SEP]", "[PAD]", "[MASK]"]
+    )
     tokenizer.normalizer = BertNormalizer()
     tokenizer.pre_tokenizer = BertPreTokenizer()
-    tokenizer.train(trainer, [args.text])
+    tokenizer.train(trainer, [args.train_text])
     tokenizer.post_processor = TemplateProcessing(
         single="[CLS] $A [SEP]",
         pair="[CLS] $A [SEP] $B:1 [SEP]:1",
