@@ -55,6 +55,13 @@ no_all_upper_label="$9"  # 1 or 0
 use_inverse_text_normalization="${10}"
 kenlm_model="${11}"
 
+KENLM_BEAM_WIDTH=4
+KENLM_ALPHA=2
+KENLM_BETA=1
+# Transforming KENLM parameters to a view they will likely have in eval script output name.
+KENLM_BEAM_WIDTH=$(python -c "print(int(${KENLM_BEAM_WIDTH}))")
+KENLM_ALPHA=$(python -c "print(float(${KENLM_ALPHA}))")
+KENLM_BETA=$(python -c "print(float(${KENLM_BETA}))")
 
 audio_dir="${dataset_dir}/wavs"
 asr_model_name="$(basename "${asr_model}")"
@@ -138,13 +145,13 @@ else
       --input_manifest "${en_ground_truth_manifest}" \
       --kenlm_model_file "${kenlm_model}" \
       --acoustic_batch_size 1 \
-      --beam_width 4 \
-      --beam_alpha 2 \
-      --beam_beta 1.5 \
+      --beam_width "${KENLM_BEAM_WIDTH}" \
+      --beam_alpha "${KENLM_ALPHA}" \
+      --beam_beta "${KENLM_BETA}" \
       --preds_output_folder ${kenlm_outputs} \
       --decoding_mode beamsearch
     python test_iwslt_and_perform_all_ops_common_scripts/text_to_manifest.py \
-      --input "${kenlm_outputs}/"*.tsv \
+      --input "${kenlm_outputs}/preds_out_width${KENLM_BEAM_WIDTH}_alpha${KENLM_ALPHA}_beta${KENLM_BETA}.tsv" \
       --output "${transcript_no_numbers}" \
       --reference_manifest "${en_ground_truth_manifest}" \
       --take_every_n_line 4
