@@ -19,19 +19,21 @@ WANDB="${wandb}" # replace with your own WandB API key
 # total_tokens = max_steps * global_batch_size_in_tokens
 # global_batch_size_in_tokens = micro_batch_size * data_parallel_size * accumulate_grad_batches * seq_length
 # data_parallel_size = num_nodes * num_gpus_per_node (no model parallel)
-MAX_STEPS=400000
+MAX_STEPS=500000
 VAL_CHECK_INTERVAL=2000
 LOG_EVERY_N_STEPS=100
+LR=4e-4
+WARMUP_RATIO=0.1
 
 # Logging
 PROJECT="autoregressive_punctuation_capitalization"
-EXPNAME="nmt_wiki_wmt_large24x6_bs204000_steps400000_lr4e-6"
+EXPNAME="nmt_wiki_wmt_large24x6_bs204k_steps500k_lr4e-4"
 
 # Mounts
 SLURM_ACCOUNT='ent_aiapps'
 USERID='apeganov'
 LUSTRE_ACCOUNT_PREFIX=/gpfs/fs1/projects/${SLURM_ACCOUNT}
-DATA="${LUSTRE_ACCOUNT_PREFIX}/datasets/data/punctuation_capitalization/wiki_wmt_92_128_29.11.2021"
+DATA="${LUSTRE_ACCOUNT_PREFIX}/datasets/data/punctuation_capitalization/wiki_wmt_all_punc_no_u_92_128_12.12.2021"
 RESULTS=${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/results/$PROJECT/$EXPNAME
 CODE="${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/code/NeMo"
 
@@ -64,6 +66,8 @@ echo "*******STARTING********" \
 	model.test_ds.tgt_file_name="/data/IWSLT_tst2019/autoregressive_labels.txt" \
 	model.encoder_tokenizer.tokenizer_model="/data/input.BPE.25000.model" \
 	model.decoder_tokenizer.tokenizer_model="/data/autoregressive_labels.BPE.10.model" \
+	model.optim.lr="${LR}" \
+	model.optim.sched.warmup_ratio="${WARMUP_RATIO}" \
 	trainer.num_nodes=${SLURM_JOB_NUM_NODES} \
 	trainer.gpus=${SLURM_NTASKS_PER_NODE} \
 	trainer.max_steps=${MAX_STEPS} \
