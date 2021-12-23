@@ -57,7 +57,7 @@ kenlm_model="${11}"
 
 KENLM_BEAM_WIDTH=4
 KENLM_ALPHA=2
-KENLM_BETA=1
+KENLM_BETA=1.5
 # Transforming KENLM parameters to a view they will likely have in eval script output name.
 KENLM_BEAM_WIDTH=$(python -c "print(int(${KENLM_BEAM_WIDTH}))")
 KENLM_ALPHA=$(python -c "print(float(${KENLM_ALPHA}))")
@@ -102,24 +102,14 @@ if [ "${segmented}" -eq 1 ]; then
   for f in "${split_data_path}"/*; do
     talk_id=$(basename "${f}")
     if [[ "${talk_id}" =~ ^[1-9][0-9]*$ ]]; then
-      if [ -z "${kenlm_model}" ]; then
-        python ~/NeMo/examples/asr/transcribe_speech.py "${asr_model_argument_name}"="${asr_model}" \
-          audio_dir="${f}" \
-          output_filename="${split_transcripts}/${talk_id}.manifest" \
-          cuda=0 \
-          batch_size=4
-      else
-        python ~/NeMo/scripts/asr_language_modeling/ngram_lm/eval_beamsearch_ngram.py \
-          --nemo_model_file "${asr_model}" \
-          --input_manifest "${en_ground_truth_manifest}" \
-          --kenlm_model_file "${kenlm_model}" \
-          --acoustic_batch_size 1 \
-          --beam_width 4 \
-          --beam_alpha 2 \
-          --beam_beta 1.5 \
-          --preds_output_folder kenlm_outputs \
-          --decoding_mode beamsearch
+      if [[ ! -z "${kenlm_model}" ]]; then
+        echo "WARNING: KenLM model ${kenlm_model} is provided to the script whereas KenLM is supported only for not segmented inputs. Inference without rescoring is used."
       fi
+      python ~/NeMo/examples/asr/transcribe_speech.py "${asr_model_argument_name}"="${asr_model}" \
+        audio_dir="${f}" \
+        output_filename="${split_transcripts}/${talk_id}.manifest" \
+        cuda=0 \
+        batch_size=4
     fi
   done
   python test_iwslt_and_perform_all_ops_common_scripts/join_split_wav_manifests.py \
@@ -140,6 +130,7 @@ else
       batch_size=1
   else
     kenlm_outputs="${output_dir}/transcripts_not_segmented_input_no_numbers/${asr_model_name}_kenlm"
+    set -x
     python ~/NeMo/scripts/asr_language_modeling/ngram_lm/eval_beamsearch_ngram.py \
       --nemo_model_file "${asr_model}" \
       --input_manifest "${en_ground_truth_manifest}" \
@@ -149,12 +140,13 @@ else
       --beam_alpha "${KENLM_ALPHA}" \
       --beam_beta "${KENLM_BETA}" \
       --preds_output_folder ${kenlm_outputs} \
-      --decoding_mode beamsearch
+      --decoding_mode beamsearch_ngram
     python test_iwslt_and_perform_all_ops_common_scripts/text_to_manifest.py \
       --input "${kenlm_outputs}/preds_out_width${KENLM_BEAM_WIDTH}_alpha${KENLM_ALPHA}_beta${KENLM_BETA}.tsv" \
       --output "${transcript_no_numbers}" \
       --reference_manifest "${en_ground_truth_manifest}" \
-      --take_every_n_line 4
+      --take_every_n_line "${KENLM_BEAM_WIDTH}"
+    set +x
   fi
 fi
 
