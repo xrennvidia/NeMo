@@ -177,8 +177,12 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
         """
         if self.no_token_types_in_input:
             hidden_states = self.bert_model(
-                input_ids=input_ids, attention_mask=attention_mask
-            )
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                return_dict=True,
+                output_attentions=False,
+                output_hidden_states=False,
+            )['last_hidden_state']
         else:
             hidden_states = self.bert_model(
                 input_ids=input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask
