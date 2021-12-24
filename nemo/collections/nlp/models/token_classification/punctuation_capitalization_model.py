@@ -150,7 +150,7 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
         self.loss = CrossEntropyLoss(logits_ndim=3)
         self.agg_loss = AggregatorLoss(num_inputs=2)
 
-    @typecheck()
+    #@typecheck()
     def forward(
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor, token_type_ids: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
