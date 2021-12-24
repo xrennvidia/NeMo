@@ -23,6 +23,7 @@ from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import Trainer
 from pytorch_lightning.utilities.types import EPOCH_OUTPUT
 from tqdm import tqdm
+from transformers import AutoModel, MBartPreTrainedModel, T5PreTrainedModel
 
 from nemo.collections.common.losses import AggregatorLoss, CrossEntropyLoss
 from nemo.collections.common.metrics import GlobalAverageLossMetric
@@ -109,13 +110,22 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
         super().__init__(cfg=cfg, trainer=trainer)
         if not self.label_ids_are_set:
             self._set_label_ids()
-        self.bert_model = get_lm_model(
-            pretrained_model_name=cfg.language_model.pretrained_model_name,
-            config_file=self.register_artifact('language_model.config_file', cfg.language_model.config_file),
-            config_dict=OmegaConf.to_container(cfg.language_model.config) if cfg.language_model.config else None,
-            checkpoint_file=cfg.language_model.lm_checkpoint,
-            vocab_file=self.register_artifact('tokenizer.vocab_file', cfg.tokenizer.vocab_file),
-        )
+        try:
+            automodel = AutoModel.from_pretrained(cfg.language_model.pretrained_model_name)
+        except Exception as e:
+            raise ValueError(f"{cfg.language_model.pretrained_model_name} is not supported by HuggingFace. {e}")
+        if isinstance(automodel, (MBartPreTrainedModel, T5PreTrainedModel)):
+            self.no_token_types_in_input = True
+            self.bert_model = automodel.get_encoder()
+        else:
+            self.no_token_types_in_input = False
+            self.bert_model = get_lm_model(
+                pretrained_model_name=cfg.language_model.pretrained_model_name,
+                config_file=self.register_artifact('language_model.config_file', cfg.language_model.config_file),
+                config_dict=OmegaConf.to_container(cfg.language_model.config) if cfg.language_model.config else None,
+                checkpoint_file=cfg.language_model.lm_checkpoint,
+                vocab_file=self.register_artifact('tokenizer.vocab_file', cfg.tokenizer.vocab_file),
+            )
 
         self.punct_classifier = TokenClassifier(
             hidden_size=self.bert_model.config.hidden_size,
@@ -165,9 +175,14 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
                 - ``capit_logits`` (:obj:`torch.Tensor`): a float torch tensor of shape
                   ``[Batch, Time, NumCapitalizationLabels]`` containing capitalization logits
         """
-        hidden_states = self.bert_model(
-            input_ids=input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask
-        )
+        if self.no_token_types_in_input:
+            hidden_states = self.bert_model(
+                input_ids=input_ids, attention_mask=attention_mask
+            )
+        else:
+            hidden_states = self.bert_model(
+                input_ids=input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask
+            )
         punct_logits = self.punct_classifier(hidden_states=hidden_states)
         capit_logits = self.capit_classifier(hidden_states=hidden_states)
         return punct_logits, capit_logits

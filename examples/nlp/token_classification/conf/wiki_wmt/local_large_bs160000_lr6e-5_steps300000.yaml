@@ -58,7 +58,7 @@ model:
     # if evaluation data is not in the model.dataset.data_dir as the training data or multiple datasets are used for
     # evaluation is needed, specify ds_item, otherwise by default data_dir is used
     use_tarred_dataset: true
-    ds_item: /media/apeganov/DATA/wiki_wmt_92_128_29.11.2021/for_upload/train_bert_tarred_10000
+    ds_item: /media/apeganov/DATA/punctuation_and_capitalization/simplest/92_128/wiki_wmt_92_128_29.11.2021/for_upload/train_bert_tarred_10000
     tar_metadata_file: metadata.punctuation_capitalization.tokens10000.max_seq_length512.bert-large-uncased.json
     shuffle: true
     num_samples: -1
@@ -71,7 +71,7 @@ model:
     # if evaluation data is not in the model.dataset.data_dir as the training data or multiple datasets are used for
     # evaluation is needed, specify ds_item, otherwise by default data_dir is used
     use_tarred_dataset: false
-    ds_item: /media/apeganov/DATA/wiki_wmt_92_128_29.11.2021/for_upload/IWSLT_tst2019
+    ds_item: /media/apeganov/DATA/punctuation_and_capitalization/simplest/92_128/wiki_wmt_92_128_29.11.2021/for_upload/IWSLT_tst2019
     text_file: input.txt
     labels_file: bert_labels.txt
     shuffle: false
@@ -84,7 +84,7 @@ model:
     # if evaluation data is not in the model.dataset.data_dir as the training data or multiple datasets are used for
     # evaluation is needed, specify ds_item, otherwise by default data_dir is used
     use_tarred_dataset: false
-    ds_item: /media/apeganov/DATA/wiki_wmt_92_128_29.11.2021/for_upload/IWSLT_tst2019
+    ds_item: /media/apeganov/DATA/punctuation_and_capitalization/simplest/92_128/wiki_wmt_92_128_29.11.2021/for_upload/IWSLT_tst2019
     text_file: input.txt
     labels_file: bert_labels.txt
     shuffle: false
