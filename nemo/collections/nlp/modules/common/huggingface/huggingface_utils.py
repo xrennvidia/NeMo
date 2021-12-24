@@ -69,6 +69,8 @@ VOCAB_FILE_NAME = {
     'RobertaTokenizer': "vocab.json",
     'BertTokenizer': "vocab.txt",
     'DistilBertTokenizer': "vocab.txt",
+    'MBart50Tokenizer': 'vocab.txt',
+    'T5Tokenizer': 'vocab.txt',
 }
 
 
