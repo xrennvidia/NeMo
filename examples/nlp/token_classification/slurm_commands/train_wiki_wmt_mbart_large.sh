@@ -61,7 +61,7 @@ echo "*******STARTING********" \
 	model.validation_ds.ds_item=[/data/europarl_dev,/data/news_commentary_dev,/data/rapid_dev,/data/wiki_dev,/data/IWSLT_tst2019] \
 	model.validation_ds.tokens_in_batch=4092 \
 	~model.test_ds \
-	model.language_model.pretrained_model_name="mbart-large-50" \
+	model.language_model.pretrained_model_name="facebook/mbart-large-50" \
 	+trainer.num_nodes=${SLURM_JOB_NUM_NODES} \
 	trainer.gpus=${SLURM_NTASKS_PER_NODE} \
 	trainer.max_steps=${MAX_STEPS} \
