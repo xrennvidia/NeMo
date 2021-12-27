@@ -57,7 +57,7 @@ model:
   train_ds:
     # if evaluation data is not in the model.dataset.data_dir as the training data or multiple datasets are used for
     # evaluation is needed, specify ds_item, otherwise by default data_dir is used
-    use_tarred_dataset: true
+    use_tarred_dataset: false
     ds_item: /media/apeganov/DATA/punctuation_and_capitalization/simplest/92_128/wmt_92_128_14.12.2021/train
     text_file: input.txt
     labels_file: bert_labels.txt
