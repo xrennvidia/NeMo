@@ -144,6 +144,8 @@ class CommonDatasetParametersConfig:
     ignore_start_end: bool = True
     """If ``False``, then loss is computed on [CLS] and [SEP] tokens."""
 
+    add_cls_and_sep_tokens: bool = True
+
     punct_label_ids: Optional[Dict[str, int]] = None
     """A dictionary with punctuation label ids. ``pad_label`` must have ``0`` id in this dictionary. You can omit this
     parameter and pass label ids through ``class_labels.punct_labels_file`` or let the model to infer label ids from

@@ -121,8 +121,6 @@ class PunctuationCapitalizationDataConfigBase:
     verbose: bool = True
     """If ``True`` dataset instance will print progress messages and examples of acquired features."""
 
-    add_cls_and_sep_tokens: bool = True
-
     n_jobs: Optional[int] = 0
     """Number of workers used for features creation (tokenization, label encoding, and clipping). If 0, then
     multiprocessing is not used; if ``None``, then n_jobs is equal to the number of CPU cores.
@@ -443,7 +441,7 @@ class TokenizeCreateMasksClipWorker:
         punct_label_lines: Optional[Union[List[str], Tuple[str, ...]]],
         capit_label_lines: Optional[Union[List[str], Tuple[str, ...]]],
         split_i: int,
-    ) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
+    ) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
         """
         Tokenize, clip, encode labels, and create masks of first tokens in words.
 
@@ -469,9 +467,9 @@ class TokenizeCreateMasksClipWorker:
             input_ids, subtokens_mask = ([self.tokenizer.cls_id], [0]) if self.add_cls_and_sep_tokens else ([], [])
             _check_number_of_labels(words, query, i, split_i, punct_label_lines[i], capit_label_lines[i])
             pad_id = self.punct_label_ids[self.pad_label]
-            punct_labels = [pad_id]
+            punct_labels = [pad_id] if self.add_cls_and_sep_tokens else []
             punct_query_labels = [self.punct_label_ids[lab] for lab in punct_label_lines[i]]
-            capit_labels = [pad_id]
+            capit_labels = [pad_id] if self.add_cls_and_sep_tokens else []
             capit_query_labels = [self.capit_label_ids[lab] for lab in capit_label_lines[i]]
             for j, word in enumerate(words):
                 word_ids = self.tokenizer.text_to_ids(word)
@@ -493,9 +491,11 @@ class TokenizeCreateMasksClipWorker:
             all_input_ids.append(np.array(self._maybe_clip(input_ids, self.tokenizer.sep_id), dtype=np.int32))
             all_subtokens_mask.append(np.array(self._maybe_clip(subtokens_mask, 0), dtype=bool))
 
-            punct_labels.append(pad_id)
+            if self.add_cls_and_sep_tokens:
+                punct_labels.append(pad_id)
             punct_all_labels.append(np.array(self._maybe_clip(punct_labels, pad_id), dtype=np.int32))
-            capit_labels.append(pad_id)
+            if self.add_cls_and_sep_tokens:
+                capit_labels.append(pad_id)
             capit_all_labels.append(np.array(self._maybe_clip(capit_labels, pad_id), dtype=np.int32))
             progress_made += 1
             if progress_made >= TOKENIZATION_PROGRESS_REPORT_PERIOD:
@@ -504,6 +504,10 @@ class TokenizeCreateMasksClipWorker:
         self.progress_queue.put(progress_made)
         if self.verbose:
             logging.info(f"Finished processing data split number {split_i}")
+        assert all(
+            [len(i) == len(m) == len(p) == len(c)
+             for i, m, p, c in zip(all_input_ids, all_subtokens_mask, punct_all_labels, capit_all_labels)]
+        )
         return all_input_ids, all_subtokens_mask, punct_all_labels, capit_all_labels
 
 
@@ -630,8 +634,8 @@ def create_masks_and_segment_ids(
     input_ids: np.ndarray,
     subtokens_mask: np.ndarray,
     pad_id: int,
-    cls_id: int,
-    sep_id: int,
+    cls_id: Optional[int],
+    sep_id: Optional[int],
     ignore_start_end: bool,
     ignore_extra_tokens: bool,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -664,7 +668,15 @@ def create_masks_and_segment_ids(
     """
     segment_ids = np.zeros_like(input_ids, dtype=np.int8)
     input_mask = np.not_equal(input_ids, pad_id)
-    special_mask = np.equal(input_ids, cls_id) & np.equal(input_ids, sep_id)
+    if cls_id is not None and sep_id is not None:
+        special_mask = np.equal(input_ids, cls_id) & np.equal(input_ids, sep_id)
+    else:
+        if cls_id is not None or sep_id is not None:
+            raise ValueError(
+                f"`cls_id` and `sep_id` must be `None` or not `None` simultaneously, "
+                f"whereas cls_id={cls_id}, sep_id={sep_id}"
+            )
+        special_mask = np.zeros_like(input_ids, dtype=bool)
     if ignore_start_end:
         if ignore_extra_tokens:
             loss_mask = subtokens_mask
@@ -947,6 +959,7 @@ class BertPunctuationCapitalizationDataset(Dataset):
         self.ignore_start_end = ignore_start_end
         self.add_masks_and_segment_ids_to_batch = add_masks_and_segment_ids_to_batch
         self.verbose = verbose
+        self.add_cls_and_sep_tokens = add_cls_and_sep_tokens
         self.batch_mark_up_progress_queue = batch_mark_up_progress_queue
         self.batch_building_progress_queue = batch_building_progress_queue
 
@@ -980,7 +993,7 @@ class BertPunctuationCapitalizationDataset(Dataset):
                 punct_label_ids=punct_label_ids,
                 capit_label_ids=capit_label_ids,
                 verbose=self.verbose,
-                add_cls_and_sep_tokens=add_cls_and_sep_tokens,
+                add_cls_and_sep_tokens=self.add_cls_and_sep_tokens,
                 progress_queue=tokenization_progress_queue,
                 n_jobs=n_jobs,
             )
@@ -1347,8 +1360,8 @@ class BertPunctuationCapitalizationDataset(Dataset):
                     batch_input_ids,
                     batch_subtokens_mask,
                     self.tokenizer.pad_id,
-                    self.tokenizer.cls_id,
-                    self.tokenizer.sep_id,
+                    self.tokenizer.cls_id if self.add_cls_and_sep_tokens else None,
+                    self.tokenizer.sep_id if self.add_cls_and_sep_tokens else None,
                     self.ignore_start_end,
                     self.ignore_extra_tokens,
                 )

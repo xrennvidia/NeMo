@@ -55,7 +55,7 @@ no_all_upper_label="$9"  # 1 or 0
 use_inverse_text_normalization="${10}"
 kenlm_model="${11}"
 
-KENLM_BEAM_WIDTH=4
+KENLM_BEAM_WIDTH=64
 KENLM_ALPHA=2
 KENLM_BETA=1.5
 # Transforming KENLM parameters to a view they will likely have in eval script output name.

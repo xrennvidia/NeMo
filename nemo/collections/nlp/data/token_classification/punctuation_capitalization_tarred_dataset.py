@@ -871,6 +871,7 @@ class BertPunctuationCapitalizationTarredDataset(IterableDataset):
         label_info_save_dir: Optional[Union[os.PathLike, str]] = None,
         ignore_extra_tokens: bool = False,
         ignore_start_end: bool = True,
+        add_cls_and_sep_tokens: bool = True,
         world_size: int = 1,
         global_rank: int = 0,
         shuffle_n: int = 1,
@@ -886,6 +887,7 @@ class BertPunctuationCapitalizationTarredDataset(IterableDataset):
             self.metadata = json.load(f)
         self.ignore_extra_tokens = ignore_extra_tokens
         self.ignore_start_end = ignore_start_end
+        self.add_cls_and_sep_tokens = add_cls_and_sep_tokens
         self.tar_files = []
         for file_path in self.metadata['tar_files']:
             file_path = Path(file_path).expanduser()
@@ -1076,8 +1078,8 @@ class BertPunctuationCapitalizationTarredDataset(IterableDataset):
             batch['input_ids'],
             batch['subtokens_mask'],
             self.tokenizer.pad_id,
-            self.tokenizer.cls_id,
-            self.tokenizer.sep_id,
+            self.tokenizer.cls_id if self.add_cls_and_sep_tokens else None,
+            self.tokenizer.sep_id if self.add_cls_and_sep_tokens else None,
             self.ignore_start_end,
             self.ignore_extra_tokens,
         )
