@@ -53,6 +53,7 @@ model:
     ignore_extra_tokens: false
     ignore_start_end: true  # TODO: try false
     pad_label: 'O'
+    add_cls_and_sep_tokens: false
 
   train_ds:
     # if evaluation data is not in the model.dataset.data_dir as the training data or multiple datasets are used for
