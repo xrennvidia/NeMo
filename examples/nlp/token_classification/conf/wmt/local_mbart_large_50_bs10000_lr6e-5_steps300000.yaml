@@ -100,7 +100,7 @@ model:
     special_tokens: null
 
   language_model:
-    pretrained_model_name: mbart-large-50
+    pretrained_model_name: facebook/mbart-large-50
     lm_checkpoint: null
     config_file: null # json file, precedence over config
     config: null
