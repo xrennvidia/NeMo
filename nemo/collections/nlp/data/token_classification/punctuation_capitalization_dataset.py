@@ -121,6 +121,8 @@ class PunctuationCapitalizationDataConfigBase:
     verbose: bool = True
     """If ``True`` dataset instance will print progress messages and examples of acquired features."""
 
+    add_cls_and_sep_tokens: bool = True
+
     n_jobs: Optional[int] = 0
     """Number of workers used for features creation (tokenization, label encoding, and clipping). If 0, then
     multiprocessing is not used; if ``None``, then n_jobs is equal to the number of CPU cores.
@@ -405,6 +407,7 @@ class TokenizeCreateMasksClipWorker:
         capit_label_ids: Optional[Dict[str, int]],
         pad_label: str,
         verbose: bool,
+        add_cls_and_sep_tokens: bool,
         progress_queue: mp.Queue,
     ) -> None:
         """
@@ -426,11 +429,12 @@ class TokenizeCreateMasksClipWorker:
         self.capit_label_ids = capit_label_ids
         self.pad_label = pad_label
         self.verbose = verbose
+        self.add_cls_and_sep_tokens = add_cls_and_sep_tokens
         self.progress_queue = progress_queue
 
     def _maybe_clip(self, values: List[int], append_value: int) -> List[int]:
         if len(values) > self.max_seq_length:
-            return values[: self.max_seq_length - 1] + [append_value]
+            return values[: self.max_seq_length - 1] + ([append_value] if self.add_cls_and_sep_tokens else [])
         return values
 
     def __call__(
@@ -462,7 +466,7 @@ class TokenizeCreateMasksClipWorker:
         progress_made = 0
         for i, query in enumerate(queries):
             words = query.split()
-            input_ids, subtokens_mask = [self.tokenizer.cls_id], [0]
+            input_ids, subtokens_mask = ([self.tokenizer.cls_id], [0]) if self.add_cls_and_sep_tokens else ([], [])
             _check_number_of_labels(words, query, i, split_i, punct_label_lines[i], capit_label_lines[i])
             pad_id = self.punct_label_ids[self.pad_label]
             punct_labels = [pad_id]
@@ -482,8 +486,9 @@ class TokenizeCreateMasksClipWorker:
                 capit_labels.extend([capit_query_labels[j]] * len(word_ids))
 
             # add eos token
-            input_ids.append(self.tokenizer.sep_id)
-            subtokens_mask.append(0)
+            if self.add_cls_and_sep_tokens:
+                input_ids.append(self.tokenizer.sep_id)
+                subtokens_mask.append(0)
 
             all_input_ids.append(np.array(self._maybe_clip(input_ids, self.tokenizer.sep_id), dtype=np.int32))
             all_subtokens_mask.append(np.array(self._maybe_clip(subtokens_mask, 0), dtype=bool))
@@ -512,6 +517,7 @@ def _get_features(
     capit_label_ids: Dict[str, int] = None,
     pad_label: str = 'O',
     verbose: bool = True,
+    add_cls_and_sep_tokens: bool = True,
     n_jobs: Optional[int] = 0,
     progress_queue: Optional[mp.Queue] = None,
 ) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
@@ -577,7 +583,14 @@ def _get_features(
         with mp.Pool(n_jobs) as pool:
             result = pool.starmap(
                 TokenizeCreateMasksClipWorker(
-                    max_seq_length, tokenizer, punct_label_ids, capit_label_ids, pad_label, verbose, progress_queue
+                    max_seq_length,
+                    tokenizer,
+                    punct_label_ids,
+                    capit_label_ids,
+                    pad_label,
+                    verbose,
+                    add_cls_and_sep_tokens,
+                    progress_queue,
                 ),
                 args,
             )
@@ -586,7 +599,14 @@ def _get_features(
         for x in args:
             result.append(
                 TokenizeCreateMasksClipWorker(
-                    max_seq_length, tokenizer, punct_label_ids, capit_label_ids, pad_label, verbose, progress_queue,
+                    max_seq_length,
+                    tokenizer,
+                    punct_label_ids,
+                    capit_label_ids,
+                    pad_label,
+                    verbose,
+                    add_cls_and_sep_tokens,
+                    progress_queue,
                 )(*x)
             )
     if create_progress_process:
@@ -891,6 +911,7 @@ class BertPunctuationCapitalizationDataset(Dataset):
         capit_label_vocab_file: Optional[Union[str, os.PathLike]] = None,
         add_masks_and_segment_ids_to_batch: bool = True,
         verbose: bool = True,
+        add_cls_and_sep_tokens: bool = True,
         n_jobs: Optional[int] = 0,
         tokenization_progress_queue: Optional[mp.Queue] = None,
         batch_mark_up_progress_queue: Optional[mp.Queue] = None,
@@ -959,6 +980,7 @@ class BertPunctuationCapitalizationDataset(Dataset):
                 punct_label_ids=punct_label_ids,
                 capit_label_ids=capit_label_ids,
                 verbose=self.verbose,
+                add_cls_and_sep_tokens=add_cls_and_sep_tokens,
                 progress_queue=tokenization_progress_queue,
                 n_jobs=n_jobs,
             )

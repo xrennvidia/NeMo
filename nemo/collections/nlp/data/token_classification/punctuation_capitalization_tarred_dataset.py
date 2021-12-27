@@ -144,6 +144,7 @@ def process_fragment(
     pad_label: str,
     punct_label_ids: Dict[str, int],
     capit_label_ids: Dict[str, int],
+    add_cls_and_sep_tokens: bool,
     fragment_idx: int,
     tokenization_progress_queue: mp.Queue,
     batch_mark_up_progress_queue: mp.Queue,
@@ -182,6 +183,7 @@ def process_fragment(
         use_cache=False,
         add_masks_and_segment_ids_to_batch=False,
         verbose=False,
+        add_cls_and_sep_tokens=add_cls_and_sep_tokens,
         tokenization_progress_queue=tokenization_progress_queue,
         batch_mark_up_progress_queue=batch_mark_up_progress_queue,
         batch_building_progress_queue=batch_building_progress_queue,
@@ -651,6 +653,7 @@ def create_tarred_dataset(
     punct_label_vocab_file: Optional[Union[os.PathLike, str]] = None,
     capit_label_vocab_file: Optional[Union[os.PathLike, str]] = None,
     tar_file_prefix: Optional[str] = 'punctuation_capitalization',
+    add_cls_and_sep_tokens: bool = True,
     n_jobs: Optional[int] = None,
 ) -> None:
     """
@@ -791,6 +794,7 @@ def create_tarred_dataset(
                 pad_label,
                 punct_label_ids,
                 capit_label_ids,
+                add_cls_and_sep_tokens,
                 fragment_idx,
                 *progress_queues,
             )

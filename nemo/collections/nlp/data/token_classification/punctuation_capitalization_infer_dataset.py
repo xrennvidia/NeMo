@@ -33,6 +33,7 @@ def get_features_infer(
     max_seq_length: int = 64,
     step: Optional[int] = 8,
     margin: Optional[int] = 16,
+    add_cls_and_sep_tokens: bool = True,
 ) -> Tuple[
     List[List[int]], List[List[int]], List[List[int]], List[List[int]], List[int], List[int], List[bool], List[bool],
 ]:
@@ -76,17 +77,17 @@ def get_features_infer(
         sent_lengths.append(len(subtokens))
         st.append(subtokens)
         stm.append(subtokens_mask)
-    _check_max_seq_length_and_margin_and_step(max_seq_length, margin, step)
-    if max_seq_length > max(sent_lengths) + 2:
-        max_seq_length = max(sent_lengths) + 2
+    _check_max_seq_length_and_margin_and_step(max_seq_length, margin, step, add_cls_and_sep_tokens)
+    if max_seq_length > max(sent_lengths) + (2 if add_cls_and_sep_tokens else 0):
+        max_seq_length = max(sent_lengths) + (2 if add_cls_and_sep_tokens else 0)
         # If `max_seq_length` is greater than maximum length of input query, parameters ``margin`` and ``step`` are
         # not used will not be used.
         step = 1
         # Maximum number of word subtokens in segment. The first and the last tokens in segment are CLS and EOS
-        length = max_seq_length - 2
+        length = max_seq_length - (2 if add_cls_and_sep_tokens else 0)
     else:
         # Maximum number of word subtokens in segment. The first and the last tokens in segment are CLS and EOS
-        length = max_seq_length - 2
+        length = max_seq_length - (2 if add_cls_and_sep_tokens else 0)
         step = min(length - margin * 2, step)
     logging.info(f'Max length: {max_seq_length}')
     get_stats(sent_lengths)
@@ -95,10 +96,16 @@ def get_features_infer(
     for q_i, query_st in enumerate(st):
         q_inp_ids, q_segment_ids, q_subtokens_mask, q_inp_mask, q_quantities_of_preceding_words = [], [], [], [], []
         for i in range(0, max(len(query_st), length) - length + step, step):
-            subtokens = [tokenizer.cls_token] + query_st[i : i + length] + [tokenizer.sep_token]
+            subtokens = (
+                [tokenizer.cls_token] if add_cls_and_sep_tokens else []
+            ) + query_st[i : i + length] + ([tokenizer.sep_token] if add_cls_and_sep_tokens else [])
             q_inp_ids.append(tokenizer.tokens_to_ids(subtokens))
             q_segment_ids.append([0] * len(subtokens))
-            q_subtokens_mask.append([False] + stm[q_i][i : i + length] + [False])
+            q_subtokens_mask.append(
+                ([False] if add_cls_and_sep_tokens else [])
+                + stm[q_i][i : i + length]
+                + ([False] if add_cls_and_sep_tokens else [])
+            )
             q_inp_mask.append([True] * len(subtokens))
             q_quantities_of_preceding_words.append(np.count_nonzero(stm[q_i][:i]))
         all_input_ids.append(q_inp_ids)
@@ -121,7 +128,9 @@ def get_features_infer(
     )
 
 
-def _check_max_seq_length_and_margin_and_step(max_seq_length: int, margin: int, step: int):
+def _check_max_seq_length_and_margin_and_step(
+    max_seq_length: int, margin: int, step: int, add_cls_and_sep_tokens: bool = True
+):
     """
     Checks values of ``max_seq_length``, ``margin``, and ``step``.
     Args:
@@ -137,18 +146,20 @@ def _check_max_seq_length_and_margin_and_step(max_seq_length: int, margin: int, 
             f"Parameter `max_seq_length={max_seq_length}` cannot be less than 3 because `max_seq_length` is a length "
             f"of a segment with [CLS] and [SEP] tokens."
         )
-    if margin >= (max_seq_length - 2) // 2 and margin > 0 or margin < 0:
+    if margin >= (max_seq_length - (2 if add_cls_and_sep_tokens else 0)) // 2 and margin > 0 or margin < 0:
         raise ValueError(
-            f"Parameter `margin` has to be not negative and less than `(max_seq_length - 2) // 2`. Don't forget about "
+            f"Parameter `margin` has to be not negative and less than "
+            f"`{'(max_seq_length - 2)' if add_cls_and_sep_tokens else 'max_seq_length'} // 2`. Don't forget about "
             f"CLS and EOS tokens in the beginning and the end of segment. margin={margin}, "
             f"max_seq_length={max_seq_length}"
         )
     if step <= 0:
         raise ValueError(f"Parameter `step` has to be positive whereas step={step}")
-    if step > max_seq_length - 2 - 2 * margin:
+    if step > max_seq_length - (2 if add_cls_and_sep_tokens else 0) - 2 * margin:
         logging.warning(
-            f"Parameter step={step} is too big. It will be reduced to `min(max_seq_length, <maximum query length> + 2) "
-            f"- 2 - 2 * margin`."
+            f"Parameter step={step} is too big. It will be reduced to `min(max_seq_length, "
+            f"<maximum query length>{' + 2' if add_cls_and_sep_tokens else ''}) "
+            f"{'- 2' if add_cls_and_sep_tokens else ''} - 2 * margin`."
         )
 
 
@@ -226,10 +237,21 @@ class BertPunctuationCapitalizationInferDataset(Dataset):
         }
 
     def __init__(
-        self, queries: List[str], tokenizer: TokenizerSpec, max_seq_length: int = 64, step: int = 8, margin: int = 16
+        self,
+        queries: List[str],
+        tokenizer: TokenizerSpec,
+        max_seq_length: int = 64,
+        step: int = 8,
+        margin: int = 16,
+        add_cls_and_sep_tokens: bool = True,
     ):
         features = get_features_infer(
-            queries=queries, max_seq_length=max_seq_length, tokenizer=tokenizer, step=step, margin=margin
+            queries=queries,
+            max_seq_length=max_seq_length,
+            tokenizer=tokenizer,
+            step=step,
+            margin=margin,
+            add_cls_and_sep_tokens=add_cls_and_sep_tokens,
         )
         self.all_input_ids: List[List[int]] = features[0]
         self.all_segment_ids: List[List[int]] = features[1]

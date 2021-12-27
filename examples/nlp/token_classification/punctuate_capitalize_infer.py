@@ -151,6 +151,7 @@ def get_args() -> argparse.Namespace:
         "https://docs.nvidia.com/deeplearning/nemo/"
         "user-guide/docs/en/main/nlp/punctuation_and_capitalization.html#nemo-data-format",
     )
+    parser.add_argument("--not_add_cls_and_sep_tokens", action="store_true")
     parser.add_argument(
         "--device",
         "-d",
@@ -210,6 +211,7 @@ def main() -> None:
         margin=args.margin,
         return_labels=args.save_labels_instead_of_text,
         dataloader_kwargs={'num_workers': 8, 'pin_memory': True},
+        add_cls_and_sep_tokens=not args.not_add_cls_and_sep_tokens,
     )
     if args.output_manifest is None:
         args.output_text.parent.mkdir(exist_ok=True, parents=True)

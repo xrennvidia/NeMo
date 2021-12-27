@@ -226,6 +226,7 @@ def get_args() -> argparse.Namespace:
         "parameter. If none of parameters `--capit_labels` and `--capit_label_vocab_file` are provided, then "
         "capitalization label ids will be inferred from `--labels` file.",
     )
+    parser.add_argument("--not_add_cls_and_sep_tokens", action="store_true")
     parser.add_argument(
         "--tar_file_prefix",
         "-x",
@@ -323,6 +324,7 @@ def main() -> None:
         punct_label_vocab_file=args.punct_label_vocab_file,
         capit_label_vocab_file=args.capit_label_vocab_file,
         tar_file_prefix=args.tar_file_prefix,
+        add_cls_and_sep_tokens=not args.not_add_cls_and_sep_tokens,
         n_jobs=args.n_jobs,
     )
 

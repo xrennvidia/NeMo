@@ -843,6 +843,7 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
         step: int,
         margin: int,
         dataloader_kwargs: Optional[Dict[str, Any]],
+        add_cls_and_sep_tokens: bool,
     ) -> torch.utils.data.DataLoader:
         """
         Setup function for a infer data loader.
@@ -863,7 +864,12 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
         if dataloader_kwargs is None:
             dataloader_kwargs = {}
         dataset = BertPunctuationCapitalizationInferDataset(
-            tokenizer=self.tokenizer, queries=queries, max_seq_length=max_seq_length, step=step, margin=margin
+            tokenizer=self.tokenizer,
+            queries=queries,
+            max_seq_length=max_seq_length,
+            step=step,
+            margin=margin,
+            add_cls_and_sep_tokens=add_cls_and_sep_tokens,
         )
         return torch.utils.data.DataLoader(
             dataset=dataset,
@@ -875,12 +881,14 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
         )
 
     @staticmethod
-    def _remove_margins(tensor: torch.Tensor, margin_size: int, keep_left: bool, keep_right: bool) -> torch.Tensor:
+    def _remove_margins(
+        tensor: torch.Tensor, margin_size: int, keep_left: bool, keep_right: bool, add_cls_and_sep_tokens: bool = True
+    ) -> torch.Tensor:
         tensor = tensor.detach().clone()
         if not keep_left:
-            tensor = tensor[margin_size + 1 :]  # remove left margin and CLS token
+            tensor = tensor[margin_size + (1 if add_cls_and_sep_tokens else 0) :]  # remove left margin and CLS token
         if not keep_right:
-            tensor = tensor[: tensor.shape[0] - margin_size - 1]  # remove right margin and SEP token
+            tensor = tensor[: tensor.shape[0] - margin_size - (1 if add_cls_and_sep_tokens else 0)]  # remove right margin and SEP token
         return tensor
 
     def _transform_logit_to_prob_and_remove_margins_and_extract_word_probs(
@@ -892,6 +900,7 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
         margin: int,
         is_first: Tuple[bool],
         is_last: Tuple[bool],
+        add_cls_and_sep_tokens: bool = True,
     ) -> Tuple[List[np.ndarray], List[np.ndarray], List[int]]:
         """
         Applies softmax to get punctuation and capitalization probabilities, applies ``subtokens_mask`` to extract
@@ -925,7 +934,9 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
             zip(is_first, is_last, punct_logits, capit_logits, subtokens_mask)
         ):
             if not first:
-                new_start_word_ids[i] += torch.count_nonzero(stm[: margin + 1]).numpy()  # + 1 is for [CLS] token
+                new_start_word_ids[i] += torch.count_nonzero(
+                    stm[: margin + (1 if add_cls_and_sep_tokens else 0)]
+                ).numpy()  # + 1 is for [CLS] token
             stm = self._remove_margins(stm, margin, keep_left=first, keep_right=last)
             for b_probs, logits in [(b_punct_probs, pl), (b_capit_probs, cl)]:
                 p = torch.nn.functional.softmax(
@@ -1036,6 +1047,7 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
         margin: int = 16,
         return_labels: bool = False,
         dataloader_kwargs: Dict[str, Any] = None,
+        add_cls_and_sep_tokens: bool = True,
     ) -> List[str]:
         """
         Adds punctuation and capitalization to the queries. Use this method for inference.
@@ -1089,7 +1101,7 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
         try:
             self.eval()
             infer_datalayer = self._setup_infer_dataloader(
-                queries, batch_size, max_seq_length, step, margin, dataloader_kwargs
+                queries, batch_size, max_seq_length, step, margin, dataloader_kwargs, add_cls_and_sep_tokens
             )
             # Predicted labels for queries. List of labels for every query
             all_punct_preds: List[List[int]] = [[] for _ in queries]
