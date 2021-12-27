@@ -61,6 +61,7 @@ model:
     ds_item: /media/apeganov/DATA/punctuation_and_capitalization/simplest/92_128/wmt_92_128_14.12.2021/train
     text_file: input.txt
     labels_file: bert_labels.txt
+    tokens_in_batch: 10000
     shuffle: true
     num_samples: -1
     persistent_workers: true
