@@ -63,9 +63,9 @@ class PunctuationCapitalizationDataConfigBase:
     """A base class for punctuation and capitalization data configs. This class does not define ``ds_item``
     attribute which works differently for train and evaluation data."""
 
-    #################################################
-    # COMMON DATASET PARAMETERS
-    #################################################
+    ###################################################
+    # PARAMETERS COMMON FOR REGULAR AND TARRED DATASETS
+    ###################################################
     use_tarred_dataset: bool = MISSING
     """Whether to use tarred dataset. If True, then you should provide ``tar_metadata_file``. Otherwise, you should
     provide ``text_file``, ``labels_file``, ``tokens_in_batch``."""
