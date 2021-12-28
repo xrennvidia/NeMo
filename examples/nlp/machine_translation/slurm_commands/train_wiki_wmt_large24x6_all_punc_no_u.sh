@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A ent_aiapps_asr
 #SBATCH -p batch_dgx2h_m2                 # luna / backfill / interactive
-#SBATCH -N 1                    # number of nodes
+#SBATCH -N 4                    # number of nodes
 #SBATCH -t 8:00:00              # wall time  (4 for luna, 8 for backfill, 2 for interactive)
 #SBATCH --exclusive
 #SBATCH --mem=0
@@ -27,7 +27,7 @@ WARMUP_RATIO=0.1
 
 # Logging
 PROJECT="autoregressive_punctuation_capitalization"
-EXPNAME="nmt_wiki_wmt_large24x6_bs204k_steps500k_lr4e-4"
+EXPNAME="nmt_wiki_wmt_large24x6_bs816k_steps500k_lr4e-4"
 
 # Mounts
 SLURM_ACCOUNT='ent_aiapps'
