@@ -31,7 +31,7 @@ EXPNAME="evelina_wiki_wmt_mbart_large_50_lr5e-6_steps300000"
 SLURM_ACCOUNT='ent_aiapps'
 USERID='apeganov'
 LUSTRE_ACCOUNT_PREFIX=/gpfs/fs1/projects/${SLURM_ACCOUNT}
-DATA="${LUSTRE_ACCOUNT_PREFIX}/datasets/data/punctuation_capitalization/wiki_wmt_92_128_29.11.2021"
+DATA="${LUSTRE_ACCOUNT_PREFIX}/datasets/data/punctuation_capitalization/wiki_wmt_min_punc_3_128_21.12.2021"
 RESULTS=${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/results/$PROJECT/$EXPNAME
 CODE="${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/code/NeMo"
 
@@ -56,8 +56,8 @@ echo "*******STARTING********" \
 	--config-path=/code/examples/nlp/token_classification/conf/wiki \
 	--config-name=local_bs15000_steps100000 \
 	do_testing=false \
-	model.train_ds.ds_item="/data/train_bert_tarred_10000" \
-	model.train_ds.tar_metadata_file="metadata.punctuation_capitalization.tokens10000.max_seq_length512.bert-large-uncased.json" \
+	model.train_ds.ds_item="/data/train_mbart_large_50_tarred_10000" \
+	model.train_ds.tar_metadata_file="metadata.punctuation_capitalization.tokens10000.max_seq_length512.facebook-mbart-large-50.json" \
 	model.validation_ds.ds_item=[/data/europarl_dev,/data/news_commentary_dev,/data/rapid_dev,/data/wiki_dev,/data/IWSLT_tst2019] \
 	model.validation_ds.tokens_in_batch=4092 \
 	~model.test_ds \
