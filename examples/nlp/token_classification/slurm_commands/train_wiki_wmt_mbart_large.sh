@@ -62,6 +62,7 @@ echo "*******STARTING********" \
 	model.validation_ds.tokens_in_batch=4092 \
 	~model.test_ds \
 	model.language_model.pretrained_model_name="facebook/mbart-large-50" \
+	+model.common_dataset_parameters.add_cls_and_sep_tokens=false \
 	+trainer.num_nodes=${SLURM_JOB_NUM_NODES} \
 	trainer.gpus=${SLURM_NTASKS_PER_NODE} \
 	trainer.max_steps=${MAX_STEPS} \
