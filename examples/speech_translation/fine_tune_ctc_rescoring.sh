@@ -18,6 +18,12 @@ tmp_kenlm_outputs="${output_dir}/tmp_kenlm"
 fixed_alpha=$(python -c "print(float(2))")
 fixed_beta=$(python -c "print(float(1.5))")
 
+printf "Creating IWSLT manifest..\n"
+audio_dir="${dataset_dir}/wavs"
+python test_iwslt_and_perform_all_ops_common_scripts/create_iwslt_manifest.py -a "${audio_dir}" \
+  -t "${dataset_dir}/IWSLT.TED.tst2019.en-de.en.xml" \
+  -o "${en_ground_truth_manifest}"
+
 wer_by_beam_width="${output_dir}/wer_by_beam_width_alpha${fixed_alpha}_beta${fixed_beta}.txt"
 > "${wer_by_beam_width}"
 
@@ -46,14 +52,14 @@ for bw in "${beam_width_values[@]}"; do
 done
 
 
-fixed_beam_width=$(python -c "print(float(4))")
+fixed_beam_width=$(python -c "print(int(4))")
 wer_by_alpha_and_beta="${output_dir}/wer_by_alpha_and_beta_beam_width${fixed_beam_width}.txt"
 > "${wer_by_beam_width}"
 
 for alpha in "${alpha_values[@]}"; do
   for beta in "${beta_values[@]}"; do
-    alpha=$(python -c "print(int(${alpha}))")
-    beta=$(python -c "print(int(${beta}))")
+    alpha=$(python -c "print(float(${alpha}))")
+    beta=$(python -c "print(float(${beta}))")
     python ~/NeMo/scripts/asr_language_modeling/ngram_lm/eval_beamsearch_ngram.py \
       --nemo_model_file "${asr_model}" \
       --input_manifest "${en_ground_truth_manifest}" \
