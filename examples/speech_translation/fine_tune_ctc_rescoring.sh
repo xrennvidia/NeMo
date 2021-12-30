@@ -42,7 +42,7 @@ for bw in "${beam_width_values[@]}"; do
     --preds_output_folder ${tmp_kenlm_outputs} \
     --decoding_mode beamsearch_ngram
   python test_iwslt_and_perform_all_ops_common_scripts/text_to_manifest.py \
-    --input "${kenlm_outputs}/preds_out_width${bw}_alpha${fixed_alpha}_beta${fixed_beta}.tsv" \
+    --input "${tmp_kenlm_outputs}/preds_out_width${bw}_alpha${fixed_alpha}_beta${fixed_beta}.tsv" \
     --output "${tmp_transcript_no_numbers}" \
     --reference_manifest "${en_ground_truth_manifest}" \
     --take_every_n_line "${bw}"
