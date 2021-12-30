@@ -3,6 +3,8 @@ asr_model="$2"  # Path to checkpoint or NGC pretrained name
 output_dir="$(realpath "$3")"
 kenlm_model="$4"
 
+mkdir -p "${output_dir}"
+
 beam_width_values=(1 2 4 8 16 32 64 128 256)
 alpha_values=(0.5 1 1.5 2 2.5 3.5 5 10)
 beta_values=(0.5 1 1.5 2 4)
