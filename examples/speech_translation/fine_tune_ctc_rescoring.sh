@@ -1,3 +1,5 @@
+set -e
+
 dataset_dir="$(realpath "$1")"
 asr_model="$2"  # Path to checkpoint or NGC pretrained name
 output_dir="$(realpath "$3")"
@@ -6,8 +8,8 @@ kenlm_model="$4"
 mkdir -p "${output_dir}"
 
 beam_width_values=(1 2 4 8 16 32 64 128 256)
-alpha_values=(0.5 1 1.5 2 2.5 3.5 5 10)
-beta_values=(0.5 1 1.5 2 4)
+alpha_values=(0.4 0.5 0.7 0.8 1 1.2 1.5 1.7 2 2.2 2.5 3.0)
+beta_values=(0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1 1.1 1.2 1.3 1.5 1.7 2 2.2 2.4 2.8 3.0 3.5)
 
 en_ground_truth_manifest="${output_dir}/en_ground_truth_manifest.json"
 tmp_transcript_no_numbers="${output_dir}/transcript_no_numbers.manifest"
@@ -54,7 +56,7 @@ done
 
 fixed_beam_width=$(python -c "print(int(4))")
 wer_by_alpha_and_beta="${output_dir}/wer_by_alpha_and_beta_beam_width${fixed_beam_width}.txt"
-> "${wer_by_beam_width}"
+> "${wer_by_alpha_and_beta}"
 
 for alpha in "${alpha_values[@]}"; do
   for beta in "${beta_values[@]}"; do
@@ -82,3 +84,5 @@ for alpha in "${alpha_values[@]}"; do
     echo "${alpha} ${beta} ${wer}" >> "${wer_by_alpha_and_beta}"
   done
 done
+
+set +e
