@@ -67,6 +67,7 @@ echo "*******STARTING********" \
 	trainer.gpus=${SLURM_NTASKS_PER_NODE} \
 	trainer.max_steps=${MAX_STEPS} \
 	+trainer.val_check_interval=${VAL_CHECK_INTERVAL} \
+	trainer.precision=32 \
 	exp_manager.create_wandb_logger=true \
 	exp_manager.wandb_logger_kwargs.name=${EXPNAME} \
 	exp_manager.wandb_logger_kwargs.project=${PROJECT} \
