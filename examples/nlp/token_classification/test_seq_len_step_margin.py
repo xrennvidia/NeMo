@@ -255,13 +255,14 @@ def main():
                 step_dict[step][MAX_SEQ_LENGTH_KEY].append(max_seq_length)
                 for metric, value in task_scores.items():
                     step_dict[step][metric].append(value)
-                    if metric not in best[task]:
-                        best[task][metric] = BEST_INIT.copy()
-                    if value > best[task][metric]["metric"]:
-                        best[task][metric]["metric"] = value
-                        best[task][metric][MAX_SEQ_LENGTH_KEY] = max_seq_length
-                        best[task][metric]["step"] = step
-                        best[task][metric]["margin"] = margin
+            for metric, value in task_scores.items():
+                if metric not in best[task]:
+                    best[task][metric] = BEST_INIT.copy()
+                if value > best[task][metric]["metric"]:
+                    best[task][metric]["metric"] = value
+                    best[task][metric][MAX_SEQ_LENGTH_KEY] = max_seq_length
+                    best[task][metric]["step"] = step
+                    best[task][metric]["margin"] = margin
     args.output_dir.mkdir(parents=True, exist_ok=True)
     with (args.output_dir / Path("punctuation_capitalization_scores.json")).open('w') as f:
         json.dump(result, f, indent=2)
