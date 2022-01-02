@@ -6,7 +6,6 @@ output_dir=~/data/iwslt/IWSLT-SLT/eval/en-de/IWSLT.tst2019/test_tts_2_stages
 for spectrogram_generator in "${spectrogram_generators[@]}"; do
   for vocoder in "${vocoders[@]}"; do
     python test_tts_infer.py \
-      --asr_model stt_en_citrinet_1024 \
       --tts_model_spec "${spectrogram_generator}" \
       --tts_model_vocoder "${vocoder}" \
       --input ~/data/iwslt/IWSLT-SLT/eval/en-de/IWSLT.tst2019/iwslt_en_text.txt \
