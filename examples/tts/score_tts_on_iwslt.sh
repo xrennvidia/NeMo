@@ -1,3 +1,4 @@
+set -e
 spectrogram_generators=(tts_en_tacotron2 tts_en_glowtts tts_en_fastspeech_2 tts_en_fastpitch tts_en_talknet)
 vocoders=(tts_waveglow_88m tts_squeezewave tts_uniglow tts_melgan tts_hifigan)
 
@@ -14,3 +15,4 @@ for spectrogram_generator in "${spectrogram_generators[@]}"; do
       --wer_file "${output_dir}/wer.txt"
   done
 done
+set +e
