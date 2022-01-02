@@ -56,8 +56,8 @@ use_inverse_text_normalization="${10}"
 kenlm_model="${11}"
 
 KENLM_BEAM_WIDTH=64
-KENLM_ALPHA=2
-KENLM_BETA=1.5
+KENLM_ALPHA=1.2
+KENLM_BETA=1.7
 # Transforming KENLM parameters to a view they will likely have in eval script output name.
 KENLM_BEAM_WIDTH=$(python -c "print(int(${KENLM_BEAM_WIDTH}))")
 KENLM_ALPHA=$(python -c "print(float(${KENLM_ALPHA}))")

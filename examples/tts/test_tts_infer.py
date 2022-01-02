@@ -69,7 +69,14 @@ def main():
     parser.add_argument("--wer_tolerance", type=float, default=1.0, help="used by test")
     parser.add_argument("--trim", action="store_true")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--input", "-i", type=Path, help="Path to input text.")
     args = parser.parse_args()
+    if args.input is not None:
+        args.input = args.input.expanduser()
+        with args.input.open() as f:
+            text = [line.strip() for line in f.readlines()]
+    else:
+        text = LIST_OF_TEST_STRINGS
     torch.set_grad_enabled(False)
 
     if args.debug:
@@ -99,7 +106,7 @@ def main():
     tts_input = []
     asr_references = []
     longest_tts_input = 0
-    for test_str in LIST_OF_TEST_STRINGS:
+    for test_str in text:
         tts_parsed_input = tts_model_spec.parse(test_str)
         if len(tts_parsed_input[0]) > longest_tts_input:
             longest_tts_input = len(tts_parsed_input[0])
