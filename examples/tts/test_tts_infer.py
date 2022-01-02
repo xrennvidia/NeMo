@@ -157,14 +157,14 @@ def main():
 
     # Do ASR
     hypotheses = asr_model.transcribe(audio_file_paths)
-    args.asr_references.parent.mkdir(exists_ok=True, parents=True)
-    args.asr_preds.parent.mkdir(exists_ok=True, parents=True)
+    args.asr_references.parent.mkdir(exist_ok=True, parents=True)
+    args.asr_preds.parent.mkdir(exist_ok=True, parents=True)
     with args.asr_references.open('w') as rf, args.asr_preds.open('w') as pf:
         for i, _ in enumerate(hypotheses):
             rf.write(asr_references[i] + '\n')
             pf.write(hypotheses[i] + '\n')
     wer_value = word_error_rate(hypotheses=hypotheses, references=asr_references)
-    args.wer_file.parent.mkdir(exists_ok=True, parents=True)
+    args.wer_file.parent.mkdir(exist_ok=True, parents=True)
     with args.wer_file.open('a') as wf:
         wf.write(f"{args.tts_model_spec}\t{tts_model_vocoder}\t{wer_value}\n")
 
