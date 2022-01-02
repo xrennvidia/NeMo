@@ -69,14 +69,25 @@ def main():
     parser.add_argument("--wer_tolerance", type=float, default=1.0, help="used by test")
     parser.add_argument("--trim", action="store_true")
     parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--input", "-i", type=Path, help="Path to input text.")
+    parser.add_argument("--input", "-i", required=True, type=Path, help="Path to input text.")
+    parser.add_argument(
+        "--asr_preds", type=Path, required=True, help="Path to a .txt file where text restored using ASR is saved."
+    )
+    parser.add_argument(
+        "--asr_references", type=Path, required=True, help="Path to a .txt file where ASR references are saved."
+    )
+    parser.add_argument(
+        "--wer_file",
+        type=Path,
+        required=True,
+        help="Path to a .txt file where WER between ASR predictions and references is appended. Before WER score "
+        "`--tts_model_spec` and `--tts_model_vocoder` are written."
+    )
     args = parser.parse_args()
-    if args.input is not None:
-        args.input = args.input.expanduser()
-        with args.input.open() as f:
-            text = [line.strip() for line in f.readlines()]
-    else:
-        text = LIST_OF_TEST_STRINGS
+    for name in ["input", "asr_preds", "asr_references", "wer_file"]:
+        setattr(args, name, getattr(args, name).expanduser())
+    with args.input.open() as f:
+        text = [line.strip() for line in f.readlines()]
     torch.set_grad_enabled(False)
 
     if args.debug:
@@ -146,14 +157,16 @@ def main():
 
     # Do ASR
     hypotheses = asr_model.transcribe(audio_file_paths)
-    for i, _ in enumerate(hypotheses):
-        logging.debug(f"{i}")
-        logging.debug(f"ref:'{asr_references[i]}'")
-        logging.debug(f"hyp:'{hypotheses[i]}'")
+    args.asr_references.parent.mkdir(exists_ok=True, parents=True)
+    args.asr_preds.parent.mkdir(exists_ok=True, parents=True)
+    with args.asr_references.open('w') as rf, args.asr_preds.open('w') as pf:
+        for i, _ in enumerate(hypotheses):
+            rf.write(asr_references[i] + '\n')
+            pf.write(hypotheses[i] + '\n')
     wer_value = word_error_rate(hypotheses=hypotheses, references=asr_references)
-    if wer_value > args.wer_tolerance:
-        raise ValueError(f"Got WER of {wer_value}. It was higher than {args.wer_tolerance}")
-    logging.info(f'Got WER of {wer_value}. Tolerance was {args.wer_tolerance}')
+    args.wer_file.parent.mkdir(exists_ok=True, parents=True)
+    with args.wer_file.open('a') as wf:
+        wf.write(f"{args.tts_model_spec}\t{tts_model_vocoder}\t{wer_value}\n")
 
 
 if __name__ == '__main__':
