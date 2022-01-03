@@ -156,8 +156,8 @@ def main():
         aud = aud.cpu().numpy()
         if args.trim:
             aud = librosa.effects.trim(aud, top_db=40)[0]
-        wav_file = args.audio_dir / f"{i}.wav"
-        soundfile.write(args.audio_dir / f"{i}.wav", aud, samplerate=22050)
+        wav_file = args.audio_preds / f"{i}.wav"
+        soundfile.write(wav_file, aud, samplerate=22050)
         audio_file_paths.append(wav_file)
 
     # Do ASR
