@@ -77,6 +77,9 @@ def main():
         "--asr_references", type=Path, required=True, help="Path to a .txt file where ASR references are saved."
     )
     parser.add_argument(
+        "--audio_preds", type=Path, required=True, help="Path to a directory which will contain generated audio"
+    )
+    parser.add_argument(
         "--wer_file",
         type=Path,
         required=True,
@@ -84,7 +87,7 @@ def main():
         "`--tts_model_spec` and `--tts_model_vocoder` are written."
     )
     args = parser.parse_args()
-    for name in ["input", "asr_preds", "asr_references", "wer_file"]:
+    for name in ["input", "asr_preds", "asr_references", "wer_file", "audio_preds"]:
         setattr(args, name, getattr(args, name).expanduser())
     with args.input.open() as f:
         text = [line.strip() for line in f.readlines()]
@@ -153,8 +156,9 @@ def main():
         aud = aud.cpu().numpy()
         if args.trim:
             aud = librosa.effects.trim(aud, top_db=40)[0]
-        soundfile.write(f"{i}.wav", aud, samplerate=22050)
-        audio_file_paths.append(str(Path(f"{i}.wav")))
+        wav_file = args.audio_dir / f"{i}.wav"
+        soundfile.write(args.audio_dir / f"{i}.wav", aud, samplerate=22050)
+        audio_file_paths.append(wav_file)
 
     # Do ASR
     hypotheses = asr_model.transcribe(audio_file_paths)
