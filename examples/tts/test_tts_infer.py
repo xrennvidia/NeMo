@@ -172,7 +172,7 @@ def main():
     wer_value = word_error_rate(hypotheses=hypotheses, references=asr_references)
     args.wer_file.parent.mkdir(exist_ok=True, parents=True)
     with args.wer_file.open('a') as wf:
-        wf.write(f"{args.tts_model_spec}\t{tts_model_vocoder}\t{wer_value}\n")
+        wf.write(f"{args.tts_model_spec}\t{args.tts_model_vocoder}\t{wer_value}\n")
 
 
 if __name__ == '__main__':
