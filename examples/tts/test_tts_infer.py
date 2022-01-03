@@ -152,6 +152,7 @@ def main():
     audio_file_paths = []
     # Save audio
     logging.debug(f"args.trim: {args.trim}")
+    args.audio_preds.mkdir(exist_ok=True, parents=True)
     for i, aud in enumerate(audio):
         aud = aud.cpu().numpy()
         if args.trim:
