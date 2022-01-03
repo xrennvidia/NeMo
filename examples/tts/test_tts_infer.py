@@ -159,7 +159,7 @@ def main():
             aud = librosa.effects.trim(aud, top_db=40)[0]
         wav_file = args.audio_preds / f"{i}.wav"
         soundfile.write(wav_file, aud, samplerate=22050)
-        audio_file_paths.append(wav_file)
+        audio_file_paths.append(str(wav_file))
 
     # Do ASR
     hypotheses = asr_model.transcribe(audio_file_paths)
