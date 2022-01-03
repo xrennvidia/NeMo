@@ -6,7 +6,7 @@ output_dir=~/data/iwslt/IWSLT-SLT/eval/en-de/IWSLT.tst2019/test_tts_2_stages
 audio_dir="${output_dir}/audio"
 
 wer_file="${output_dir}/wer.txt"
-rm -r "${audio_dir}"/* "${output_dir}"/asr_preds__* "${output_dir}/asr_references.txt" "${wer_file}"
+rm -rf "${audio_dir}"/* "${output_dir}"/asr_preds__* "${output_dir}/asr_references.txt" "${wer_file}"
 
 for spectrogram_generator in "${spectrogram_generators[@]}"; do
   for vocoder in "${vocoders[@]}"; do
