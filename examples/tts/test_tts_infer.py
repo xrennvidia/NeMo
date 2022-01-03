@@ -88,6 +88,7 @@ def main():
         setattr(args, name, getattr(args, name).expanduser())
     with args.input.open() as f:
         text = [line.strip() for line in f.readlines()]
+    text = LIST_OF_TEST_STRINGS
     torch.set_grad_enabled(False)
 
     if args.debug:
