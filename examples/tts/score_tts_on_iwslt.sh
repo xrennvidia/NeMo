@@ -12,7 +12,7 @@ for spectrogram_generator in "${spectrogram_generators[@]}"; do
       --input ~/data/iwslt/IWSLT-SLT/eval/en-de/IWSLT.tst2019/iwslt_en_text.txt \
       --asr_preds "${output_dir}/asr_preds__${spectrogram_generator}__${vocoder}.txt" \
       --asr_references "${output_dir}/asr_references.txt" \
-      --audio_dir "${output_dir}/audio/${spectrogram_generator}__${vocoder}" \
+      --audio_preds "${output_dir}/audio/${spectrogram_generator}__${vocoder}" \
       --wer_file "${output_dir}/wer.txt"
   done
 done
