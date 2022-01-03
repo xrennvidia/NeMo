@@ -1,5 +1,5 @@
 set -e
-spectrogram_generators=(tts_en_tacotron2 tts_en_glowtts tts_en_fastspeech2 tts_en_fastpitch tts_en_talknet)
+spectrogram_generators=(tts_en_tacotron2 tts_en_glowtts tts_en_fastpitch tts_en_talknet)
 vocoders=(tts_waveglow_88m tts_squeezewave tts_uniglow tts_melgan tts_hifigan)
 
 output_dir=~/data/iwslt/IWSLT-SLT/eval/en-de/IWSLT.tst2019/test_tts_2_stages
