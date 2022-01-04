@@ -29,8 +29,7 @@ from nemo.collections.nlp.metrics.classification_report import ClassificationRep
 from nemo.collections.nlp.models.duplex_text_normalization.utils import has_numbers
 from nemo.core.classes.common import typecheck
 from nemo.collections.nlp.models.nlp_model import NLPModel
-<<<<<<< HEAD
-from nemo.core.classes.common import PretrainedModelInfo
+from nemo.core.classes.common import PretrainedModelInfo, typecheck
 from nemo.core.classes.exportable import Exportable
 from nemo.core.neural_types import ChannelType, MaskType, NeuralType, LogitsType
 from nemo.utils import logging
@@ -42,11 +41,6 @@ from onnxruntime import (
 
 
 __all__ = ['DuplexTaggerModel', 'ONNXDuplexTaggerModel']
-=======
-from nemo.core.classes.common import PretrainedModelInfo, typecheck
-from nemo.core.neural_types import ChannelType, LogitsType, MaskType, NeuralType
-from nemo.utils import logging
->>>>>>> origin/main
 
 
 
@@ -106,7 +100,6 @@ class DuplexTaggerModel(NLPModel):
         # Language
         self.lang = cfg.get('lang', None)
 
-<<<<<<< HEAD
 
     @property
     def input_module(self):
@@ -119,11 +112,6 @@ class DuplexTaggerModel(NLPModel):
     @typecheck()
     def forward(self, input_ids, attention_mask):
         logits =  self.model(input_ids=input_ids, attention_mask=attention_mask).logits
-=======
-    @typecheck()
-    def forward(self, input_ids, attention_mask):
-        logits = self.model(input_ids=input_ids, attention_mask=attention_mask).logits
->>>>>>> origin/main
         return logits
 
     # Training
