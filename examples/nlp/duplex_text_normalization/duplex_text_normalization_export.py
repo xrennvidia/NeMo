@@ -15,6 +15,7 @@
 
 """
 This script contains an example on how to evaluate a ONNXDuplexTextNormalizationModel from onnx checkpoints 
+downgrade to transformers==4.6.1
 
 """
 
