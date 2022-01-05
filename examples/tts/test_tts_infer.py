@@ -184,7 +184,7 @@ def main():
             total_time = 0
             for inp in tts_input:
                 start = time()
-                audio.append(e2e_model.convert_text_to_waveform(inp))
+                audio.append(e2e_model.convert_text_to_waveform(tokens=inp))
                 total_time += time() - start
             average_time = total_time / len(tts_input)
         else:
