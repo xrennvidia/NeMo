@@ -86,6 +86,7 @@ def main():
         help="Path to a .txt file where WER between ASR predictions and references is appended. Before WER score "
         "`--tts_model_spec` and `--tts_model_vocoder` are written."
     )
+    parser.add_argument("--no_batching", action="store_true")
     args = parser.parse_args()
     for name in ["input", "asr_preds", "asr_references", "wer_file", "audio_preds"]:
         setattr(args, name, getattr(args, name).expanduser())
@@ -132,17 +133,22 @@ def main():
         asr_references.append(asr_parsed)
 
     # Pad TTS Inputs
-    for i, text in enumerate(tts_input):
-        pad = (0, longest_tts_input - len(text))
-        tts_input[i] = torch.nn.functional.pad(text, pad, value=68)
+    if not args.no_batching:
+        for i, text in enumerate(tts_input):
+            pad = (0, longest_tts_input - len(text))
+            tts_input[i] = torch.nn.functional.pad(text, pad, value=68)
 
-    logging.debug(tts_input)
+        logging.debug(tts_input)
 
-    # Do TTS
-    tts_input = torch.stack(tts_input)
-    if torch.cuda.is_available():
-        tts_input = tts_input.cuda()
-    specs = tts_model_spec.generate_spectrogram(tokens=tts_input)
+        # Do TTS
+        tts_input = torch.stack(tts_input)
+        if torch.cuda.is_available():
+            tts_input = tts_input.cuda()
+        specs = tts_model_spec.generate_spectrogram(tokens=tts_input)
+    else:
+        specs = []
+        for i, inp in enumerate(tts_input):
+            specs.append(tts_model_spec(torch.tensor(inp).unsqueeze(0).cuda()))
     audio = []
     step = ceil(len(specs) / 4)
     for i in range(4):
