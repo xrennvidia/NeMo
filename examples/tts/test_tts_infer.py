@@ -155,7 +155,7 @@ def main():
         for i, inp in enumerate(tts_input):
             audio.extend(
                 tts_model_vocoder.convert_spectrogram_to_audio(
-                    tts_model_spec.generate_spectrogram(tokens=torch.tensor(inp).unsqueeze(0).cuda())
+                    spec=tts_model_spec.generate_spectrogram(tokens=torch.tensor(inp).unsqueeze(0).cuda())
                 )
             )
     audio_file_paths = []
