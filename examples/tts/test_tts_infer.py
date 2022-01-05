@@ -120,8 +120,7 @@ def main():
         for i, m in enumerate(models):
             if m is not None:
                 models[i] = m.cuda()
-    for m in models:
-        m.eval()
+                models[i].eval()
 
     asr_model, e2e_model, tts_model_spec, tts_model_vocoder = models
 
