@@ -1,7 +1,7 @@
 set -e -x
 spectrogram_generators=(tts_en_fastpitch tts_en_tacotron2 tts_en_glowtts)
 vocoders=(tts_waveglow_88m tts_squeezewave tts_uniglow tts_melgan tts_hifigan)
-e2e_models=(tts_en_e2e_fastspeech2hifigan tts_en_e2e_fastpitchhifigan)
+e2e_models=(tts_en_e2e_fastpitchhifigan)
 
 output_dir=~/data/iwslt/IWSLT-SLT/eval/en-de/IWSLT.tst2019/test_tts_2_stages
 audio_dir="${output_dir}/audio"
