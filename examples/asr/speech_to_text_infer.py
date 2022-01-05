@@ -20,7 +20,7 @@ This script serves three goals:
 """
 
 from argparse import ArgumentParser
-
+import json
 import torch
 
 from nemo.collections.asr.metrics.wer import WER, word_error_rate
@@ -57,6 +57,10 @@ def main():
     parser.add_argument(
         "--use_cer", default=False, action='store_true', help="Use Character Error Rate as the evaluation metric"
     )
+    parser.add_argument(
+        "--out_json", default="out.json", type=str, help="output json manifest"
+    )
+
     args = parser.parse_args()
     torch.set_grad_enabled(False)
 
@@ -102,6 +106,18 @@ def main():
         del test_batch
 
     wer_value = word_error_rate(hypotheses=hypotheses, references=references, use_cer=args.use_cer)
+    
+    with open(args.out_json, "w") as out_f:
+        for i, hyp in enumerate(hypotheses):
+            record = {
+                "pred_text": hyp,
+                "text": references[i],
+                "wer": word_error_rate(hypotheses=[hyp], references=[references[i]], use_cer=args.use_cer)
+            }
+            print(record)
+            out_f.write(json.dumps(record) + '\n')
+                
+                
     if not args.use_cer:
         if wer_value > args.wer_tolerance:
             raise ValueError(f"got wer of {wer_value}. it was higher than {args.wer_tolerance}")
