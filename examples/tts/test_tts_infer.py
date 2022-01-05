@@ -148,7 +148,7 @@ def main():
     else:
         specs = []
         for i, inp in enumerate(tts_input):
-            specs.append(tts_model_spec(torch.tensor(inp).unsqueeze(0).cuda()))
+            specs.append(tts_model_spec.generate_spectrogram(tokens=torch.tensor(inp).unsqueeze(0).cuda()))
     audio = []
     step = ceil(len(specs) / 4)
     for i in range(4):
