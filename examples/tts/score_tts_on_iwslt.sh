@@ -16,7 +16,8 @@ for e2e_model in "${e2e_models}"; do
     --asr_preds "${output_dir}/asr_preds__${e2_model}.txt" \
     --asr_references "${output_dir}/asr_references.txt" \
     --audio_preds "${audio_dir}/${e2e_model}" \
-    --wer_file "${wer_file}"
+    --wer_file "${wer_file}" \
+    --no_batching
 done
 
 for spectrogram_generator in "${spectrogram_generators[@]}"; do
@@ -28,7 +29,8 @@ for spectrogram_generator in "${spectrogram_generators[@]}"; do
       --asr_preds "${output_dir}/asr_preds__${spectrogram_generator}__${vocoder}.txt" \
       --asr_references "${output_dir}/asr_references.txt" \
       --audio_preds "${audio_dir}/${spectrogram_generator}__${vocoder}" \
-      --wer_file "${wer_file}"
+      --wer_file "${wer_file}" \
+      --no_batching
   done
 done
 set +e +x
