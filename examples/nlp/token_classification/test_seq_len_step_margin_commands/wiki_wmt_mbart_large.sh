@@ -6,4 +6,5 @@ python test_seq_len_step_margin.py \
   --max_seq_length 128 130 \
   --margin 16 18 \
   --step 8 10 \
-  --cuda_device 0
+  --cuda_device 0 \
+  --no_cls_and_sep_tokens

@@ -54,6 +54,7 @@ def get_args():
     parser.add_argument("--num_subtokens_in_input", "-N", default=17000, type=int)
     parser.add_argument("--num_subtokens_step", "-S", default=500, type=int)
     parser.add_argument("--cuda_device", type=int, default=0)
+    parser.add_argument("--no_cls_and_sep_tokens", action="store_true")
     args = parser.parse_args()
     args.labels = args.labels.expanduser()
     args.source_text = args.source_text.expanduser()
@@ -233,6 +234,7 @@ def main():
                         margin=margin,
                         step=step,
                         dataloader_kwargs={'num_workers': 8},
+                        add_cls_and_sep_tokens=not args.no_cls_and_sep_tokens,
                     )
                     success = True
                 except RuntimeError:
