@@ -158,8 +158,11 @@ def tts_worker(
     )
     args.tmp_dir.mkdir(parents=True, exist_ok=True)
     for batch_i, (batch_tensor, indices) in enumerate(text_dataset):
+        print("batch_i, batch_tensor, indices:", batch_i, batch_tensor.shape, len(indices))
         specs = tts_model_spectrogram.generate_spectrogram(batch_tensor.to(device))
+        print("specs.shape:", specs.shape)
         audio = vocoder.convert_spectrogram_to_audio(specs)
+        print("len(audio):", len(audio))
         for aud, i in zip(audio, indices):
             soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud, samplerate=22050)
         tts_progress_queue.put(len(indices))
@@ -176,6 +179,7 @@ def asr_worker(rank: int, world_size: int, args: argparse.Namespace, start_line:
         for file in args.tmp_dir.iterdir()
         if file.suffixes == [f'.proc{rank}', '.wav'] and file.is_file()
     ]
+    print("len(audio_files):", len(audio_files))
     hypotheses = asr_model.transcribe([str(file) for file in audio_files])
     for file in audio_files:
         file.unlink()
@@ -190,7 +194,8 @@ def check_and_sort_text_files(files: List[Path], num_lines: int) -> List[Path]:
     detected_num_lines = 0
     for i, file in enumerate(files):
         nl = int(file.stem.split('_')[1])
-        assert int(file.stem.split('_')[0]) + nl == int(files[i + 1].stem.split('_')[0])
+        if i < len(files) - 1:
+            assert int(file.stem.split('_')[0]) + nl == int(files[i + 1].stem.split('_')[0])
         detected_num_lines += nl
     assert detected_num_lines == num_lines
     return files
