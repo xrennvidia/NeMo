@@ -157,6 +157,7 @@ def tts_worker(
         args.input, tts_model_spectrogram, start_line, num_lines, args.tokens_in_batch, tts_parsing_progress_queue
     )
     args.tmp_dir.mkdir(parents=True, exist_ok=True)
+    print("len(text_dataset):", len(text_dataset))
     for batch_i, (batch_tensor, indices) in enumerate(text_dataset):
         print("batch_i, batch_tensor, indices:", batch_i, batch_tensor.shape, len(indices))
         specs = tts_model_spectrogram.generate_spectrogram(batch_tensor.to(device))
