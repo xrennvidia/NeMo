@@ -71,7 +71,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--tts_tokens_in_batch",
         type=int,
-        default=500000,
+        default=400000,
         help="Number of phone tokens in a batch passed for TTS.",
     )
     parser.add_argument(
