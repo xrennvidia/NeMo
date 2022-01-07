@@ -172,9 +172,9 @@ def tts_worker(
     print("len(text_dataset):", len(text_dataset))
     for batch_i, (batch_tensor, indices) in enumerate(text_dataset):
         print("batch_i, batch_tensor, indices:", batch_i, batch_tensor.shape, len(indices))
-        specs = tts_model_spectrogram.generate_spectrogram(batch_tensor.to(device))
+        specs = tts_model_spectrogram.generate_spectrogram(tokens=batch_tensor.to(device))
         print("specs.shape:", specs.shape)
-        audio = vocoder.convert_spectrogram_to_audio(specs)
+        audio = vocoder.convert_spectrogram_to_audio(spec=specs)
         print("len(audio):", len(audio))
         for aud, i in zip(audio, indices):
             soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud, samplerate=22050)
