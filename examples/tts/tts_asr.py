@@ -177,7 +177,7 @@ def tts_worker(
         audio = vocoder.convert_spectrogram_to_audio(spec=specs)
         print("len(audio):", len(audio))
         for aud, i in zip(audio, indices):
-            soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud, samplerate=22050)
+            soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud.cpu(), samplerate=22050)
         tts_progress_queue.put(len(indices))
 
 
