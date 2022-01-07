@@ -103,15 +103,18 @@ class TTSDataset(Dataset):
         tokenized_lines_with_indices = sorted(tokenized_lines_with_indices, key=lambda x: len(x[0]))
         self.batches = []
         batch = []
-        current_length = len(tokenized_lines_with_indices[0][0])
+        current_length = tokenized_lines_with_indices[0][0].shape[1]
         for line_and_i in tokenized_lines_with_indices:
-            if len(line_and_i[0]) == current_length and len(batch) * current_length < tokens_in_batch - current_length:
+            if (
+                line_and_i[0].shape[1] == current_length
+                and len(batch) * current_length < tokens_in_batch - current_length
+            ):
                 batch.append(line_and_i)
             else:
                 print("Adding new batch")
                 self.batches.append(batch)
                 batch = [line_and_i]
-                current_length = len(line_and_i[0])
+                current_length = line_and_i[0].shape[1]
         if batch:
             self.batches.append(batch)
         print("(TTSDataset.__init__)len(self.batches):", len(self.batches))
@@ -121,7 +124,7 @@ class TTSDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, List[int]]:
         batch = self.batches[idx]
-        return torch.stack([element[0] for element in batch]), [element[1] for element in batch]
+        return torch.cat([element[0] for element in batch]), [element[1] for element in batch]
 
 
 def count_lines(input_file: Path) -> int:
