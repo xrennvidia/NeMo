@@ -205,8 +205,7 @@ def asr_worker(
         for file in tmp_dir.iterdir()
         if file.suffixes == [f'.proc{rank}', '.wav'] and file.is_file()
     ]
-    audio_files = sorted(audio_files, key=lambda x: int(x.stem))
-    print("len(audio_files):", len(audio_files))
+    audio_files = sorted(audio_files, key=lambda x: int(x.stem.split('.')[0]))
     hypotheses = asr_model.transcribe([str(file) for file in audio_files], batch_size=batch_size)
     for file in audio_files:
         file.unlink()
