@@ -15,6 +15,7 @@ from nemo.collections.asr.models import EncDecCTCModel
 from nemo.collections.nlp.data.token_classification.punctuation_capitalization_dataset import Progress
 from nemo.collections.tts.models.base import SpectrogramGenerator, Vocoder
 from nemo.utils import logging
+from nemo_text_processing.text_normalization.normalize import Normalizer
 
 
 TTS_PARSING_REPORT_PERIOD = 100
@@ -98,16 +99,22 @@ class TTSDataset(Dataset):
         tts_tokens_in_batch: int,
         tts_parsing_progress_queue: mp.Queue,
     ):
-        tokenized_lines_with_indices = []
         logging.info(f"Looking for start line.")
+        lines = []
         with input_file.open() as f:
             for i, line in enumerate(f):
                 if i >= start_line + num_lines:
                     break
                 if i >= start_line:
-                    tokenized_lines_with_indices.append((tts_model_spectrogram.parse(line), i))
-                    if i % TTS_PARSING_REPORT_PERIOD == 0:
-                        tts_parsing_progress_queue.put(min(TTS_PARSING_REPORT_PERIOD, i - start_line))
+                    lines.append(line)
+        normalizer = Normalizer(input_case='cased', lang='en')
+        logging.info("Normalizing text...")
+        lines = normalizer.normalize_list(lines, verbose=False)
+        tokenized_lines_with_indices = []
+        for i, line in enumerate(normalizer.normalize_list(lines, verbose=False), start=start_line):
+            if i % TTS_PARSING_REPORT_PERIOD == 0:
+                tts_parsing_progress_queue.put(min(TTS_PARSING_REPORT_PERIOD, i - start_line))
+            tokenized_lines_with_indices.append((tts_model_spectrogram.parse(line), i))
         tokenized_lines_with_indices = sorted(tokenized_lines_with_indices, key=lambda x: x[0].shape[1])
         self.batches = []
         batch = []
