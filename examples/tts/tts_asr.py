@@ -158,8 +158,8 @@ def tts_worker(
         start_line, num_lines, args.num_lines_per_process_for_1_iteration, rank, len(args.cuda_devices)
     )
     device = torch.device(f'cuda:{args.cuda_devices[rank]}')
-    tts_model_spectrogram = SpectrogramGenerator.from_pretrained(args.tts_model_spectrogram, map_location=device)
-    vocoder = Vocoder.from_pretrained(args.tts_model_vocoder, map_location=device)
+    tts_model_spectrogram = SpectrogramGenerator.from_pretrained(args.tts_model_spectrogram, map_location=device).eval()
+    vocoder = Vocoder.from_pretrained(args.tts_model_vocoder, map_location=device).eval()
     text_dataset = TTSDataset(
         args.input,
         tts_model_spectrogram,
@@ -169,13 +169,9 @@ def tts_worker(
         tts_parsing_progress_queue,
     )
     args.tmp_dir.mkdir(parents=True, exist_ok=True)
-    print("len(text_dataset):", len(text_dataset))
     for batch_i, (batch_tensor, indices) in enumerate(text_dataset):
-        print("batch_i, batch_tensor, indices:", batch_i, batch_tensor.shape, len(indices))
         specs = tts_model_spectrogram.generate_spectrogram(tokens=batch_tensor.to(device))
-        print("specs.shape:", specs.shape)
         audio = vocoder.convert_spectrogram_to_audio(spec=specs)
-        print("len(audio):", len(audio))
         for aud, i in zip(audio, indices):
             soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud.cpu(), samplerate=22050)
         tts_progress_queue.put(len(indices))
@@ -186,7 +182,7 @@ def asr_worker(rank: int, args: argparse.Namespace, start_line: int, num_lines: 
         start_line, num_lines, args.num_lines_per_process_for_1_iteration, rank, len(args.cuda_devices)
     )
     device = torch.device(f'cuda:{args.cuda_devices[rank]}')
-    asr_model = EncDecCTCModel.from_pretrained(args.asr_model, map_location=device)
+    asr_model = EncDecCTCModel.from_pretrained(args.asr_model, map_location=device).eval()
     audio_files = [
         file
         for file in args.tmp_dir.iterdir()
