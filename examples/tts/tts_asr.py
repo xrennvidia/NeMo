@@ -233,16 +233,15 @@ def unite_text_files(tmp_dir: Path, output: Path, num_lines: int) -> None:
 
 async def run_asr(cuda_device: int, rank: int, start_line: int, num_lines: int, args: argparse.Namespace) -> None:
     proc = await asyncio.create_subprocess_shell(
-        "ls"
-        # f"python asr_1_process.py "
-        # f"--cuda_device {cuda_device} "
-        # f"--world_size {len(args.cuda_devices)} "
-        # f"--rank {rank} "
-        # f"--start_line {start_line} "
-        # f"--num_lines {num_lines} "
-        # f"--num_lines_per_process_for_1_iteration {args.num_lines_per_process_for_1_iteration} "
-        # f"--asr_model {args.asr_model} "
-        # f"--tmp_dir {args.tmp_dir}"
+        f"python asr_1_process.py "
+        f"--cuda_device {cuda_device} "
+        f"--world_size {len(args.cuda_devices)} "
+        f"--rank {rank} "
+        f"--start_line {start_line} "
+        f"--num_lines {num_lines} "
+        f"--num_lines_per_process_for_1_iteration {args.num_lines_per_process_for_1_iteration} "
+        f"--asr_model {args.asr_model} "
+        f"--tmp_dir {args.tmp_dir}"
     )
     await proc.communicate()
 
@@ -269,10 +268,11 @@ async def main() -> None:
                 nprocs=len(args.cuda_devices),
                 join=True,
             )
-            await asyncio.gather(
-                run_asr(cuda_device, rank, start_line, num_lines, args)
-                for rank, cuda_device in enumerate(args.cuda_devices)
-            )
+            await run_asr(0, 0, start_line, num_lines, args)
+            # await asyncio.gather(
+            #     run_asr(cuda_device, rank, start_line, num_lines, args)
+            #     for rank, cuda_device in enumerate(args.cuda_devices)
+            # )
             # tmp.spawn(
             #     asr_worker,
             #     args=(args, start_line, num_lines),
