@@ -97,6 +97,7 @@ class TTSDataset(Dataset):
                     tokenized_lines_with_indices.append((tts_model_spectrogram.parse(line), i))
                     if i % TTS_PARSING_REPORT_PERIOD == 0:
                         tts_parsing_progress_queue.put(min(TTS_PARSING_REPORT_PERIOD, i - start_line))
+        print("(TTSDataset.__init__)tokenized_lines_with_indices:", tokenized_lines_with_indices)
         tokenized_lines_with_indices = sorted(tokenized_lines_with_indices, key=lambda x: len(x[0]))
         self.batches = []
         batch = []
