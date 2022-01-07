@@ -275,7 +275,7 @@ async def main() -> None:
                 lines = normalizer.normalize_list_parallel(lines, verbose=False)
                 tmp.spawn(
                     tts_worker,
-                    args=(args, start_line, lines, progress_queues[0], progress_queues[1]),
+                    args=(args, lines, start_line, progress_queues[0], progress_queues[1]),
                     nprocs=len(args.cuda_devices),
                     join=True,
                 )
