@@ -268,15 +268,12 @@ async def main() -> None:
                 nprocs=len(args.cuda_devices),
                 join=True,
             )
-            # await run_asr(1, 1, start_line, num_lines, args)
             await asyncio.gather(
-                run_asr(0, 0, start_line, num_lines, args),
-                run_asr(1, 1, start_line, num_lines, args)
+                *[
+                    run_asr(cuda_device, rank, start_line, num_lines, args)
+                    for rank, cuda_device in enumerate(args.cuda_devices)
+                ]
             )
-            # await asyncio.gather(
-            #     run_asr(cuda_device, rank, start_line, num_lines, args)
-            #     for rank, cuda_device in enumerate(args.cuda_devices)
-            # )
             # tmp.spawn(
             #     asr_worker,
             #     args=(args, start_line, num_lines),
