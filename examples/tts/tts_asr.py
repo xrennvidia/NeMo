@@ -67,9 +67,15 @@ def get_args() -> argparse.Namespace:
         default=25 * 10 ** 3,
     )
     parser.add_argument(
-        "--tokens_in_batch",
+        "--tts_tokens_in_batch",
         type=int,
-        default=50000,
+        default=500000,
+        help="Number of phone tokens in a batch passed for TTS.",
+    )
+    parser.add_argument(
+        "--asr_batch_size",
+        type=int,
+        default=40,
         help="Number of phone tokens in a batch passed for TTS.",
     )
     parser.add_argument(
@@ -89,7 +95,7 @@ class TTSDataset(Dataset):
         tts_model_spectrogram: SpectrogramGenerator,
         start_line: int,
         num_lines: int,
-        tokens_in_batch: int,
+        tts_tokens_in_batch: int,
         tts_parsing_progress_queue: mp.Queue,
     ):
         tokenized_lines_with_indices = []
@@ -109,7 +115,7 @@ class TTSDataset(Dataset):
         for line_and_i in tokenized_lines_with_indices:
             if (
                 line_and_i[0].shape[1] == current_length
-                and len(batch) * current_length < tokens_in_batch - current_length
+                and len(batch) * current_length < tts_tokens_in_batch - current_length
             ):
                 batch.append(line_and_i)
             else:
@@ -167,7 +173,7 @@ def tts_worker(
         tts_model_spectrogram,
         start_line,
         num_lines_to_process,
-        args.tokens_in_batch,
+        args.tts_tokens_in_batch,
         tts_parsing_progress_queue,
     )
     for batch_i, (batch_tensor, indices) in enumerate(text_dataset):
@@ -184,6 +190,7 @@ def asr_worker(
     world_size: int,
     cuda_device: int,
     asr_model: str,
+    batch_size: int,
     tmp_dir: Path,
     start_line: int,
     num_lines: int,
@@ -198,8 +205,9 @@ def asr_worker(
         for file in tmp_dir.iterdir()
         if file.suffixes == [f'.proc{rank}', '.wav'] and file.is_file()
     ]
+    audio_files = sorted(audio_files, key=lambda x: int(x.stem))
     print("len(audio_files):", len(audio_files))
-    hypotheses = asr_model.transcribe([str(file) for file in audio_files])
+    hypotheses = asr_model.transcribe([str(file) for file in audio_files], batch_size=batch_size)
     for file in audio_files:
         file.unlink()
     output_file = tmp_dir / f'{start_line}_{num_lines_to_process}.txt'
@@ -274,14 +282,6 @@ async def main() -> None:
                     for rank, cuda_device in enumerate(args.cuda_devices)
                 ]
             )
-            # tmp.spawn(
-            #     asr_worker,
-            #     args=(args, start_line, num_lines),
-            #     nprocs=len(args.cuda_devices),
-            #     join=True,
-            # )
-            # asr_worker(0, args, start_line, num_lines)
-            # asr_worker(1, args, start_line, num_lines)
     logging.info("Uniting text files...")
     unite_text_files(args.tmp_dir, args.output, num_lines)
 

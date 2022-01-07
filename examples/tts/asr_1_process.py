@@ -19,6 +19,7 @@ def get_args() -> argparse.Namespace:
         required=True,
         choices=[x.pretrained_model_name for x in EncDecCTCModel.list_available_models()],
     )
+    parser.add_argument("--asr_batch_size", required=True, type=int)
     parser.add_argument("--tmp_dir", required=True, type=Path)
     args = parser.parse_args()
     args.tmp_dir = args.tmp_dir.expanduser()
@@ -33,6 +34,7 @@ def main() -> None:
         args.world_size,
         args.cuda_device,
         args.asr_model,
+        args.asr_batch_size,
         args.tmp_dir,
         args.start_line,
         args.num_lines,
