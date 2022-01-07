@@ -103,10 +103,11 @@ class TTSDataset(Dataset):
         self.batches = []
         batch = []
         current_length = len(tokenized_lines_with_indices[0][0])
-        for i, line_and_i in enumerate(tokenized_lines_with_indices):
+        for line_and_i in tokenized_lines_with_indices:
             if len(line_and_i[0]) == current_length and len(batch) * current_length < tokens_in_batch - current_length:
                 batch.append(line_and_i)
             else:
+                print("Adding new batch")
                 self.batches.append(batch)
                 batch = [line_and_i]
                 current_length = len(line_and_i[0])
@@ -157,7 +158,12 @@ def tts_worker(
     tts_model_spectrogram = SpectrogramGenerator.from_pretrained(args.tts_model_spectrogram, map_location=device)
     vocoder = Vocoder.from_pretrained(args.tts_model_vocoder, map_location=device)
     text_dataset = TTSDataset(
-        args.input, tts_model_spectrogram, start_line, num_lines, args.tokens_in_batch, tts_parsing_progress_queue
+        args.input,
+        tts_model_spectrogram,
+        start_line,
+        num_lines_to_process,
+        args.tokens_in_batch,
+        tts_parsing_progress_queue,
     )
     args.tmp_dir.mkdir(parents=True, exist_ok=True)
     print("len(text_dataset):", len(text_dataset))
