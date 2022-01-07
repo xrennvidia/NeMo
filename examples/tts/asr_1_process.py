@@ -13,7 +13,6 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--rank", required=True, type=int)
     parser.add_argument("--start_line", required=True, type=int)
     parser.add_argument("--num_lines", required=True, type=int)
-    parser.add_argument("--num_lines_per_process_for_1_iteration", required=True, type=int)
     parser.add_argument(
         "--asr_model",
         required=True,
@@ -30,7 +29,6 @@ def main() -> None:
     args = get_args()
     asr_worker(
         args.rank,
-        args.num_lines_per_process_for_1_iteration,
         args.world_size,
         args.cuda_device,
         args.asr_model,

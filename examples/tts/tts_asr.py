@@ -19,6 +19,7 @@ from nemo_text_processing.text_normalization.normalize import Normalizer
 
 
 TTS_PARSING_REPORT_PERIOD = 100
+TTS_SPECTROGRAM_VOCODER_SWITCH_PERIOD = 200
 
 
 def get_args() -> argparse.Namespace:
@@ -92,26 +93,15 @@ def get_args() -> argparse.Namespace:
 class TTSDataset(Dataset):
     def __init__(
         self,
-        input_file: Path,
-        tts_model_spectrogram: SpectrogramGenerator,
+        lines: List[str],
         start_line: int,
-        num_lines: int,
+        tts_model_spectrogram: SpectrogramGenerator,
         tts_tokens_in_batch: int,
         tts_parsing_progress_queue: mp.Queue,
     ):
         logging.info(f"Looking for start line.")
-        lines = []
-        with input_file.open() as f:
-            for i, line in enumerate(f):
-                if i >= start_line + num_lines:
-                    break
-                if i >= start_line:
-                    lines.append(line)
-        normalizer = Normalizer(input_case='cased', lang='en')
-        logging.info("Normalizing text...")
-        lines = normalizer.normalize_list(lines, verbose=False)
         tokenized_lines_with_indices = []
-        for i, line in enumerate(normalizer.normalize_list(lines, verbose=False), start=start_line):
+        for i, line in enumerate(lines, start=start_line):
             if i % TTS_PARSING_REPORT_PERIOD == 0:
                 tts_parsing_progress_queue.put(min(TTS_PARSING_REPORT_PERIOD, i - start_line))
             tokenized_lines_with_indices.append((tts_model_spectrogram.parse(line), i))
@@ -145,55 +135,51 @@ def count_lines(input_file: Path) -> int:
     return int(result.stdout.decode('utf-8').split()[0])
 
 
-def get_start_and_num_lines(
-    start_line: int, num_lines: int, num_lines_per_process_for_1_iteration: int, rank: int, world_size: int
-) -> Tuple[int, int]:
-    if num_lines - start_line > num_lines_per_process_for_1_iteration * world_size:
-        start_line += rank * num_lines_per_process_for_1_iteration
-        num_lines_to_process = num_lines_per_process_for_1_iteration
+def get_start_and_num_lines(num_lines: int, rank: int, world_size: int) -> Tuple[int, int]:
+    _num_lines_per_process_for_1_iteration = num_lines // world_size
+    slice_start = rank * _num_lines_per_process_for_1_iteration
+    if rank < world_size - 1:
+        num_lines_to_process = _num_lines_per_process_for_1_iteration
     else:
-        _num_lines_per_process_for_1_iteration = (num_lines - start_line) // world_size
-        start_line += rank * _num_lines_per_process_for_1_iteration
-        if rank < world_size - 1:
-            num_lines_to_process = _num_lines_per_process_for_1_iteration
-        else:
-            num_lines_to_process = num_lines - start_line
-    return start_line, num_lines_to_process
+        num_lines_to_process = num_lines - slice_start
+    return slice_start, num_lines_to_process
 
 
 def tts_worker(
     rank: int,
     args: argparse.Namespace,
+    lines: List[str],
     start_line: int,
-    num_lines: int,
     tts_parsing_progress_queue: mp.Queue,
     tts_progress_queue: mp.Queue,
 ) -> None:
-    start_line, num_lines_to_process = get_start_and_num_lines(
-        start_line, num_lines, args.num_lines_per_process_for_1_iteration, rank, len(args.cuda_devices)
-    )
+    slice_start, num_lines_to_process = get_start_and_num_lines(len(lines), rank, len(args.cuda_devices))
     device = torch.device(f'cuda:{args.cuda_devices[rank]}')
     tts_model_spectrogram = SpectrogramGenerator.from_pretrained(args.tts_model_spectrogram, map_location=device).eval()
     vocoder = Vocoder.from_pretrained(args.tts_model_vocoder, map_location=device).eval()
     text_dataset = TTSDataset(
-        args.input,
+        lines[slice_start : slice_start + num_lines_to_process],
+        start_line + slice_start,
         tts_model_spectrogram,
-        start_line,
-        num_lines_to_process,
         args.tts_tokens_in_batch,
         tts_parsing_progress_queue,
     )
+    accumulated_specs, accumulated_indices = [], []
     for batch_i, (batch_tensor, indices) in enumerate(text_dataset):
         specs = tts_model_spectrogram.generate_spectrogram(tokens=batch_tensor.to(device))
-        audio = vocoder.convert_spectrogram_to_audio(spec=specs)
-        for aud, i in zip(audio, indices):
-            soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud.cpu(), samplerate=22050)
+        accumulated_specs.append(specs)
+        accumulated_indices.append(indices)
+        if batch_i % TTS_SPECTROGRAM_VOCODER_SWITCH_PERIOD == 0:
+            for _specs, _indices in zip(accumulated_specs, accumulated_indices):
+                audio = vocoder.convert_spectrogram_to_audio(spec=_specs)
+                for aud, i in zip(audio, _indices):
+                    soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud.cpu(), samplerate=22050)
+            accumulated_specs, accumulated_indices = [], []
         tts_progress_queue.put(len(indices))
 
 
 def asr_worker(
     rank: int,
-    num_lines_per_process_for_1_iteration: int,
     world_size: int,
     cuda_device: int,
     asr_model: str,
@@ -202,9 +188,7 @@ def asr_worker(
     start_line: int,
     num_lines: int,
 ) -> None:
-    start_line, num_lines_to_process = get_start_and_num_lines(
-        start_line, num_lines, num_lines_per_process_for_1_iteration, rank, world_size
-    )
+    slice_start, num_lines_to_process = get_start_and_num_lines(num_lines, rank, world_size)
     device = torch.device(f'cuda:{cuda_device}')
     asr_model = EncDecCTCModel.from_pretrained(asr_model, map_location=device).eval()
     audio_files = [
@@ -216,7 +200,7 @@ def asr_worker(
     hypotheses = asr_model.transcribe([str(file) for file in audio_files], batch_size=batch_size)
     for file in audio_files:
         file.unlink()
-    output_file = tmp_dir / f'{start_line}_{num_lines_to_process}.txt'
+    output_file = tmp_dir / f'{start_line + slice_start}_{num_lines_to_process}.txt'
     with output_file.open('w') as f:
         for h in hypotheses:
             f.write(h + '\n')
@@ -253,7 +237,6 @@ async def run_asr(cuda_device: int, rank: int, start_line: int, num_lines: int, 
         f"--rank {rank} "
         f"--start_line {start_line} "
         f"--num_lines {num_lines} "
-        f"--num_lines_per_process_for_1_iteration {args.num_lines_per_process_for_1_iteration} "
         f"--asr_model {args.asr_model} "
         f"--asr_batch_size {args.asr_batch_size} "
         f"--tmp_dir {args.tmp_dir}"
@@ -275,20 +258,34 @@ async def main() -> None:
     elif args.tmp_dir.is_file():
         args.tmp_dir.unlink()
     args.tmp_dir.mkdir(parents=True, exist_ok=True)
+    normalizer = Normalizer(input_case='cased', lang='en')
     with Progress(num_lines, ["TTS parsing", "TTS"], 'line') as progress_queues:
-        for start_line in range(0, num_lines, args.num_lines_per_process_for_1_iteration * len(args.cuda_devices)):
-            tmp.spawn(
-                tts_worker,
-                args=(args, start_line, num_lines, progress_queues[0], progress_queues[1]),
-                nprocs=len(args.cuda_devices),
-                join=True,
-            )
-            await asyncio.gather(
-                *[
-                    run_asr(cuda_device, rank, start_line, num_lines, args)
-                    for rank, cuda_device in enumerate(args.cuda_devices)
-                ]
-            )
+        with args.input.open() as f:
+            start_line = 0
+            while True:
+                lines = []
+                for _ in range(args.num_lines_per_process_for_1_iteration * len(args.cuda_devices)):
+                    line = f.readline()
+                    if line:
+                        lines.append(line)
+                    else:
+                        break
+                if not lines:
+                    break
+                lines = normalizer.normalize_list_parallel(lines, verbose=False)
+                tmp.spawn(
+                    tts_worker,
+                    args=(args, start_line, lines, progress_queues[0], progress_queues[1]),
+                    nprocs=len(args.cuda_devices),
+                    join=True,
+                )
+                await asyncio.gather(
+                    *[
+                        run_asr(cuda_device, rank, start_line, len(lines), args)
+                        for rank, cuda_device in enumerate(args.cuda_devices)
+                    ]
+                )
+                start_line += len(lines)
     logging.info("Uniting text files...")
     unite_text_files(args.tmp_dir, args.output, num_lines)
 

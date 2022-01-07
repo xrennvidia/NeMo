@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import itertools
+import multiprocessing as mp
 from argparse import ArgumentParser
 from collections import OrderedDict
 from typing import List
@@ -94,6 +95,17 @@ class Normalizer:
         else:
             self.processor = None
             print("NeMo NLP is not available. Moses de-tokenization will be skipped.")
+
+    def normalize_list_parallel(
+        self, texts: List[str], verbose=False, punct_post_process: bool = False, n_jobs: int = -1
+    ):
+        if n_jobs <= 0:
+            n_jobs = mp.cpu_count()
+        with mp.Pool(n_jobs) as pool:
+            result = pool.map(
+                NormalizerWorker(self, verbose, punct_post_process), texts, chunksize=len(texts) // n_jobs // 3
+            )
+        return result
 
     def normalize_list(self, texts: List[str], verbose=False, punct_post_process: bool = False) -> List[str]:
         """
@@ -270,6 +282,16 @@ class Normalizer:
         """
         output = pynini.shortestpath(lattice, nshortest=1, unique=True).string()
         return output
+
+
+class NormalizerWorker:
+    def __init__(self, normalizer: Normalizer, verbose: bool, punct_post_process: bool):
+        self.normalizer = normalizer
+        self.verbose = verbose
+        self.punct_post_process = punct_post_process
+
+    def __call__(self, texts: List[str]):
+        return self.normalizer.normalize_list(texts, verbose=self.verbose, punct_post_process=self.punct_post_process)
 
 
 def parse_args():
