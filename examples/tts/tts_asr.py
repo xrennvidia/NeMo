@@ -70,6 +70,9 @@ def get_args() -> argparse.Namespace:
         default=50000,
         help="Number of phone tokens in a batch passed for TTS.",
     )
+    parser.add_argument(
+        "--cuda_devices", type=int, nargs="+", default=[0, 1], help="List of CUDA devices used for training."
+    )
     args = parser.parse_args()
     args.input = args.input.expanduser()
     args.output = args.output.expanduser()
@@ -145,7 +148,6 @@ def get_start_and_num_lines(
 
 def tts_worker(
     rank: int,
-    world_size: int,
     args: argparse.Namespace,
     start_line: int,
     num_lines: int,
@@ -153,9 +155,9 @@ def tts_worker(
     tts_progress_queue: mp.Queue,
 ) -> None:
     start_line, num_lines_to_process = get_start_and_num_lines(
-        start_line, num_lines, args.num_lines_per_process_for_1_iteration, rank, world_size
+        start_line, num_lines, args.num_lines_per_process_for_1_iteration, rank, len(args.cuda_devices)
     )
-    device = torch.device(f'cuda:{rank}')
+    device = torch.device(f'cuda:{args.cuda_devices[rank]}')
     tts_model_spectrogram = SpectrogramGenerator.from_pretrained(args.tts_model_spectrogram, map_location=device)
     vocoder = Vocoder.from_pretrained(args.tts_model_vocoder, map_location=device)
     text_dataset = TTSDataset(
@@ -179,11 +181,11 @@ def tts_worker(
         tts_progress_queue.put(len(indices))
 
 
-def asr_worker(rank: int, world_size: int, args: argparse.Namespace, start_line: int, num_lines: int) -> None:
+def asr_worker(rank: int, args: argparse.Namespace, start_line: int, num_lines: int) -> None:
     start_line, num_lines_to_process = get_start_and_num_lines(
-        start_line, num_lines, args.num_lines_per_process_for_1_iteration, rank, world_size
+        start_line, num_lines, args.num_lines_per_process_for_1_iteration, rank, len(args.cuda_devices)
     )
-    device = torch.device(f'cuda:{rank}')
+    device = torch.device(f'cuda:{args.cuda_devices[rank]}')
     asr_model = EncDecCTCModel.from_pretrained(args.asr_model, map_location=device)
     audio_files = [
         file
@@ -224,19 +226,24 @@ def unite_text_files(tmp_dir: Path, output: Path, num_lines: int) -> None:
 def main() -> None:
     args = get_args()
     world_size = torch.cuda.device_count()
+    if any([d >= world_size for d in args.cuda_devices]):
+        raise ValueError(
+            f"Some values of `--cuda_devices` argument are greater or equal than number of GPUs {world_size}. "
+            f"Devices: {args.cuda_devices}."
+        )
     num_lines = count_lines(args.input)
     with Progress(num_lines, ["TTS parsing", "TTS"], 'line') as progress_queues:
-        for start_line in range(0, num_lines, args.num_lines_per_process_for_1_iteration * world_size):
+        for start_line in range(0, num_lines, args.num_lines_per_process_for_1_iteration * len(args.cuda_devices)):
             tmp.spawn(
                 tts_worker,
-                args=(world_size, args, start_line, num_lines, progress_queues[0], progress_queues[1]),
-                nprocs=world_size,
+                args=(args, start_line, num_lines, progress_queues[0], progress_queues[1]),
+                nprocs=len(args.cuda_devices),
                 join=True,
             )
             tmp.spawn(
                 asr_worker,
-                args=(world_size, args, start_line, num_lines),
-                nprocs=world_size,
+                args=(args, start_line, num_lines),
+                nprocs=len(args.cuda_devices),
                 join=True,
             )
     logging.info("Uniting text files...")
