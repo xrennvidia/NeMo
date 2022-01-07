@@ -1,5 +1,7 @@
 import argparse
+import asyncio
 import multiprocessing as mp
+import shutil
 from pathlib import Path
 from subprocess import run, PIPE
 from typing import List, Tuple
@@ -168,7 +170,6 @@ def tts_worker(
         args.tokens_in_batch,
         tts_parsing_progress_queue,
     )
-    args.tmp_dir.mkdir(parents=True, exist_ok=True)
     for batch_i, (batch_tensor, indices) in enumerate(text_dataset):
         specs = tts_model_spectrogram.generate_spectrogram(tokens=batch_tensor.to(device))
         audio = vocoder.convert_spectrogram_to_audio(spec=specs)
@@ -177,22 +178,31 @@ def tts_worker(
         tts_progress_queue.put(len(indices))
 
 
-def asr_worker(rank: int, args: argparse.Namespace, start_line: int, num_lines: int) -> None:
+def asr_worker(
+    rank: int,
+    num_lines_per_process_for_1_iteration: int,
+    world_size: int,
+    cuda_device: int,
+    asr_model: str,
+    tmp_dir: Path,
+    start_line: int,
+    num_lines: int,
+) -> None:
     start_line, num_lines_to_process = get_start_and_num_lines(
-        start_line, num_lines, args.num_lines_per_process_for_1_iteration, rank, len(args.cuda_devices)
+        start_line, num_lines, num_lines_per_process_for_1_iteration, rank, world_size
     )
-    device = torch.device(f'cuda:{args.cuda_devices[rank]}')
-    asr_model = EncDecCTCModel.from_pretrained(args.asr_model, map_location=device).eval()
+    device = torch.device(f'cuda:{cuda_device}')
+    asr_model = EncDecCTCModel.from_pretrained(asr_model, map_location=device).eval()
     audio_files = [
         file
-        for file in args.tmp_dir.iterdir()
+        for file in tmp_dir.iterdir()
         if file.suffixes == [f'.proc{rank}', '.wav'] and file.is_file()
     ]
     print("len(audio_files):", len(audio_files))
     hypotheses = asr_model.transcribe([str(file) for file in audio_files])
     for file in audio_files:
         file.unlink()
-    output_file = args.tmp_dir / f'{start_line}_{num_lines_to_process}.txt'
+    output_file = tmp_dir / f'{start_line}_{num_lines_to_process}.txt'
     with output_file.open('w') as f:
         for h in hypotheses:
             f.write(h + '\n')
@@ -204,7 +214,9 @@ def check_and_sort_text_files(files: List[Path], num_lines: int) -> List[Path]:
     for i, file in enumerate(files):
         nl = int(file.stem.split('_')[1])
         if i < len(files) - 1:
-            assert int(file.stem.split('_')[0]) + nl == int(files[i + 1].stem.split('_')[0])
+            assert int(file.stem.split('_')[0]) + nl == int(files[i + 1].stem.split('_')[0]), (
+                f"i={i} file={file} files[{i+1}]={files[i+1]} nl={nl}"
+            )
         detected_num_lines += nl
     assert detected_num_lines == num_lines
     return files
@@ -219,7 +231,22 @@ def unite_text_files(tmp_dir: Path, output: Path, num_lines: int) -> None:
                 out_f.write(tf.read())
 
 
-def main() -> None:
+async def run_asr(cuda_device: int, rank: int, start_line: int, num_lines: int, args: argparse.Namespace) -> None:
+    proc = await asyncio.create_subprocess_shell(
+        f"python asr_1_process.py "
+        f"--cuda_device {cuda_device} "
+        f"--world_size {len(args.cuda_devices)} "
+        f"--rank {rank} "
+        f"--start_line {start_line} "
+        f"--num_lines {num_lines} "
+        f"--num_lines_per_process_for_1_iteration {args.num_lines_per_process_for_1_iteration} "
+        f"--asr_model {args.asr_model} "
+        f"--tmp_dir {args.tmp_dir}"
+    )
+    await proc.communicate()
+
+
+async def main() -> None:
     args = get_args()
     world_size = torch.cuda.device_count()
     if any([d >= world_size for d in args.cuda_devices]):
@@ -228,6 +255,11 @@ def main() -> None:
             f"Devices: {args.cuda_devices}."
         )
     num_lines = count_lines(args.input)
+    if args.tmp_dir.is_dir():
+        shutil.rmtree(args.tmp_dir)
+    elif args.tmp_dir.is_file():
+        args.tmp_dir.unlink()
+    args.tmp_dir.mkdir(parents=True, exist_ok=True)
     with Progress(num_lines, ["TTS parsing", "TTS"], 'line') as progress_queues:
         for start_line in range(0, num_lines, args.num_lines_per_process_for_1_iteration * len(args.cuda_devices)):
             tmp.spawn(
@@ -236,17 +268,21 @@ def main() -> None:
                 nprocs=len(args.cuda_devices),
                 join=True,
             )
+            await asyncio.gather(
+                run_asr(cuda_device, rank, start_line, num_lines, args)
+                for rank, cuda_device in enumerate(args.cuda_devices)
+            )
             # tmp.spawn(
             #     asr_worker,
             #     args=(args, start_line, num_lines),
             #     nprocs=len(args.cuda_devices),
             #     join=True,
             # )
-            asr_worker(0, args, start_line, num_lines)
-            asr_worker(1, args, start_line, num_lines)
+            # asr_worker(0, args, start_line, num_lines)
+            # asr_worker(1, args, start_line, num_lines)
     logging.info("Uniting text files...")
     unite_text_files(args.tmp_dir, args.output, num_lines)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
