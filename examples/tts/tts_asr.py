@@ -226,7 +226,7 @@ def check_and_sort_text_files(files: List[Path], num_lines: int) -> List[Path]:
                 f"i={i} file={file} files[{i+1}]={files[i+1]} nl={nl}"
             )
         detected_num_lines += nl
-    assert detected_num_lines == num_lines
+    assert detected_num_lines == num_lines, f"detected_num_lines={detected_num_lines} num_lines={num_lines}"
     return files
 
 
@@ -249,6 +249,7 @@ async def run_asr(cuda_device: int, rank: int, start_line: int, num_lines: int, 
         f"--num_lines {num_lines} "
         f"--num_lines_per_process_for_1_iteration {args.num_lines_per_process_for_1_iteration} "
         f"--asr_model {args.asr_model} "
+        f"--asr_batch_size {args.asr_batch_size} "
         f"--tmp_dir {args.tmp_dir}"
     )
     await proc.communicate()
