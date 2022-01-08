@@ -275,6 +275,7 @@ async def main() -> None:
                     break
                 assert all(lines)
                 lines = normalizer.normalize_list_parallel(lines, verbose=False)
+                print("(main)len(lines):", len(lines))
                 assert isinstance(lines, list) and all([isinstance(line, str) for line in lines])
                 tmp.spawn(
                     tts_worker,
