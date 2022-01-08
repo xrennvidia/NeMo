@@ -67,7 +67,7 @@ def get_args() -> argparse.Namespace:
         type=int,
         help="Number of lines in `--input` file which will be augmented. Lines in the beginning of the file are used."
         "Be default all lines are augmented.",
-        default=25 * 10 ** 3,
+        default=5 * 10 ** 4,
     )
     parser.add_argument(
         "--tts_tokens_in_batch",
@@ -78,7 +78,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--asr_batch_size",
         type=int,
-        default=40,
+        default=120,
         help="Number of phone tokens in a batch passed for TTS.",
     )
     parser.add_argument(
@@ -159,8 +159,9 @@ def tts_worker(
     args: argparse.Namespace,
     lines: List[str],
     start_line: int,
-    tts_parsing_progress_queue: mp.Queue,
-    tts_progress_queue: mp.Queue,
+    parsing_progress_queue: mp.Queue,
+    spectrogram_progress_queue: mp.Queue,
+    vocoder_progress_queue: mp.Queue
 ) -> None:
     with torch.no_grad():
         slice_start, num_lines_to_process = get_start_and_num_lines(len(lines), rank, len(args.cuda_devices))
@@ -174,7 +175,7 @@ def tts_worker(
             start_line + slice_start,
             tts_model_spectrogram,
             args.tts_tokens_in_batch,
-            tts_parsing_progress_queue,
+            parsing_progress_queue,
         )
         accumulated_specs, accumulated_indices = [], []
         for batch_i, (batch_tensor, indices) in enumerate(text_dataset):
@@ -183,16 +184,18 @@ def tts_worker(
             accumulated_indices.append(indices)
             if (batch_i + 1) % TTS_SPECTROGRAM_VOCODER_SWITCH_PERIOD == 0:
                 for _specs, _indices in zip(accumulated_specs, accumulated_indices):
-                    audio = vocoder.convert_spectrogram_to_audio(spec=_specs)
+                    audio = vocoder.convert_spectrogram_to_audio(spec=_specs).cpu()
                     for aud, i in zip(audio, _indices):
-                        soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud.cpu(), samplerate=22050)
+                        soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud, samplerate=22050)
+                    vocoder_progress_queue.put(len(_indices))
                 accumulated_specs, accumulated_indices = [], []
-            tts_progress_queue.put(len(indices))
+            spectrogram_progress_queue.put(len(indices))
         if accumulated_specs:
             for _specs, _indices in zip(accumulated_specs, accumulated_indices):
                 audio = vocoder.convert_spectrogram_to_audio(spec=_specs)
                 for aud, i in zip(audio, _indices):
                     soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud.cpu(), samplerate=22050)
+                vocoder_progress_queue.put(len(_indices))
 
 
 def asr_worker(
@@ -276,7 +279,11 @@ async def main() -> None:
         args.tmp_dir.unlink()
     args.tmp_dir.mkdir(parents=True, exist_ok=True)
     normalizer = Normalizer(input_case='cased', lang='en')
-    with Progress(num_lines, ["TTS parsing", "TTS"], 'line') as progress_queues:
+    with Progress(
+        num_lines,
+        ["TTS parsing", "TTS spectrogram generation", "TTS vocoder"],
+        'line'
+    ) as progress_queues:
         with args.input.open() as f:
             start_line = 0
             while True:
@@ -294,7 +301,7 @@ async def main() -> None:
                 assert isinstance(lines, list) and all([isinstance(line, str) for line in lines])
                 tmp.spawn(
                     tts_worker,
-                    args=(args, lines, start_line, progress_queues[0], progress_queues[1]),
+                    args=(args, lines, start_line, *progress_queues),
                     nprocs=len(args.cuda_devices),
                     join=True,
                 )
