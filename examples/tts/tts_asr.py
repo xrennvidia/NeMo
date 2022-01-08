@@ -273,7 +273,12 @@ async def main() -> None:
                         break
                 if not lines:
                     break
+                assert all(lines)
                 lines = normalizer.normalize_list_parallel(lines, verbose=False)
+                for i, line in enumerate(lines):
+                    if not line:
+                        print("Empty lines:", i, end=' ')
+                print()
                 assert isinstance(lines, list) and all([isinstance(line, str) for line in lines])
                 tmp.spawn(
                     tts_worker,
