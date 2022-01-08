@@ -102,7 +102,6 @@ class TTSDataset(Dataset):
         logging.info(f"Looking for start line.")
         tokenized_lines_with_indices = []
         for i, line in enumerate(lines, start=start_line):
-            print("line:", line)
             if i % TTS_PARSING_REPORT_PERIOD == 0:
                 tts_parsing_progress_queue.put(min(TTS_PARSING_REPORT_PERIOD, i - start_line))
             tokenized_lines_with_indices.append((tts_model_spectrogram.parse(line), i))
@@ -198,6 +197,7 @@ def asr_worker(
         if file.suffixes == [f'.proc{rank}', '.wav'] and file.is_file()
     ]
     audio_files = sorted(audio_files, key=lambda x: int(x.stem.split('.')[0]))
+    print("(asr_worker)audio_files:", audio_files)
     hypotheses = asr_model.transcribe([str(file) for file in audio_files], batch_size=batch_size)
     for file in audio_files:
         file.unlink()
@@ -268,8 +268,6 @@ async def main() -> None:
                 for i in range(args.num_lines_per_process_for_1_iteration * len(args.cuda_devices)):
                     line = f.readline()
                     if line:
-                        if line == ' ':
-                            print(i)
                         lines.append(line)
                     else:
                         break
@@ -277,11 +275,6 @@ async def main() -> None:
                     break
                 assert all(lines)
                 lines = normalizer.normalize_list_parallel(lines, verbose=False)
-                print("Empty lines:")
-                for i, line in enumerate(lines):
-                    if not line:
-                        print(i, end=' ')
-                print()
                 assert isinstance(lines, list) and all([isinstance(line, str) for line in lines])
                 tmp.spawn(
                     tts_worker,
