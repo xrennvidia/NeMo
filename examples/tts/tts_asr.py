@@ -4,6 +4,7 @@ import multiprocessing as mp
 import shutil
 from pathlib import Path
 from subprocess import run, PIPE
+from time import sleep
 from typing import List, Tuple
 
 import soundfile
@@ -161,36 +162,40 @@ def tts_worker(
     tts_parsing_progress_queue: mp.Queue,
     tts_progress_queue: mp.Queue,
 ) -> None:
-    slice_start, num_lines_to_process = get_start_and_num_lines(len(lines), rank, len(args.cuda_devices))
-    device = torch.device(f'cuda:{args.cuda_devices[rank]}')
-    tts_model_spectrogram = SpectrogramGenerator.from_pretrained(args.tts_model_spectrogram, map_location=device).eval()
-    vocoder = Vocoder.from_pretrained(args.tts_model_vocoder, map_location=device).eval()
-    text_dataset = TTSDataset(
-        lines[slice_start : slice_start + num_lines_to_process],
-        start_line + slice_start,
-        tts_model_spectrogram,
-        args.tts_tokens_in_batch,
-        tts_parsing_progress_queue,
-    )
-    accumulated_specs, accumulated_indices = [], []
-    for batch_i, (batch_tensor, indices) in enumerate(text_dataset):
-        print("batch_tensor.shape:", batch_tensor.shape)
-        specs = tts_model_spectrogram.generate_spectrogram(tokens=batch_tensor.to(device)).cpu()
-        print("specs.shape:", specs.shape)
-        accumulated_specs.append(specs)
-        accumulated_indices.append(indices)
-        if (batch_i + 1) % TTS_SPECTROGRAM_VOCODER_SWITCH_PERIOD == 0:
+    with torch.no_grad():
+        slice_start, num_lines_to_process = get_start_and_num_lines(len(lines), rank, len(args.cuda_devices))
+        device = torch.device(f'cuda:{args.cuda_devices[rank]}')
+        tts_model_spectrogram = SpectrogramGenerator.from_pretrained(
+            args.tts_model_spectrogram, map_location=device
+        ).eval()
+        vocoder = Vocoder.from_pretrained(args.tts_model_vocoder, map_location=device).eval()
+        text_dataset = TTSDataset(
+            lines[slice_start : slice_start + num_lines_to_process],
+            start_line + slice_start,
+            tts_model_spectrogram,
+            args.tts_tokens_in_batch,
+            tts_parsing_progress_queue,
+        )
+        accumulated_specs, accumulated_indices = [], []
+        for batch_i, (batch_tensor, indices) in enumerate(text_dataset):
+            print("batch_tensor.shape:", batch_tensor.shape)
+            specs = tts_model_spectrogram.generate_spectrogram(tokens=batch_tensor.to(device)).cpu()
+            sleep(0.1)
+            print("specs.shape:", specs.shape)
+            accumulated_specs.append(specs)
+            accumulated_indices.append(indices)
+            if (batch_i + 1) % TTS_SPECTROGRAM_VOCODER_SWITCH_PERIOD == 0:
+                for _specs, _indices in zip(accumulated_specs, accumulated_indices):
+                    audio = vocoder.convert_spectrogram_to_audio(spec=_specs.to(device))
+                    for aud, i in zip(audio, _indices):
+                        soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud.cpu(), samplerate=22050)
+                accumulated_specs, accumulated_indices = [], []
+            tts_progress_queue.put(len(indices))
+        if accumulated_specs:
             for _specs, _indices in zip(accumulated_specs, accumulated_indices):
-                audio = vocoder.convert_spectrogram_to_audio(spec=_specs.to(device))
+                audio = vocoder.convert_spectrogram_to_audio(spec=_specs)
                 for aud, i in zip(audio, _indices):
                     soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud.cpu(), samplerate=22050)
-            accumulated_specs, accumulated_indices = [], []
-        tts_progress_queue.put(len(indices))
-    if accumulated_specs:
-        for _specs, _indices in zip(accumulated_specs, accumulated_indices):
-            audio = vocoder.convert_spectrogram_to_audio(spec=_specs)
-            for aud, i in zip(audio, _indices):
-                soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud.cpu(), samplerate=22050)
 
 
 def asr_worker(
