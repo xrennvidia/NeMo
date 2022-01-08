@@ -291,6 +291,11 @@ class NormalizerWorker:
         self.punct_post_process = punct_post_process
 
     def __call__(self, texts: List[str]):
+        print("(NormalizerWorker.__call__)Empty texts")
+        for i, text in enumerate(texts):
+            if not text:
+                print(i, end=' ')
+        print()
         return self.normalizer.normalize_list(texts, verbose=self.verbose, punct_post_process=self.punct_post_process)
 
 
