@@ -102,6 +102,7 @@ class TTSDataset(Dataset):
         logging.info(f"Looking for start line.")
         tokenized_lines_with_indices = []
         for i, line in enumerate(lines, start=start_line):
+            print("line:", line)
             if i % TTS_PARSING_REPORT_PERIOD == 0:
                 tts_parsing_progress_queue.put(min(TTS_PARSING_REPORT_PERIOD, i - start_line))
             tokenized_lines_with_indices.append((tts_model_spectrogram.parse(line), i))
