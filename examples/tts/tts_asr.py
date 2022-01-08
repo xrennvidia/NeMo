@@ -86,7 +86,6 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--n_jobs",
         type=int,
-        default=None,
         help="Number of jobs used for Inverse text normalization. Be default `--n_jobs` parameter is equal to number "
         "of CPU cores",
     )
@@ -94,6 +93,8 @@ def get_args() -> argparse.Namespace:
     args.input = args.input.expanduser()
     args.output = args.output.expanduser()
     args.tmp_dir = args.tmp_dir.expanduser()
+    if args.n_jobs is None:
+        args.n_jobs = mp.cpu_count()
     return args
 
 
