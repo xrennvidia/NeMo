@@ -98,14 +98,14 @@ class Normalizer:
 
     def normalize_list_parallel(
         self, texts: List[str], verbose=False, punct_post_process: bool = False, n_jobs: int = -1
-    ):
+    ) -> List[str]:
         if n_jobs <= 0:
             n_jobs = mp.cpu_count()
         with mp.Pool(n_jobs) as pool:
             result = pool.map(
                 NormalizerWorker(self, verbose, punct_post_process), texts, chunksize=len(texts) // n_jobs // 3
             )
-        return result
+        return list(itertools.chain(*result))
 
     def normalize_list(self, texts: List[str], verbose=False, punct_post_process: bool = False) -> List[str]:
         """
