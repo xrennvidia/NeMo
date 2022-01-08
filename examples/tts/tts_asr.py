@@ -265,9 +265,11 @@ async def main() -> None:
             start_line = 0
             while True:
                 lines = []
-                for _ in range(args.num_lines_per_process_for_1_iteration * len(args.cuda_devices)):
+                for i in range(args.num_lines_per_process_for_1_iteration * len(args.cuda_devices)):
                     line = f.readline()
                     if line:
+                        if line == ' ':
+                            print(i)
                         lines.append(line)
                     else:
                         break
