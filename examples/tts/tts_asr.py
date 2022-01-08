@@ -153,10 +153,12 @@ def tts_worker(
     tts_parsing_progress_queue: mp.Queue,
     tts_progress_queue: mp.Queue,
 ) -> None:
+    print("(tts_worker)len(lines):", len(lines))
     slice_start, num_lines_to_process = get_start_and_num_lines(len(lines), rank, len(args.cuda_devices))
     device = torch.device(f'cuda:{args.cuda_devices[rank]}')
     tts_model_spectrogram = SpectrogramGenerator.from_pretrained(args.tts_model_spectrogram, map_location=device).eval()
     vocoder = Vocoder.from_pretrained(args.tts_model_vocoder, map_location=device).eval()
+    print("(tts_worker)slice_start, num_lines_to_process:", slice_start, num_lines_to_process)
     text_dataset = TTSDataset(
         lines[slice_start : slice_start + num_lines_to_process],
         start_line + slice_start,
