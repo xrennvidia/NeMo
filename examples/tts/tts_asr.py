@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import multiprocessing as mp
 import shutil
+from math import ceil
 from pathlib import Path
 from subprocess import run, PIPE
 from time import sleep
@@ -21,6 +22,7 @@ from nemo_text_processing.text_normalization.normalize import Normalizer
 
 TTS_PARSING_REPORT_PERIOD = 100
 TTS_SPECTROGRAM_VOCODER_SWITCH_PERIOD = 200
+NUM_ASR_BATCHES_LOADED_SIMULTANEOUSLY = 32
 
 
 def get_args() -> argparse.Namespace:
@@ -217,7 +219,13 @@ def asr_worker(
         if file.suffixes == [f'.proc{rank}', '.wav'] and file.is_file()
     ]
     audio_files = sorted(audio_files, key=lambda x: int(x.stem.split('.')[0]))
-    hypotheses = asr_model.transcribe([str(file) for file in audio_files], batch_size=batch_size)
+    hypotheses = []
+    for start in range(0, len(audio_files), batch_size * NUM_ASR_BATCHES_LOADED_SIMULTANEOUSLY):
+        hypotheses += asr_model.transcribe(
+            [str(file) for file in audio_files[start : batch_size * NUM_ASR_BATCHES_LOADED_SIMULTANEOUSLY]],
+            batch_size=batch_size,
+            num_workers=min(ceil(mp.cpu_count() / world_size), batch_size),
+        )
     for file in audio_files:
         file.unlink()
     output_file = tmp_dir / f'{start_line + slice_start}_{num_lines_to_process}.txt'
