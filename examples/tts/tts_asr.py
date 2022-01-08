@@ -153,12 +153,10 @@ def tts_worker(
     tts_parsing_progress_queue: mp.Queue,
     tts_progress_queue: mp.Queue,
 ) -> None:
-    print("(tts_worker)len(lines):", len(lines))
     slice_start, num_lines_to_process = get_start_and_num_lines(len(lines), rank, len(args.cuda_devices))
     device = torch.device(f'cuda:{args.cuda_devices[rank]}')
     tts_model_spectrogram = SpectrogramGenerator.from_pretrained(args.tts_model_spectrogram, map_location=device).eval()
     vocoder = Vocoder.from_pretrained(args.tts_model_vocoder, map_location=device).eval()
-    print("(tts_worker)slice_start, num_lines_to_process:", slice_start, num_lines_to_process)
     text_dataset = TTSDataset(
         lines[slice_start : slice_start + num_lines_to_process],
         start_line + slice_start,
@@ -168,7 +166,6 @@ def tts_worker(
     )
     accumulated_specs, accumulated_indices = [], []
     for batch_i, (batch_tensor, indices) in enumerate(text_dataset):
-        print("(tts_worker)batch_tensor.shape:", batch_tensor.shape)
         specs = tts_model_spectrogram.generate_spectrogram(tokens=batch_tensor.to(device))
         accumulated_specs.append(specs)
         accumulated_indices.append(indices)
@@ -205,7 +202,6 @@ def asr_worker(
         if file.suffixes == [f'.proc{rank}', '.wav'] and file.is_file()
     ]
     audio_files = sorted(audio_files, key=lambda x: int(x.stem.split('.')[0]))
-    print("(asr_worker)audio_files:", audio_files)
     hypotheses = asr_model.transcribe([str(file) for file in audio_files], batch_size=batch_size)
     for file in audio_files:
         file.unlink()
@@ -283,7 +279,6 @@ async def main() -> None:
                     break
                 assert all(lines)
                 lines = normalizer.normalize_list_parallel(lines, verbose=False)
-                print("(main)len(lines):", len(lines))
                 assert isinstance(lines, list) and all([isinstance(line, str) for line in lines])
                 tmp.spawn(
                     tts_worker,
