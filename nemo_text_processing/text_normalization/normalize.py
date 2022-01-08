@@ -290,13 +290,22 @@ class NormalizerWorker:
         self.verbose = verbose
         self.punct_post_process = punct_post_process
 
-    def __call__(self, texts: List[str]):
+    def __call__(self, texts: List[str]) -> List[str]:
         print("(NormalizerWorker.__call__)Empty texts")
         for i, text in enumerate(texts):
             if not text:
                 print(i, end=' ')
         print()
-        return self.normalizer.normalize_list(texts, verbose=self.verbose, punct_post_process=self.punct_post_process)
+        normalized = self.normalizer.normalize_list(
+            texts, verbose=self.verbose, punct_post_process=self.punct_post_process
+        )
+        assert isinstance(normalized, list) and all([isinstance(line, str) for line in normalized])
+        print("(NormalizerWorker.__call__)Empty texts")
+        for i, text in enumerate(normalized):
+            if not text:
+                print(i, repr(texts[i]), repr(text))
+        print()
+        return normalized
 
 
 def parse_args():
