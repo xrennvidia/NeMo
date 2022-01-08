@@ -39,6 +39,9 @@ except (ModuleNotFoundError, ImportError):
     NLP_AVAILABLE = False
 
 
+NORMALIZE_CHUNK_SIZE = 100
+
+
 class Normalizer:
     """
     Normalizer class that converts text from written to spoken form. 
@@ -101,9 +104,10 @@ class Normalizer:
     ) -> List[str]:
         if n_jobs <= 0:
             n_jobs = mp.cpu_count()
+        texts = [texts[i : i + NORMALIZE_CHUNK_SIZE] for i in range(0, len(texts), NORMALIZE_CHUNK_SIZE)]
         with mp.Pool(n_jobs) as pool:
             result = pool.map(
-                NormalizerWorker(self, verbose, punct_post_process), texts, chunksize=len(texts) // n_jobs // 3
+                NormalizerWorker(self, verbose, punct_post_process), texts
             )
         return list(itertools.chain(*result))
 
