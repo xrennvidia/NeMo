@@ -174,7 +174,9 @@ def tts_worker(
     )
     accumulated_specs, accumulated_indices = [], []
     for batch_i, (batch_tensor, indices) in enumerate(text_dataset):
+        print("batch_tensor.shape:", batch_tensor.shape)
         specs = tts_model_spectrogram.generate_spectrogram(tokens=batch_tensor.to(device))
+        print("specs.shape:", specs.shape)
         accumulated_specs.append(specs)
         accumulated_indices.append(indices)
         if (batch_i + 1) % TTS_SPECTROGRAM_VOCODER_SWITCH_PERIOD == 0:
