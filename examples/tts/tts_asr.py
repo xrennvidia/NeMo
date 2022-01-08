@@ -71,7 +71,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--tts_tokens_in_batch",
         type=int,
-        default=400000,
+        default=50000,
         help="Number of phone tokens in a batch passed for TTS.",
     )
     parser.add_argument(
@@ -82,6 +82,13 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--cuda_devices", type=int, nargs="+", default=[0, 1], help="List of CUDA devices used for training."
+    )
+    parser.add_argument(
+        "--n_jobs",
+        type=int,
+        default=None,
+        help="Number of jobs used for Inverse text normalization. Be default `--n_jobs` parameter is equal to number "
+        "of CPU cores",
     )
     args = parser.parse_args()
     args.input = args.input.expanduser()

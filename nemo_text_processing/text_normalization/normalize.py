@@ -39,7 +39,7 @@ except (ModuleNotFoundError, ImportError):
     NLP_AVAILABLE = False
 
 
-NORMALIZE_CHUNK_SIZE = 100
+NORMALIZE_CHUNK_SIZE = 200
 
 
 class Normalizer:
