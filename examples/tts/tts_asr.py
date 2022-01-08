@@ -175,13 +175,13 @@ def tts_worker(
     accumulated_specs, accumulated_indices = [], []
     for batch_i, (batch_tensor, indices) in enumerate(text_dataset):
         print("batch_tensor.shape:", batch_tensor.shape)
-        specs = tts_model_spectrogram.generate_spectrogram(tokens=batch_tensor.to(device))
+        specs = tts_model_spectrogram.generate_spectrogram(tokens=batch_tensor.to(device)).cpu()
         print("specs.shape:", specs.shape)
         accumulated_specs.append(specs)
         accumulated_indices.append(indices)
         if (batch_i + 1) % TTS_SPECTROGRAM_VOCODER_SWITCH_PERIOD == 0:
             for _specs, _indices in zip(accumulated_specs, accumulated_indices):
-                audio = vocoder.convert_spectrogram_to_audio(spec=_specs)
+                audio = vocoder.convert_spectrogram_to_audio(spec=_specs.to(device))
                 for aud, i in zip(audio, _indices):
                     soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud.cpu(), samplerate=22050)
             accumulated_specs, accumulated_indices = [], []
