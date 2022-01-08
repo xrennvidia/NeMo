@@ -72,7 +72,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--tts_tokens_in_batch",
         type=int,
-        default=500,
+        default=50000,
         help="Number of phone tokens in a batch passed for TTS.",
     )
     parser.add_argument(
@@ -179,7 +179,6 @@ def tts_worker(
         accumulated_specs, accumulated_indices = [], []
         for batch_i, (batch_tensor, indices) in enumerate(text_dataset):
             specs = tts_model_spectrogram.generate_spectrogram(tokens=batch_tensor.to(device))
-            sleep(0.1)
             accumulated_specs.append(specs)
             accumulated_indices.append(indices)
             if (batch_i + 1) % TTS_SPECTROGRAM_VOCODER_SWITCH_PERIOD == 0:
