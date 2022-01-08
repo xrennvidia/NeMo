@@ -273,6 +273,7 @@ async def main() -> None:
                 if not lines:
                     break
                 lines = normalizer.normalize_list_parallel(lines, verbose=False)
+                assert isinstance(lines, list) and all([isinstance(line, str) for line in lines])
                 tmp.spawn(
                     tts_worker,
                     args=(args, lines, start_line, progress_queues[0], progress_queues[1]),
