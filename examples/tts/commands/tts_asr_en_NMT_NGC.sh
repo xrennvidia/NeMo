@@ -13,7 +13,7 @@ python tts_asr.py \
   --input /data/train.en \
   --output /result/train__tts_en_fastpitch__tts_squeezewave__QuartzNet15x5Base-En.en \
   --tmp_dir /raid/tmp \
-  --num_lines_per_process_for_1_iteration 50000 \
+  --num_lines_per_process_for_1_iteration 24000 \
   --cuda_devices 0 1 2 3 4 5 6 7 \
   --asr_batch_size 48 \
   --tts_tokens_in_batch 15000

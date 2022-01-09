@@ -92,6 +92,11 @@ def get_args() -> argparse.Namespace:
         help="Number of jobs used for Inverse text normalization. Be default `--n_jobs` parameter is equal to number "
         "of CPU cores",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="If provided resumes from the last complete text file."
+    )
     args = parser.parse_args()
     args.input = args.input.expanduser()
     args.output = args.output.expanduser()
@@ -272,6 +277,26 @@ async def run_asr(cuda_device: int, rank: int, start_line: int, num_lines: int, 
     await proc.communicate()
 
 
+def incomplete(text_file: Path) -> bool:
+    num_lines = int(text_file.stem.split('_')[1])
+    return num_lines != count_lines(text_file)
+
+
+def prepare_for_resuming_and_get_start_line(tmp_dir: Path) -> int:
+    for file in tmp_dir.iterdir():
+        if file.is_file() and file.suffix == '.wav':
+            file.unlink()
+    text_files = sorted(
+        [file for file in tmp_dir.iterdir() if file.suffix == '.txt'], key=lambda x: int(x.stem.split('_')[0])
+    )
+    start_line = 0
+    for text_file in text_files:
+        if incomplete(text_file):
+            start_line = int(text_file.stem.split('_')[0])
+            break
+    return start_line
+
+
 async def main() -> None:
     args = get_args()
     world_size = torch.cuda.device_count()
@@ -281,10 +306,14 @@ async def main() -> None:
             f"Devices: {args.cuda_devices}."
         )
     num_lines = count_lines(args.input)
-    if args.tmp_dir.is_dir():
-        shutil.rmtree(args.tmp_dir)
-    elif args.tmp_dir.is_file():
-        args.tmp_dir.unlink()
+    if args.resume:
+        start_line = prepare_for_resuming_and_get_start_line(args.tmp_dir)
+    else:
+        start_line = 0
+        if args.tmp_dir.is_dir():
+            shutil.rmtree(args.tmp_dir)
+        elif args.tmp_dir.is_file():
+            args.tmp_dir.unlink()
     args.tmp_dir.mkdir(parents=True, exist_ok=True)
     normalizer = Normalizer(input_case='cased', lang='en')
     with Progress(
@@ -293,7 +322,6 @@ async def main() -> None:
         'line'
     ) as progress_queues:
         with args.input.open() as f:
-            start_line = 0
             while True:
                 lines = []
                 for i in range(args.num_lines_per_process_for_1_iteration * len(args.cuda_devices)):
