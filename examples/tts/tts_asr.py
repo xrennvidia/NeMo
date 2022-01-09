@@ -290,10 +290,22 @@ def prepare_for_resuming_and_get_start_line(tmp_dir: Path) -> int:
         [file for file in tmp_dir.iterdir() if file.suffix == '.txt'], key=lambda x: int(x.stem.split('_')[0])
     )
     start_line = 0
-    for text_file in text_files:
+    for i, text_file in enumerate(text_files):
         if incomplete(text_file):
             start_line = int(text_file.stem.split('_')[0])
+            for j in range(i, len(text_files)):
+                text_files[j].unlink()
             break
+        if i > 0:
+            _start_line, num_lines = text_files[i - 1].stem.split('_')
+            if int(_start_line) + int(num_lines) != int(text_file.stem.split('_')[0]):
+                start_line = int(_start_line)
+                for j in range(i - 1, len(text_files)):
+                    text_files[j].unlink()
+                break
+    if start_line == 0 and len(text_files) > 0:
+        _start_line, num_lines = text_files[-1].stem.split('_')
+        start_line = int(_start_line) + int(num_lines)
     return start_line
 
 
