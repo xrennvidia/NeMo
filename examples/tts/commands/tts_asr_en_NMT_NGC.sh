@@ -17,7 +17,7 @@ python tts_asr.py \
   --cuda_devices 0 1 2 3 4 5 6 7 \
   --asr_batch_size 48 \
   --tts_tokens_in_batch 15000 \
-  --resume
+  --resume 2>&1 | tee --append /result/logs.txt
 set +e +x
 EOF
 

@@ -172,6 +172,7 @@ def tts_worker(
 ) -> None:
     with torch.no_grad():
         slice_start, num_lines_to_process = get_start_and_num_lines(len(lines), rank, len(args.cuda_devices))
+        logging.info(f"num_lines_to_process={num_lines_to_process}, len(lines)={len(lines)}")
         device = torch.device(f'cuda:{args.cuda_devices[rank]}')
         tts_model_spectrogram = SpectrogramGenerator.from_pretrained(
             args.tts_model_spectrogram, map_location=device
@@ -224,13 +225,19 @@ def asr_worker(
         if file.suffixes == [f'.proc{rank}', '.wav'] and file.is_file()
     ]
     audio_files = sorted(audio_files, key=lambda x: int(x.stem.split('.')[0]))
+    assert len(audio_files) == num_lines_to_process, (
+        f"len(audio_files)={len(audio_files)} num_lines_to_process={num_lines_to_process}"
+    )
     hypotheses = []
     for start in range(0, len(audio_files), batch_size * NUM_ASR_BATCHES_LOADED_SIMULTANEOUSLY):
         hypotheses += asr_model.transcribe(
-            [str(file) for file in audio_files[start : batch_size * NUM_ASR_BATCHES_LOADED_SIMULTANEOUSLY]],
+            [str(file) for file in audio_files[start : start + batch_size * NUM_ASR_BATCHES_LOADED_SIMULTANEOUSLY]],
             batch_size=batch_size,
             num_workers=min(ceil(mp.cpu_count() / world_size), batch_size),
         )
+    assert len(hypotheses) == num_lines_to_process, (
+        f"len(hypotheses)={len(hypotheses)} num_lines_to_process={num_lines_to_process}"
+    )
     for file in audio_files:
         file.unlink()
     output_file = tmp_dir / f'{start_line + slice_start}_{num_lines_to_process}.txt'
@@ -330,7 +337,7 @@ async def main() -> None:
     args.tmp_dir.mkdir(parents=True, exist_ok=True)
     normalizer = Normalizer(input_case='cased', lang='en')
     with Progress(
-        num_lines,
+        num_lines - start_line,
         ["TTS parsing", "TTS spectrogram generation", "TTS vocoder"],
         'line'
     ) as progress_queues:
