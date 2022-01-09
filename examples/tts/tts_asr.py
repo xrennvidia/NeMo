@@ -308,6 +308,7 @@ async def main() -> None:
     num_lines = count_lines(args.input)
     if args.resume:
         start_line = prepare_for_resuming_and_get_start_line(args.tmp_dir)
+        logging.info(f"Resuming from line {start_line}")
     else:
         start_line = 0
         if args.tmp_dir.is_dir():
