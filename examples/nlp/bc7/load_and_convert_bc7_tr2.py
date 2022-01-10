@@ -29,7 +29,8 @@ class Entity:
         return beginning == self.first_word and remaining == self.remaining
 
 
-def get_targets(documents: List[Dict[str, Any]], topics: bool = False) -> List[Tuple[Any, List[str]]]:
+def get_targets(documents: List[Dict[str, Any]], extract_topics: bool = False) \
+        -> Union[List[Tuple[Any, List[str]]], List[Tuple[Any, List[str], List[str]]]]:
     """
     Extract the named entities that should be recognized from each document's text, and create the labels for it.
 
@@ -45,19 +46,23 @@ def get_targets(documents: List[Dict[str, Any]], topics: bool = False) -> List[T
         abstract_text = doc_class.data.passages[1].text
         annotations = doc_class.data.passages[1].annotations
 
-        labels = set()
+        labels = []
+        topics = []
+        expected_entities = []
 
         for annotation in annotations:
-            if annotation.text == "":
-                continue
+            if extract_topics and annotation.infons.type == "MeSH_Indexing_Chemical":
+                topics.append(annotation.infons.entry_term)
+                expected_entities.append(annotation.infons.entry_term)
 
-            if not topics:
-                labels.add(annotation.text.lower())
+            elif annotation.text != "":
+                labels.append(annotation.text)
+                expected_entities.append(annotation.text)
 
-            elif topics and annotation.infons.type == "MeSH_Indexing_Chemical":
-                labels.add(annotation.text.lower())
-
-        data.append((abstract_text, list(labels)))
+        if not extract_topics:
+            data.append((abstract_text, labels))
+        else:
+            data.append((abstract_text, labels, topics, expected_entities))
 
     return data
 
@@ -75,9 +80,36 @@ def load_and_write_data(input_path: str, output_dir: str, base_output_name: str,
     for entry in data_with_targets:
         inputs, labels = entry
 
-        labels_text = ", ".join(f"\"{item}\"" for item in labels if item != "")
+        labels_text = " ".join(f"{item}" for item in labels if item != "")
 
-        data_entry = {"text": f"<|startoftext|> {prompt_start} {inputs} \n===\n{prompt_end} {labels_text} <|endoftext|>"}
+        text = f"<|endoftext|> {prompt_start} {inputs} {prompt_end} {labels_text} <|endoftext|>"
+        re.sub(" {2,}", " ", text)
+        data_entry = {"text": text}
+
+        json.dump(data_entry, output_data_file)
+        output_data_file.write("\n")
+
+    output_data_file.close()
+
+
+def load_and_write_topics(input_path: str, output_dir: str, base_output_name: str, prompt_start: str, prompt_end: str) \
+        -> None:
+    data_corpus = parse_data(input_path)
+    data_with_topics = get_targets(data_corpus, extract_topics=True)
+
+    output_data_file = open(os.path.join(output_dir, f"{base_output_name}_topics_indexing.json"), "w+")
+
+    for entry in data_with_topics:
+        abstract_text, entities, topics, expected_entities = entry
+
+        entities_text = " ".join(entities)
+        topics_text = " ".join(topics)
+        expected_entities_text = " ".join(f"{item}" for item in expected_entities if item != "")
+
+        text = f"<|endoftext|> {prompt_start} {entities_text}. {prompt_end} {topics_text} <|endoftext|>"
+        re.sub(" {2,}", " ", text)
+        data_entry = {"text": text, "abstract_text": abstract_text, "expected_entities": expected_entities_text}
+
         json.dump(data_entry, output_data_file)
         output_data_file.write("\n")
 
@@ -93,6 +125,8 @@ if __name__ == "__main__":
                         type=str, required=True)
     parser.add_argument("--prompt_end", help="String to add to the end of the text for prompting purposes", type=str,
                         default="")
+    parser.add_argument("--name_suffix", help="Suffix to add to base name for each file.", type=str, default="")
+    parser.add_argument("--topics", help="Whether or not to get topics separately from entities.", action="store_true")
 
     args = parser.parse_args()
 
@@ -107,4 +141,10 @@ if __name__ == "__main__":
 
         base_name = filename_leaf[:filename_leaf.find(".")]
 
-        load_and_write_data(input_file, args.output_dir, base_name, args.prompt_start, args.prompt_end)
+        if args.name_suffix:
+            base_name += f"_{args.name_suffix}"
+
+        if args.topics:
+            load_and_write_topics(input_file, args.output_dir, base_name, args.prompt_start, args.prompt_end)
+        else:
+            load_and_write_data(input_file, args.output_dir, base_name, args.prompt_start, args.prompt_end)
