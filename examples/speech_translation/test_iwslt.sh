@@ -220,7 +220,7 @@ else
   if [ "${no_cls_and_sep_tokens_in_punctuation_bert_model}" -eq 1 ]; then
     punc_cap_evelina_args="${punc_cap_evelina_args} --no_cls_and_sep_tokens"
   fi
-  python test_iwslt_and_perform_all_ops_common_scripts/punc_cap.py "${punc_cap_evelina_args}"
+  python test_iwslt_and_perform_all_ops_common_scripts/punc_cap.py ${punc_cap_evelina_args}
 fi
 set +x
 
