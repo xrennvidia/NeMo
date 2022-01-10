@@ -72,17 +72,15 @@ def main(cfg) -> None:
     with open_dict(cfg):
         cfg.model.precision = cfg.trainer.precision
 
-    # model = ChemicalNERModel(cfg.model, trainer)
     model = MegatronGPTModel.restore_from(
-        "/nlp_project/126m_fp16_gpt3_final.nemo", trainer=trainer
+        cfg.model.restore_from, trainer=trainer
     )
     model.cfg.data = cfg.model.data
-    model.cfg.nemo_file_path = '/nlp_project/results/bc7_tr2_gpt_126m_fp16.nemo'
     model.cfg.optim = cfg.model.optim
 
     trainer.fit(model)
 
-    model.save_to(model.cfg.nemo_file_path)
+    model.save_to(cfg.model.save_to)
 
 
 if __name__ == '__main__':
