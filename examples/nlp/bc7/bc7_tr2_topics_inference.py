@@ -139,6 +139,11 @@ def main():
     request_dl = DataLoader(dataset)
     response = trainer.predict(model, request_dl)
 
+<<<<<<< HEAD
+=======
+    pickle.dump(response, open("/nlp_project/topics_response.txt", "wb"))
+
+>>>>>>> Updated data processing with code to prepare topic indexing data; Added code to perform inference; Added code to measure metrics for entities inference
     with open(args.output_file, "w+") as f:
         for original_prompt, response_item, label in zip(original_prompts, response[0], labels):
             prompt = response_item["prompt"]
@@ -156,4 +161,8 @@ def main():
 
 
 if __name__ == '__main__':
+<<<<<<< HEAD
     main()  # noqa pylint: disable=no-value-for-parameter
+=======
+    main()  # noqa pylint: disable=no-value-for-parameter
+>>>>>>> Updated data processing with code to prepare topic indexing data; Added code to perform inference; Added code to measure metrics for entities inference
