@@ -139,8 +139,6 @@ def main():
     request_dl = DataLoader(dataset)
     response = trainer.predict(model, request_dl)
 
-    pickle.dump(response, open("/nlp_project/topics_response.txt", "wb"))
-
     with open(args.output_file, "w+") as f:
         for original_prompt, response_item, label in zip(original_prompts, response[0], labels):
             prompt = response_item["prompt"]
