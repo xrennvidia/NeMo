@@ -105,8 +105,6 @@ def main():
     request_dl = DataLoader(dataset)
     response = trainer.predict(model, request_dl)
 
-    pickle.dump(response, open("/nlp_project/overfitted_training_response.txt", "wb"))
-
     with open(args.output_file, "w+") as f:
         for response_item, label in zip(response[0], labels):
             prompt = response_item["prompt"]
