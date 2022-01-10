@@ -218,6 +218,7 @@ else
 -m "${punctuation_model}" \
 -p "${transcript}" \
 -o "${punc_dir}/${asr_model_name}.txt"
+
 EOF
 
   if [ "${use_inverse_text_normalization}" -eq 1 ]; then
