@@ -207,6 +207,7 @@ if [ "${use_nmt_for_punctuation_and_capitalization}" -eq 1 ]; then
 --make_queries_contain_intact_sentences \
 --manifest_to_align_with "${en_ground_truth_manifest}"
 EOF
+
   if [ "${no_all_upper_label}" -eq 1 ]; then
     punc_cap_nmt_args="${punc_cap_nmt_args} --no_all_upper_label"
   fi
@@ -218,6 +219,7 @@ else
 -p "${transcript}" \
 -o "${punc_dir}/${asr_model_name}.txt"
 EOF
+
   if [ "${use_inverse_text_normalization}" -eq 1 ]; then
     punc_cap_evelina_args="${punc_cap_evelina_args} --do_not_fix_decimals"
   fi
