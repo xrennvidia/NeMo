@@ -57,8 +57,8 @@ mwerSegmenter="$7"  # 1 or 0
 use_nmt_for_punctuation_and_capitalization="$8"  # 1 or 0
 no_all_upper_label="$9"  # 1 or 0
 use_inverse_text_normalization="${10}"
-kenlm_model="${11}"
-no_cls_and_sep_tokens_in_punctuation_bert_model="${12}"
+no_cls_and_sep_tokens_in_punctuation_bert_model="${11}"
+kenlm_model="${12}"
 
 KENLM_BEAM_WIDTH=64
 KENLM_ALPHA=1.2
@@ -187,7 +187,7 @@ wer="$(python iwslt_scoring/wer_between_2_manifests.py "${transcript}" "${en_gro
       -o "${wer_by_transcript_and_audio}/${wer_dir}/${asr_model_name}.json")"
 echo "WER: ${wer}"
 
-
+set -x
 printf "\n\nAdding punctuation and restoring capitalization..\n"
 if [ "${segmented}" -eq 1 ]; then
   punc_dir="${output_dir}/punc_transcripts_segmented_input"
@@ -226,7 +226,7 @@ EOF
   fi
   python test_iwslt_and_perform_all_ops_common_scripts/punc_cap.py "${punc_cap_evelina_args}"
 fi
-
+set +x
 
 printf "\n\nTranslating..\n"
 if [ "${segmented}" -eq 1 ]; then
