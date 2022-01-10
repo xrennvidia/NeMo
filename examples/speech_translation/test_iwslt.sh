@@ -25,18 +25,22 @@ Parameters of the script are
     is required only for NMT punctuation and capitalization.
   use_inverse_text_normalization: If 1, then `nemo_text_processing/inverse_text_normalization/run_predict.py` is
     used. If 0, then `test_iwslt_and_perform_all_ops_common_scripts/text_to_numbers.py` is used.
-  kenlm_model: If provided it should be path to kenlm model used for CTC rescoring. If it is not provided, then no
+  kenlm_model: If provided, it should be path to kenlm model used for CTC rescoring. If it is not provided, then no
     rescoring is performed.
+  no_cls_and_sep_tokens_in_punctuation_bert_model: If provided, then during punctuation and capitalization Evelina model
+    inference [CLS] and [SEP] tokens are not added to the input sequence. This parameter is useful if model body is
+    pretrained model which do not use [CLS] and [SEP] tokens, e.g. HuggingFace mbart-large-50, t5-large.
 Usage example:
 bash test_iwslt.sh ~/data/IWSLT.tst2019 \
   stt_en_citrinet_1024 \
-  punctuation_en_nmt \
+  punctuation_en_nmt.nemo \  # Path to NMT punctuation and capitalization .nemo checkpoint
   ~/checkpoints/wmt21_en_de_backtranslated_24x6_averaged.nemo \
   ~/iwslt_2019_test_result \
   0 \
   1 \
   1 \
   1 \
+  0 \
   0
 MULTILINE-COMMENT
 
@@ -54,6 +58,7 @@ use_nmt_for_punctuation_and_capitalization="$8"  # 1 or 0
 no_all_upper_label="$9"  # 1 or 0
 use_inverse_text_normalization="${10}"
 kenlm_model="${11}"
+no_cls_and_sep_tokens_in_punctuation_bert_model="${12}"
 
 KENLM_BEAM_WIDTH=64
 KENLM_ALPHA=1.2
@@ -190,45 +195,36 @@ else
   punc_dir="${output_dir}/punc_transcripts_not_segmented_input"
 fi
 if [ "${use_nmt_for_punctuation_and_capitalization}" -eq 1 ]; then
+  read -r  -d '' punc_cap_nmt_args << EOF
+--input_manifest ${transcript} \
+--output_text "${punc_dir}/${asr_model_name}.txt" \
+--model_path "${punctuation_model}" \
+--max_seq_length 128 \
+--step 8 \
+--margin 16 \
+--batch_size 42 \
+--add_source_num_words_to_batch \
+--make_queries_contain_intact_sentences \
+--manifest_to_align_with "${en_ground_truth_manifest}"
+EOF
   if [ "${no_all_upper_label}" -eq 1 ]; then
-    python ../nlp/machine_translation/punctuation_infer/punctuate_capitalize_nmt.py \
-      --input_manifest ${transcript} \
-      --output_text "${punc_dir}/${asr_model_name}.txt" \
-      --model_path "${punctuation_model}" \
-      --max_seq_length 128 \
-      --step 8 \
-      --margin 16 \
-      --batch_size 42 \
-      --add_source_num_words_to_batch \
-      --make_queries_contain_intact_sentences \
-      --manifest_to_align_with "${en_ground_truth_manifest}" \
-      --no_all_upper_label
-  else
-    python ../nlp/machine_translation/punctuation_infer/punctuate_capitalize_nmt.py \
-      --input_manifest ${transcript} \
-      --output_text "${punc_dir}/${asr_model_name}.txt" \
-      --model_path "${punctuation_model}" \
-      --max_seq_length 128 \
-      --step 8 \
-      --margin 16 \
-      --batch_size 42 \
-      --add_source_num_words_to_batch \
-      --make_queries_contain_intact_sentences \
-      --manifest_to_align_with "${en_ground_truth_manifest}"
+    punc_cap_nmt_args="${punc_cap_nmt_args} --no_all_upper_label"
   fi
+  python ../nlp/machine_translation/punctuation_infer/punctuate_capitalize_nmt.py ${punc_cap_nmt_args}
 else
+  read -r -d '' punc_cap_evelina_args << EOF
+-a "${en_ground_truth_manifest}"
+-m "${punctuation_model}" \
+-p "${transcript}" \
+-o "${punc_dir}/${asr_model_name}.txt"
+EOF
   if [ "${use_inverse_text_normalization}" -eq 1 ]; then
-    python test_iwslt_and_perform_all_ops_common_scripts/punc_cap.py -a "${en_ground_truth_manifest}" \
-      -m "${punctuation_model}" \
-      -p "${transcript}" \
-      -o "${punc_dir}/${asr_model_name}.txt" \
-      --do_not_fix_decimals
-  else
-    python test_iwslt_and_perform_all_ops_common_scripts/punc_cap.py -a "${en_ground_truth_manifest}" \
-      -m "${punctuation_model}" \
-      -p "${transcript}" \
-      -o "${punc_dir}/${asr_model_name}.txt"
+    punc_cap_evelina_args="${punc_cap_evelina_args} --do_not_fix_decimals"
   fi
+  if [ "${no_cls_and_sep_tokens_in_punctuation_bert_model}" -eq 1 ]; then
+    punc_cap_evelina_args="${punc_cap_evelina_args} --no_cls_and_sep_tokens"
+  fi
+  python test_iwslt_and_perform_all_ops_common_scripts/punc_cap.py "${punc_cap_evelina_args}"
 fi
 
 

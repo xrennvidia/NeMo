@@ -318,6 +318,12 @@ def prepare_for_resuming_and_get_start_line(tmp_dir: Path) -> int:
 
 async def main() -> None:
     args = get_args()
+    cpu_device = torch.device('cpu')
+    # Downloading checkpoints here to avoid downloading in several spawned processes
+    tts_model_spectrogram = SpectrogramGenerator.from_pretrained(args.tts_model_spectrogram, map_location=cpu_device)
+    vocoder = Vocoder.from_pretrained(args.tts_model_vocoder, map_location=cpu_device)
+    asr_model = EncDecCTCModel.from_pretrained(args.asr_model, map_location=cpu_device)
+    del tts_model_spectrogram, vocoder, asr_model
     world_size = torch.cuda.device_count()
     if any([d >= world_size for d in args.cuda_devices]):
         raise ValueError(

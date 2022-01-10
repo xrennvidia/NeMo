@@ -28,6 +28,7 @@ def get_args():
     parser.add_argument("--manifest-pred", "-p", required=True, type=Path)
     parser.add_argument("--output", "-o", required=True, type=Path)
     parser.add_argument("--do_not_fix_decimals", action="store_true")
+    parser.add_argument("--no_cls_and_sep_tokens", action="store_true")
     args = parser.parse_args()
     args.manifest_to_align_with = args.manifest_to_align_with.expanduser()
     args.manifest_pred = args.manifest_pred.expanduser()
@@ -94,7 +95,12 @@ def main():
     texts = [texts_to_process[talk_id] for talk_id in order]
     max_seq_len = 108
     processed_texts = model.add_punctuation_capitalization(
-        texts, batch_size=MAX_NUM_SUBTOKENS_IN_INPUT // max_seq_len, max_seq_length=max_seq_len, step=8, margin=16
+        texts,
+        batch_size=MAX_NUM_SUBTOKENS_IN_INPUT // max_seq_len,
+        max_seq_length=max_seq_len,
+        step=8,
+        margin=16,
+        add_cls_and_sep_tokens=not args.no_cls_and_sep_tokens,
     )
     if args.do_not_fix_decimals:
         processed = []
