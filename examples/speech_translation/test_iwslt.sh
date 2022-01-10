@@ -213,14 +213,7 @@ EOF
   fi
   python ../nlp/machine_translation/punctuation_infer/punctuate_capitalize_nmt.py ${punc_cap_nmt_args}
 else
-  read -r -d '' punc_cap_evelina_args << EOF
--a "${en_ground_truth_manifest}"
--m "${punctuation_model}" \
--p "${transcript}" \
--o "${punc_dir}/${asr_model_name}.txt"
-
-EOF
-
+  punc_cap_evelina_args="-a ${en_ground_truth_manifest} -m ${punctuation_model} -p ${transcript} -o ${punc_dir}/${asr_model_name}.txt"
   if [ "${use_inverse_text_normalization}" -eq 1 ]; then
     punc_cap_evelina_args="${punc_cap_evelina_args} --do_not_fix_decimals"
   fi
