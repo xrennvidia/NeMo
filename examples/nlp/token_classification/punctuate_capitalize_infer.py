@@ -16,12 +16,20 @@ sys.path = ["/home/apeganov/NeMo"] + sys.path
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Dict, List, Union
 
 import torch.cuda
 
 from nemo.collections.nlp.models import PunctuationCapitalizationModel
+
+
+PUNCTUATION = re.compile("[.,?]")
+DECIMAL = re.compile(f"[0-9]+{PUNCTUATION.pattern}? point({PUNCTUATION.pattern}? [0-9])+", flags=re.I)
+LEFT_PUNCTUATION_STRIP_PATTERN = re.compile('^[^a-zA-Z]+')
+RIGHT_PUNCTUATION_STRIP_PATTERN = re.compile('[^a-zA-Z]$')
+SPACE_DEDUP = re.compile(r' +')
 
 
 """
@@ -159,6 +167,21 @@ def get_args() -> argparse.Namespace:
         help="Which device to use. If device is not set and CUDA is available, then GPU will be used. If device is "
         "not set and CUDA is not available, then CPU is used.",
     )
+    parser.add_argument(
+        "--make_queries_contain_intact_sentences",
+        action="store_true",
+        help="If this option is set, then 1) leading punctuation is removed, 2) first word is made upper case if it is"
+        "not yet upper case, 3) if trailing punctuation does not make sentence end, then trailing punctuation is "
+        "removed and dot is added.",
+    )
+    parser.add_argument(
+        "--no_all_upper_label",
+        action="store_true",
+        help="Whether to use 'u' as first character capitalization and 'U' as capitalization of all characters in a "
+        "word. If not set, then 'U' is for capitalization of first character in a word, 'O' for absence of "
+        "capitalization, 'u' is not used.",
+    )
+    parser.add_argument("--fix_decimals", action="store_true")
     args = parser.parse_args()
     if args.input_manifest is None and args.output_manifest is not None:
         parser.error("--output_manifest requires --input_manifest")
@@ -177,6 +200,12 @@ def load_manifest(manifest: Path) -> List[Dict[str, Union[str, float]]]:
             data = json.loads(line)
             result.append(data)
     return result
+
+
+def decimal_repl(match):
+    text = PUNCTUATION.sub('', match.group(0))
+    parts = text.split()
+    return parts[0] + '.' + ''.join(parts[2:])
 
 
 def main() -> None:
@@ -213,6 +242,21 @@ def main() -> None:
         dataloader_kwargs={'num_workers': 8, 'pin_memory': True},
         add_cls_and_sep_tokens=not args.not_add_cls_and_sep_tokens,
     )
+    if args.make_queries_contain_intact_sentences:
+        for i, text in enumerate(processed_texts):
+            text = LEFT_PUNCTUATION_STRIP_PATTERN.sub('', text.strip())
+            if text[0].islower():
+                if args.save_labels_instead_of_text:
+                    if text[0] == 'O':
+                        text = ('U' if args.no_all_upper_label else 'u') + text[1:]
+                else:
+                    text = text[0].upper() + text[1:]
+            if text[-1] not in '.?!':
+                text = RIGHT_PUNCTUATION_STRIP_PATTERN.sub('', text) + '.'
+            processed_texts[i] = text
+    if args.fix_decimals and not args.save_labels_instead_of_text:
+        for i, text in enumerate(processed_texts):
+            processed_texts[i] = DECIMAL.sub(decimal_repl, SPACE_DEDUP.sub(' ', text))
     if args.output_manifest is None:
         args.output_text.parent.mkdir(exist_ok=True, parents=True)
         with args.output_text.open('w') as f:

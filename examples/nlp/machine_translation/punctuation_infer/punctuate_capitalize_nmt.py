@@ -17,6 +17,11 @@ LEFT_PUNCTUATION_STRIP_PATTERN = re.compile('^[^a-zA-Z]+')
 RIGHT_PUNCTUATION_STRIP_PATTERN = re.compile('[^a-zA-Z]$')
 TALK_ID_COMPILED_PATTERN = re.compile(r"[1-9][0-9]*(?=\.wav$)")
 
+PUNCTUATION = re.compile("[.,?]")
+DECIMAL = re.compile(f"[0-9]+{PUNCTUATION.pattern}? point({PUNCTUATION.pattern}? [0-9])+", flags=re.I)
+SPACE_DEDUP = re.compile(r' +')
+
+
 
 def get_args():
     parser = argparse.ArgumentParser(
@@ -155,6 +160,11 @@ def get_args():
         help="If this option is set, then 1) leading punctuation is removed, 2) first word is made upper case if it is"
         "not yet upper case, 3) if trailing punctuation does not make sentence end, then trailing punctuation is "
         "removed and dot is added.",
+    )
+    parser.add_argument(
+        "--fix_decimals",
+        action="store_true",
+        help="Whether to fix decimal numbers with decimal separator, e.g. '2 point 4' -> '2.4'",
     )
     args = parser.parse_args()
     if args.input_manifest is None and args.output_manifest is not None:
@@ -458,6 +468,12 @@ def apply_autoregressive_labels(
     return processed_queries, united_labels
 
 
+def decimal_repl(match):
+    text = PUNCTUATION.sub('', match.group(0))
+    parts = text.split()
+    return parts[0] + '.' + ''.join(parts[2:])
+
+
 def main():
     args = get_args()
     model = MTEncDecModel.restore_from(args.model_path)
@@ -523,6 +539,8 @@ def main():
     result_texts = [""] * len(texts)
     result_labels = [""] * len(texts)
     for i, processed_query, labels in zip(not_empty_indices, processed_queries, united_labels):
+        if args.fix_decimals:
+            processed_query = DECIMAL.sub(decimal_repl, SPACE_DEDUP.sub(' ', processed_query))
         result_texts[i] = processed_query
         result_labels[i] = labels
     for i, empty_query in zip(empty_indices, empty_queries):
