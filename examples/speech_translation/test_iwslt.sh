@@ -1,4 +1,4 @@
-<< 'MULTILINE-COMMENT'
+<< MULTILINE_COMMENT
 Before running this script you have to create conda Python 2 environment 'mwerSegmenter'. Otherwise mwerSegmenter
 will not start.
 
@@ -42,7 +42,7 @@ bash test_iwslt.sh ~/data/IWSLT.tst2019 \
   1 \
   0 \
   0
-MULTILINE-COMMENT
+MULTILINE_COMMENT
 
 set -e
 
@@ -59,6 +59,21 @@ no_all_upper_label="$9"  # 1 or 0
 use_inverse_text_normalization="${10}"
 no_cls_and_sep_tokens_in_punctuation_bert_model="${11}"
 kenlm_model="${12}"
+
+set -x
+read -r -d '' punc_cap_nmt_args << EOF
+--input_manifest ${transcript} \
+--output_text "${punc_dir}/${asr_model_name}.txt" \
+--model_path "${punctuation_model}" \
+--max_seq_length 128 \
+--step 8 \
+--margin 16 \
+--batch_size 42 \
+--add_source_num_words_to_batch \
+--make_queries_contain_intact_sentences \
+--manifest_to_align_with "${en_ground_truth_manifest}"
+EOF
+set +x
 
 if [[ "${segmented}" != 1 && "${segmented}" != 0 ]]; then
   echo "6th ('segmented') parameter of the 'test_iwslt.sh' script has to be equal 1 or 0, whereas its value is '${segmented}'" 1>&2
@@ -220,19 +235,6 @@ else
   punc_dir="${output_dir}/punc_transcripts_not_segmented_input"
 fi
 if [ "${use_nmt_for_punctuation_and_capitalization}" -eq 1 ]; then
-  read -r  -d '' punc_cap_nmt_args << EOF
---input_manifest ${transcript} \
---output_text "${punc_dir}/${asr_model_name}.txt" \
---model_path "${punctuation_model}" \
---max_seq_length 128 \
---step 8 \
---margin 16 \
---batch_size 42 \
---add_source_num_words_to_batch \
---make_queries_contain_intact_sentences \
---manifest_to_align_with "${en_ground_truth_manifest}"
-EOF
-
   if [ "${no_all_upper_label}" -eq 1 ]; then
     punc_cap_nmt_args="${punc_cap_nmt_args} --no_all_upper_label"
   fi
