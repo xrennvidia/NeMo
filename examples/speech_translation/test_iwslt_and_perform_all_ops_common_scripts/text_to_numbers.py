@@ -1,7 +1,10 @@
 import json
 import re
 from argparse import ArgumentParser
+from subprocess import run, PIPE
 from pathlib import Path
+
+from tqdm import tqdm
 
 
 BUFFER_SIZE = 2 ** 24
@@ -313,6 +316,11 @@ def text_to_numbers(text):
     return text
 
 
+def count_lines(input_file: Path) -> int:
+    result = run(['wc', '-l', str(input_file)], stdout=PIPE, stderr=PIPE)
+    return int(result.stdout.decode('utf-8').split()[0])
+
+
 def get_args():
     parser = ArgumentParser()
     input_ = parser.add_mutually_exclusive_group(required=True)
@@ -340,7 +348,7 @@ def main():
     input_file = args.input_text if args.input is None else args.input
     output_file = args.output_text if args.output is None else args.output
     with input_file.open(buffering=BUFFER_SIZE) as in_f, output_file.open('w', buffering=BUFFER_SIZE) as out_f:
-        for line in in_f:
+        for line in tqdm(in_f, total=count_lines(input_file), desc="Transforming text to numbers", unit='line'):
             if args.input is None:
                 out_text = text_to_numbers(line)
             else:
