@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import copy
+import os
 from math import ceil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -846,6 +847,7 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
         margin: int,
         dataloader_kwargs: Optional[Dict[str, Any]],
         add_cls_and_sep_tokens: bool,
+        pickled_features: Optional[Union[os.PathLike, str]],
     ) -> torch.utils.data.DataLoader:
         """
         Setup function for a infer data loader.
@@ -872,6 +874,7 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
             step=step,
             margin=margin,
             add_cls_and_sep_tokens=add_cls_and_sep_tokens,
+            pickled_features=pickled_features,
         )
         return torch.utils.data.DataLoader(
             dataset=dataset,
@@ -1050,6 +1053,7 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
         return_labels: bool = False,
         dataloader_kwargs: Dict[str, Any] = None,
         add_cls_and_sep_tokens: bool = True,
+        pickled_features: Optional[Union[os.PathLike, str]] = None,
     ) -> List[str]:
         """
         Adds punctuation and capitalization to the queries. Use this method for inference.
@@ -1103,7 +1107,14 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
         try:
             self.eval()
             infer_datalayer = self._setup_infer_dataloader(
-                queries, batch_size, max_seq_length, step, margin, dataloader_kwargs, add_cls_and_sep_tokens
+                queries,
+                batch_size,
+                max_seq_length,
+                step,
+                margin,
+                dataloader_kwargs,
+                add_cls_and_sep_tokens,
+                pickled_features,
             )
             # Predicted labels for queries. List of labels for every query
             all_punct_preds: List[List[int]] = [[] for _ in queries]

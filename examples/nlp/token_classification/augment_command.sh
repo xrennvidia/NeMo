@@ -8,4 +8,5 @@ python punctuate_capitalize_infer.py \
   --batch_size 256 \
   --make_queries_contain_intact_sentences \
   --no_all_upper_label \
-  --fix_decimals
+  --fix_decimals \
+  --pickled_features ~/en_de_shuffled_4M/train__tts_en_fastpitch__tts_squeezewave__QuartzNet15x5Base-En__with_numbers__punc_inference.pickle

@@ -182,12 +182,13 @@ def get_args() -> argparse.Namespace:
         "capitalization, 'u' is not used.",
     )
     parser.add_argument("--fix_decimals", action="store_true")
+    parser.add_argument("--pickled_features", type=Path)
     args = parser.parse_args()
     if args.input_manifest is None and args.output_manifest is not None:
         parser.error("--output_manifest requires --input_manifest")
     if args.pretrained_name is None and args.model_path is None:
         setattr(args, default_model_parameter, default_model)
-    for name in ["input_manifest", "input_text", "output_manifest", "output_text", "model_path"]:
+    for name in ["input_manifest", "input_text", "output_manifest", "output_text", "model_path", "pickled_features"]:
         if getattr(args, name) is not None:
             setattr(args, name, getattr(args, name).expanduser())
     return args
@@ -241,6 +242,7 @@ def main() -> None:
         return_labels=args.save_labels_instead_of_text,
         dataloader_kwargs={'num_workers': 8, 'pin_memory': True},
         add_cls_and_sep_tokens=not args.not_add_cls_and_sep_tokens,
+        pickled_features=args.pickled_features,
     )
     if args.make_queries_contain_intact_sentences:
         for i, text in enumerate(processed_texts):

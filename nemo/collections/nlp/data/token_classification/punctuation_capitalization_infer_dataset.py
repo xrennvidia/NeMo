@@ -13,7 +13,10 @@
 # limitations under the License.
 
 import itertools
-from typing import Dict, List, Optional, Tuple
+import os
+import pickle
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -244,15 +247,25 @@ class BertPunctuationCapitalizationInferDataset(Dataset):
         step: int = 8,
         margin: int = 16,
         add_cls_and_sep_tokens: bool = True,
+        pickled_features: Optional[Union[os.PathLike, str]] = None,
     ):
-        features = get_features_infer(
-            queries=queries,
-            max_seq_length=max_seq_length,
-            tokenizer=tokenizer,
-            step=step,
-            margin=margin,
-            add_cls_and_sep_tokens=add_cls_and_sep_tokens,
-        )
+        if pickled_features is not None:
+            pickled_features = Path(pickled_features)
+        if pickled_features is None or pickled_features is not None and pickled_features.is_file():
+            features = get_features_infer(
+                queries=queries,
+                max_seq_length=max_seq_length,
+                tokenizer=tokenizer,
+                step=step,
+                margin=margin,
+                add_cls_and_sep_tokens=add_cls_and_sep_tokens,
+            )
+            if pickled_features is not None:
+                with pickled_features.open('wb') as f:
+                    pickle.dump(features, f)
+        else:
+            with pickled_features.open('rb') as f:
+                features = pickle.load(f)
         self.all_input_ids: List[List[int]] = features[0]
         self.all_segment_ids: List[List[int]] = features[1]
         self.all_input_mask: List[List[int]] = features[2]
