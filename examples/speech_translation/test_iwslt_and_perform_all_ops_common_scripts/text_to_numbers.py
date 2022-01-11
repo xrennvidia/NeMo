@@ -4,6 +4,9 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 
+BUFFER_SIZE = 2 ** 24
+
+
 MONTHS = [
     "January",
     "February",
@@ -312,24 +315,42 @@ def text_to_numbers(text):
 
 def get_args():
     parser = ArgumentParser()
-    parser.add_argument("--input", "-i", help="Path to input manifest file.", type=Path, required=True)
-    parser.add_argument("--output", "-o", help="Path to output manifest file.", type=Path, required=True)
+    input_ = parser.add_mutually_exclusive_group(required=True)
+    input_.add_argument("--input", "-i", help="Path to input manifest file.", type=Path)
+    input_.add_argument("--input_text", help="Path to input text file", type=Path)
+    output = parser.add_mutually_exclusive_group(required=True)
+    output.add_argument("--output", "-o", help="Path to output manifest file.", type=Path)
+    output.add_argument("--output_text", help="Path to output text file. ", type=Path)
     parser.add_argument("--text-key", "-k", help="Text key in manifest. Default is `pred_text`.", default="pred_text")
     args = parser.parse_args()
-    args.input = args.input.expanduser()
-    args.output = args.output.expanduser()
+    if args.output is not None and args.input is None:
+        parser.error(
+            f"If you provide parameter `--output` you also have to provide parameter `--input`. "
+            f"`--output={args.output}`."
+        )
+    for arg_name in ['input', 'input_text', 'output', 'output_text']:
+        arg = getattr(args, arg_name)
+        if arg is not None:
+            setattr(args, arg_name, arg.expanduser())
     return args
 
 
 def main():
     args = get_args()
-    with args.input.open() as in_f, args.output.open('w') as out_f:
-        lines = in_f.readlines()
-        for line in lines:
-            in_data = json.loads(line)
-            out_data = in_data.copy()
-            out_data[args.text_key] = text_to_numbers(in_data[args.text_key])
-            out_f.write(json.dumps(out_data) + '\n')
+    input_file = args.input_text if args.input is None else args.input
+    output_file = args.output_text if args.output is None else args.output
+    with input_file.open(buffering=BUFFER_SIZE) as in_f, output_file.open('w', buffering=BUFFER_SIZE) as out_f:
+        for line in in_f:
+            if args.input is None:
+                out_text = text_to_numbers(line)
+            else:
+                in_data = json.loads(line)
+                out_text = text_to_numbers(in_data[args.text_key])
+            if args.output is None:
+                out_f.write(out_text + ('\n' if out_text[-1] != '\n' else ''))
+            else:
+                in_data[args.text_key] = out_text
+                out_f.write(json.dumps(in_data) + '\n')
 
 
 if __name__ == "__main__":
