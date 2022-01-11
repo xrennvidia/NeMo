@@ -23,8 +23,8 @@ Parameters of the script are
   no_all_upper_label: If 1, then only 2 capitalization labels U and O are used. If 0, then 'u' is for only first
     character capitalization, 'U' for all characters capitalization, and 'O' for no capitalization. This parameter
     is required only for NMT punctuation and capitalization.
-  use_inverse_text_normalization: If 1, then `nemo_text_processing/inverse_text_normalization/run_predict.py` is
-    used. If 0, then `test_iwslt_and_perform_all_ops_common_scripts/text_to_numbers.py` is used.
+  use_inverse_text_normalization: If 1, then 'nemo_text_processing/inverse_text_normalization/run_predict.py' is
+    used. If 0, then 'test_iwslt_and_perform_all_ops_common_scripts/text_to_numbers.py' is used.
   no_cls_and_sep_tokens_in_punctuation_bert_model: If provided, then during punctuation and capitalization Evelina model
     inference [CLS] and [SEP] tokens are not added to the input sequence. This parameter is useful if model body is
     pretrained model which do not use [CLS] and [SEP] tokens, e.g. HuggingFace mbart-large-50, t5-large.
@@ -44,22 +44,6 @@ bash test_iwslt.sh ~/data/IWSLT.tst2019 \
   0
 MULTILINE_COMMENT
 
-set -e
-
-
-dataset_dir="$(realpath "$1")"
-asr_model="$2"  # Path to checkpoint or NGC pretrained name
-punctuation_model="$3"  # Path to checkpoint or NGC pretrained name
-translation_model="$4"
-output_dir="$(realpath "$5")"
-segmented="$6"  # 1 or 0
-mwerSegmenter="$7"  # 1 or 0
-use_nmt_for_punctuation_and_capitalization="$8"  # 1 or 0
-no_all_upper_label="$9"  # 1 or 0
-use_inverse_text_normalization="${10}"
-no_cls_and_sep_tokens_in_punctuation_bert_model="${11}"
-kenlm_model="${12}"
-
 set -x
 read -r -d '' punc_cap_nmt_args << EOF
 --input_manifest ${transcript} \
@@ -74,6 +58,22 @@ read -r -d '' punc_cap_nmt_args << EOF
 --manifest_to_align_with "${en_ground_truth_manifest}"
 EOF
 set +x
+
+
+set -e
+
+dataset_dir="$(realpath "$1")"
+asr_model="$2"  # Path to checkpoint or NGC pretrained name
+punctuation_model="$3"  # Path to checkpoint or NGC pretrained name
+translation_model="$4"
+output_dir="$(realpath "$5")"
+segmented="$6"  # 1 or 0
+mwerSegmenter="$7"  # 1 or 0
+use_nmt_for_punctuation_and_capitalization="$8"  # 1 or 0
+no_all_upper_label="$9"  # 1 or 0
+use_inverse_text_normalization="${10}"
+no_cls_and_sep_tokens_in_punctuation_bert_model="${11}"
+kenlm_model="${12}"
 
 if [[ "${segmented}" != 1 && "${segmented}" != 0 ]]; then
   echo "6th ('segmented') parameter of the 'test_iwslt.sh' script has to be equal 1 or 0, whereas its value is '${segmented}'" 1>&2
