@@ -10,7 +10,7 @@ mwerSegmenter can be installed as recommended in IWSLT description or by command
 git clone https://github.com/PeganovAnton/mwerSegmenter
 
 Parameters of the script are
-  dataset_dir: path to directory with year dataset. Obtained when archive IWSLT-SLT.tst2019.en-de.tgz is unpacked
+  dataset_dir: path to directory with year dataset. Obtained when archive IWSLT-SLT.tst20[0-9][0-9].en-de.tgz is unpacked
   asr_model: pretrained NGC name or path to NeMo ASR checkpoint
   punctuation_model: pretrained NGC name of PunctuationCapitalizationModel or path to .nemo file
   translation_model: pretrained NGC name or path to NeMo NMT checkpoint
@@ -91,7 +91,7 @@ fi
 
 printf "Creating IWSLT manifest..\n"
 python test_iwslt_and_perform_all_ops_common_scripts/create_iwslt_manifest.py -a "${audio_dir}" \
-  -t "${dataset_dir}/IWSLT.TED.tst2019.en-de.en.xml" \
+  -t "${dataset_dir}"/IWSLT.TED.tst20[0-9][0-9].en-de.en.xml \
   -o "${en_ground_truth_manifest}"
 
 
@@ -99,7 +99,7 @@ if [ "${segmented}" -eq 1 ]; then
   printf "\n\nSplitting audio files..\n"
   split_data_path="${output_dir}/split"
   python test_iwslt_and_perform_all_ops_common_scripts/iwslt_split_audio.py -a "${dataset_dir}/wavs" \
-    -s "${dataset_dir}/IWSLT.TED.tst2019.en-de.yaml" \
+    -s "${dataset_dir}"/IWSLT.TED.tst20[0-9][0-9].en-de.yaml \
     -d "${split_data_path}"
   split_transcripts="${dataset_dir}/split_transcripts/${asr_model_name}"
   transcript_no_numbers="${output_dir}/transcripts_segmented_input_no_numbers/${asr_model_name}.manifest"
@@ -265,8 +265,8 @@ if [ "${mwerSegmenter}" -eq 1 ]; then
   set -e
   conda activate mwerSegmenter  # python 2 conda environment
   cd ~/mwerSegmenter/
-  ./segmentBasedOnMWER.sh "${dataset_dir}/IWSLT.TED.tst2019.en-de.en.xml" \
-    "${dataset_dir}/IWSLT.TED.tst2019.en-de.de.xml" \
+  ./segmentBasedOnMWER.sh "${dataset_dir}"/IWSLT.TED.tst20[0-9][0-9].en-de.en.xml \
+    "${dataset_dir}"/IWSLT.TED.tst20[0-9][0-9].en-de.de.xml \
     "${translated_text}" \
     "${asr_model_name}" \
     German \
@@ -277,7 +277,7 @@ if [ "${mwerSegmenter}" -eq 1 ]; then
   )
   reference="${output_dir}/iwslt_de_text_by_segs.txt"
   python test_iwslt_and_perform_all_ops_common_scripts/xml_2_text_segs_2_lines.py \
-    -i "${dataset_dir}/IWSLT.TED.tst2019.en-de.de.xml" \
+    -i "${dataset_dir}"/IWSLT.TED.tst20[0-9][0-9].en-de.de.xml \
     -o "${reference}"
   mkdir -p "$(dirname "${translated_text_for_scoring}")"
   python test_iwslt_and_perform_all_ops_common_scripts/xml_2_text_segs_2_lines.py \
@@ -291,7 +291,7 @@ else
   reference="${output_dir}/iwslt_de_text_by_wavs.txt"
   python test_iwslt_and_perform_all_ops_common_scripts/prepare_iwslt_text_for_translation.py \
     -a "${en_ground_truth_manifest}" \
-    -t "${dataset_dir}/IWSLT.TED.tst2019.en-de.de.xml" \
+    -t "${dataset_dir}"/IWSLT.TED.tst20[0-9][0-9].en-de.de.xml \
     -o "${reference}" \
     -j
 fi
@@ -326,7 +326,7 @@ if [ "${mwerSegmenter}" -eq 1 ]; then
   fi
   bash iwslt_scoring/compute_bleu_for_separate_talks_one_model.sh \
     "${translated_mwer_xml}" \
-    "${dataset_dir}/IWSLT.TED.tst2019.en-de.de.xml" \
+    "${dataset_dir}"/IWSLT.TED.tst20[0-9][0-9].en-de.de.xml \
     "${separate_files_translations}/${translation_model_name}/${asr_model_name}" \
     "${output_dir}/reference_for_docs_in_separate_files" \
     "${bleu_separate_files}/${translation_model_name}/${asr_model_name}.txt"
