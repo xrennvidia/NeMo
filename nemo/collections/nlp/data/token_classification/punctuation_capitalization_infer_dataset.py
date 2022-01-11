@@ -251,7 +251,7 @@ class BertPunctuationCapitalizationInferDataset(Dataset):
     ):
         if pickled_features is not None:
             pickled_features = Path(pickled_features)
-        if pickled_features is None or pickled_features is not None and pickled_features.is_file():
+        if pickled_features is None or pickled_features is not None and not pickled_features.is_file():
             features = get_features_infer(
                 queries=queries,
                 max_seq_length=max_seq_length,
