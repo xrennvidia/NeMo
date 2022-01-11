@@ -25,11 +25,11 @@ Parameters of the script are
     is required only for NMT punctuation and capitalization.
   use_inverse_text_normalization: If 1, then `nemo_text_processing/inverse_text_normalization/run_predict.py` is
     used. If 0, then `test_iwslt_and_perform_all_ops_common_scripts/text_to_numbers.py` is used.
-  kenlm_model: If provided, it should be path to kenlm model used for CTC rescoring. If it is not provided, then no
-    rescoring is performed.
   no_cls_and_sep_tokens_in_punctuation_bert_model: If provided, then during punctuation and capitalization Evelina model
     inference [CLS] and [SEP] tokens are not added to the input sequence. This parameter is useful if model body is
     pretrained model which do not use [CLS] and [SEP] tokens, e.g. HuggingFace mbart-large-50, t5-large.
+  kenlm_model: If provided, it should be path to kenlm model used for CTC rescoring. If it is not provided, then no
+    rescoring is performed.
 Usage example:
 bash test_iwslt.sh ~/data/IWSLT.tst2019 \
   stt_en_citrinet_1024 \
@@ -59,6 +59,31 @@ no_all_upper_label="$9"  # 1 or 0
 use_inverse_text_normalization="${10}"
 no_cls_and_sep_tokens_in_punctuation_bert_model="${11}"
 kenlm_model="${12}"
+
+if [[ "${segmented}" != 1 && "${segmented}" != 0 ]]; then
+  echo "6th ('segmented') parameter of the 'test_iwslt.sh' script has to be equal 1 or 0, whereas its value is '${segmented}'" 1>&2
+  exit 2
+fi
+if [[ "${mwerSegmenter}" != 1 && "${mwerSegmenter}" != 0 ]]; then
+  echo "6th ('mwerSegmenter') parameter of the 'test_iwslt.sh' script has to be equal 1 or 0, whereas its value is '${mwerSegmenter}'" 1>&2
+  exit 2
+fi
+if [[ "${use_nmt_for_punctuation_and_capitalization}" != 1 && "${use_nmt_for_punctuation_and_capitalization}" != 0 ]]; then
+  echo "6th ('use_nmt_for_punctuation_and_capitalization') parameter of the 'test_iwslt.sh' script has to be equal 1 or 0, whereas its value is '${use_nmt_for_punctuation_and_capitalization}'" 1>&2
+  exit 2
+fi
+if [[ "${no_all_upper_label}" != 1 && "${no_all_upper_label}" != 0 ]]; then
+  echo "6th ('no_all_upper_label') parameter of the 'test_iwslt.sh' script has to be equal 1 or 0, whereas its value is '${no_all_upper_label}'" 1>&2
+  exit 2
+fi
+if [[ "${use_inverse_text_normalization}" != 1 && "${use_inverse_text_normalization}" != 0 ]]; then
+  echo "6th ('use_inverse_text_normalization') parameter of the 'test_iwslt.sh' script has to be equal 1 or 0, whereas its value is '${use_inverse_text_normalization}'" 1>&2
+  exit 2
+fi
+if [[ "${no_cls_and_sep_tokens_in_punctuation_bert_model}" != 1 && "${no_cls_and_sep_tokens_in_punctuation_bert_model}" != 0 ]]; then
+  echo "6th ('no_cls_and_sep_tokens_in_punctuation_bert_model') parameter of the 'test_iwslt.sh' script has to be equal 1 or 0, whereas its value is '${no_cls_and_sep_tokens_in_punctuation_bert_model}'" 1>&2
+  exit 2
+fi
 
 KENLM_BEAM_WIDTH=64
 KENLM_ALPHA=1.2
@@ -210,6 +235,9 @@ EOF
 
   if [ "${no_all_upper_label}" -eq 1 ]; then
     punc_cap_nmt_args="${punc_cap_nmt_args} --no_all_upper_label"
+  fi
+  if [ "${use_inverse_text_normalization}" -eq 0 ]; then
+    punc_cap_nmt_args="${punc_cap_nmt_args} --fix_decimals"
   fi
   python ../nlp/machine_translation/punctuation_infer/punctuate_capitalize_nmt.py ${punc_cap_nmt_args}
 else
