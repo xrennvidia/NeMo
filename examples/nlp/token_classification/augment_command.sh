@@ -5,7 +5,7 @@ python punctuate_capitalize_infer.py \
   --max_seq_length 128 \
   --step 32 \
   --margin 16 \
-  --batch_size 256 \
+  --batch_size 192 \
   --make_queries_contain_intact_sentences \
   --no_all_upper_label \
   --fix_decimals \
