@@ -44,21 +44,6 @@ bash test_iwslt.sh ~/data/IWSLT.tst2019 \
   0
 MULTILINE_COMMENT
 
-set -x
-read -r -d '' punc_cap_nmt_args << EOF
---input_manifest ${transcript} \
---output_text "${punc_dir}/${asr_model_name}.txt" \
---model_path "${punctuation_model}" \
---max_seq_length 128 \
---step 8 \
---margin 16 \
---batch_size 42 \
---add_source_num_words_to_batch \
---make_queries_contain_intact_sentences \
---manifest_to_align_with "${en_ground_truth_manifest}"
-EOF
-set +x
-
 
 set -e
 
@@ -235,6 +220,20 @@ else
   punc_dir="${output_dir}/punc_transcripts_not_segmented_input"
 fi
 if [ "${use_nmt_for_punctuation_and_capitalization}" -eq 1 ]; then
+  set +e
+  read -r -d '' punc_cap_nmt_args << EOF
+--input_manifest ${transcript} \
+--output_text "${punc_dir}/${asr_model_name}.txt" \
+--model_path "${punctuation_model}" \
+--max_seq_length 128 \
+--step 8 \
+--margin 16 \
+--batch_size 42 \
+--add_source_num_words_to_batch \
+--make_queries_contain_intact_sentences \
+--manifest_to_align_with "${en_ground_truth_manifest}"
+EOF
+  set -e
   if [ "${no_all_upper_label}" -eq 1 ]; then
     punc_cap_nmt_args="${punc_cap_nmt_args} --no_all_upper_label"
   fi
