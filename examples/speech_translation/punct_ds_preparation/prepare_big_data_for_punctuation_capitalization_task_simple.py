@@ -622,7 +622,12 @@ class WikiExtractedWorker:
         self.lang = lang
         self.tokenizer = tokenizer
 
-    def __call__(self, input_file: Path, doc_id: int) -> None:
+    def __call__(self, input_file: Path, file_id: int) -> None:
+
+
+def count_not_empty_docs_in_file(file_path: Path) -> int:
+    with file_path.open() as f:
+        text = f.read()
 
 
 
@@ -637,9 +642,11 @@ def preprocess_wiki_extracted(
 ) -> Dict[int, int]:
     files_with_data = [file for inner_dir in dir_path.iterdir() for file in inner_dir.iterdir()]
     with mp.Pool(n_jobs) as pool:
+        num_not_empty_docs_in_files = pool.map(count_not_empty_docs_in_file, files_with_data)
+    with mp.Pool(n_jobs) as pool:
         pool.starmap(
             WikiExtractedWorker(document_dir, lang, tokenizer),
-            zip(files_with_data, range(start_doc_id, start_file_id + len(files_with_data)))
+            zip(files_with_data, range(start_file_id, start_file_id + len(files_with_data)))
         )
 
 

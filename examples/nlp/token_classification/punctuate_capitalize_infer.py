@@ -237,24 +237,17 @@ def main() -> None:
         texts = []
         for item in manifest:
             texts.append(item[text_key])
-    if os.path.exists('processed_texts.pickle'):
-        with open('processed_texts.pickle') as f:
-            processed_texts = pickle.load(f)
-    else:
-        processed_texts = model.add_punctuation_capitalization(
-            texts,
-            batch_size=args.batch_size,
-            max_seq_length=args.max_seq_length,
-            step=args.step,
-            margin=args.margin,
-            return_labels=args.save_labels_instead_of_text,
-            dataloader_kwargs={'num_workers': 8, 'pin_memory': True},
-            add_cls_and_sep_tokens=not args.not_add_cls_and_sep_tokens,
-            pickled_features=args.pickled_features,
-        )
-        with open('processed_texts.pickle', 'wb') as f:
-            pickle.dump(processed_texts, f)
-    logging.info(f"len(processed_texts): {len(processed_texts)}")
+    processed_texts = model.add_punctuation_capitalization(
+        texts,
+        batch_size=args.batch_size,
+        max_seq_length=args.max_seq_length,
+        step=args.step,
+        margin=args.margin,
+        return_labels=args.save_labels_instead_of_text,
+        dataloader_kwargs={'num_workers': 8, 'pin_memory': True},
+        add_cls_and_sep_tokens=not args.not_add_cls_and_sep_tokens,
+        pickled_features=args.pickled_features,
+    )
     if args.make_queries_contain_intact_sentences:
         for i, text in tqdm(
             enumerate(processed_texts), total=len(processed_texts), desc="Making queries intact sentences", unit="query"
