@@ -247,6 +247,9 @@ def main() -> None:
     if args.make_queries_contain_intact_sentences:
         for i, text in enumerate(processed_texts):
             text = LEFT_PUNCTUATION_STRIP_PATTERN.sub('', text.strip())
+            if not text:
+                processed_texts.append('')
+                continue
             if text[0].islower():
                 if args.save_labels_instead_of_text:
                     if text[0] == 'O':
