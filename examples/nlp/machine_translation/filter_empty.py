@@ -4,6 +4,8 @@ from subprocess import PIPE, run
 
 from tqdm import tqdm
 
+from nemo.utils import logging
+
 
 def get_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -31,11 +33,14 @@ def main():
             f"Number of lines {src_num_lines} in file {args.isrc} is not equal to number of lines {tgt_num_lines} in "
             f"file {args.itgt}."
         )
+    num_lines_left = 0
     with args.isrc.open() as isf, args.itgt.open() as itf, args.osrc.open('w') as osf, args.otgt.open('w') as otf:
         for sline, tline in tqdm(zip(isf, itf), total=src_num_lines, desc="Filtering empty lines", unit="line"):
             if sline.strip() and tline.strip():
                 osf.write(sline)
                 otf.write(tline)
+                num_lines_left += 1
+    logging.info(f"{num_lines_left} lines left.")
 
 
 if __name__ == "__main__":
