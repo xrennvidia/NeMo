@@ -3,8 +3,10 @@ import re
 from pathlib import Path
 
 
-SRCSET = re.compile(r'^<srcset setid="([^"]+)" srclang="([^"]+)">$')
-REFSET = re.compile(r'^<refset setid="([^"]+)" srclang="([^"]+)" tgtlang="([^"]+)" refid="([^"]+)">$')
+SRCSET = re.compile(r'^<srcset setid="([^"]+)" srclang="([^"]+)">$', flags=re.MULTILINE)
+REFSET = re.compile(
+    r'^<refset setid="([^"]+)" srclang="([^"]+)" tgtlang="([^"]+)" refid="([^"]+)">$', flags=re.MULTILINE
+)
 srcset_tmpl = '<srcset setid="{setid}" srclang="{srclang}">'
 refset_tmpl = '<refset setid="{setid}" srclang="{srclang}" tgtlang="{tgtlang}" refid="{refid}">'
 
