@@ -20,7 +20,7 @@ cd ~/mwerSegmenter/
   conda activate mwerSegmenter  # python 2 conda environment
 ./segmentBasedOnMWER.sh \
   "${dataset_dir}/src.de" \
-  "${dataset_dir}/src.en" \
+  "${dataset_dir}/ref.en" \
   /home/apeganov/iwslt_2019_test_result/AAYNLarge6x6_all_punc_no_u_kenlm/punc_transcripts_not_segmented_input/stt_en_citrinet_1024.txt \
   stt_en_citrinet_1024 \
   English \
