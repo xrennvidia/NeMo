@@ -27,7 +27,7 @@ model:
     tar_shuffle_n: 100 # How many samples to look ahead and load to be shuffled
     shard_strategy: scatter # tarred dataset shard distribution strategy
     n_preproc_jobs: -2 # number of processes to use for data preprocessing (-2 means all but 2)
-    tokens_in_batch: 512
+    tokens_in_batch: 15000
     clean: true
     max_seq_length: 512
     shuffle: true
@@ -40,9 +40,9 @@ model:
     concat_sampling_probabilities: null # only used with ConcatTranslationDataset 
 
   validation_ds:
-    src_file_name: ???
-    tgt_file_name: ???
-    tokens_in_batch: 512
+    src_file_name: ~/en_de_shuffled_4M/IWSLT19/en.tokenized
+    tgt_file_name: ~/en_de_shuffled_4M/IWSLT19/de.tokenized
+    tokens_in_batch: 2048
     clean: false
     max_seq_length: 512
     shuffle: false
@@ -52,9 +52,9 @@ model:
     num_workers: 8
 
   test_ds:
-    src_file_name: ???
-    tgt_file_name: ???
-    tokens_in_batch: 512
+    src_file_name: ~/en_de_shuffled_4M/IWSLT19/en.tokenized
+    tgt_file_name: ~/en_de_shuffled_4M/IWSLT19/de.tokenized
+    tokens_in_batch: 2048
     clean: false
     max_seq_length: 512
     shuffle: false
@@ -65,7 +65,7 @@ model:
 
   optim:
     name: adam
-    lr: 0.001
+    lr: 0.0002
     betas:
       - 0.9
       - 0.98
@@ -143,16 +143,25 @@ model:
     use_transformer_init: true
 
 trainer:
-  gpus: 4
+  gpus: 2
   num_nodes: 1
-  max_epochs: 200
+  max_epochs: 10
   precision: 16 # Should be set to 16 for O1 and O2, default is 16 as PT ignores it when am_level is O0
-  accelerator: ddp
+  strategy: ddp
   checkpoint_callback: False
   logger: False
   log_every_n_steps: 50  # Interval of logging.
-  check_val_every_n_epoch: 1
+  val_check_interval: 500
 
 exp_manager:
-  name: AAYNBase
-  files_to_copy: []
+  name: AAYNLarge24x6
+  create_checkpoint_callback: true  # Whether you want exp_manager to create a model checkpoint callback
+  create_wandb_logger: true
+  wandb_logger_kwargs:
+    name: finetuning_machine_translation_for_ASR_errors
+    project: autoregressive_punctuation_capitalization
+    entity: anton_peganov
+  checkpoint_callback_params:
+    save_best_model: true
+    monitor: val_sacreBLEU
+    mode: min

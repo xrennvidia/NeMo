@@ -98,7 +98,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
     Encoder-decoder machine translation model.
     """
 
-    def pre_super(self, cfg, trainer):
+    def pre_super(self, cfg, trainer, create_tokenizers=True):
         cfg = model_utils.convert_model_config_to_dict_config(cfg)
         # Get global rank and total number of GPU workers for IterableDataset partitioning, if applicable
         # Global_rank and local_rank is set by LightningModule in Lightning 1.2.0
@@ -108,73 +108,74 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
             self.world_size = trainer.num_nodes * trainer.num_gpus
 
         cfg = model_utils.maybe_update_config_version(cfg)
+        if create_tokenizers:
+            self.src_language = cfg.get("src_language", None)
+            self.tgt_language = cfg.get("tgt_language", None)
 
-        self.src_language = cfg.get("src_language", None)
-        self.tgt_language = cfg.get("tgt_language", None)
+            self.multilingual = cfg.get("multilingual", False)
+            self.multilingual_ids = []
 
-        self.multilingual = cfg.get("multilingual", False)
-        self.multilingual_ids = []
+            self.encoder_tokenizer_library = cfg.encoder_tokenizer.get('library', 'yttm')
+            self.decoder_tokenizer_library = cfg.decoder_tokenizer.get('library', 'yttm')
 
-        self.encoder_tokenizer_library = cfg.encoder_tokenizer.get('library', 'yttm')
-        self.decoder_tokenizer_library = cfg.decoder_tokenizer.get('library', 'yttm')
+            self.validate_input_ids = cfg.get("validate_input_ids", True)
 
-        self.validate_input_ids = cfg.get("validate_input_ids", True)
+            # Instantiates tokenizers and register to be saved with NeMo Model archive
+            # After this call, ther will be self.encoder_tokenizer and self.decoder_tokenizer
+            # Which can convert between tokens and token_ids for SRC and TGT languages correspondingly.
+            self.setup_enc_dec_tokenizers(
+                encoder_tokenizer_library=self.encoder_tokenizer_library,
+                encoder_tokenizer_model=cfg.encoder_tokenizer.get('tokenizer_model'),
+                encoder_bpe_dropout=cfg.encoder_tokenizer.get('bpe_dropout', 0.0)
+                if cfg.encoder_tokenizer.get('bpe_dropout', 0.0) is not None
+                else 0.0,
+                encoder_model_name=cfg.encoder.get('model_name') if hasattr(cfg.encoder, 'model_name') else None,
+                encoder_r2l=cfg.encoder_tokenizer.get('r2l', False),
+                decoder_tokenizer_library=self.decoder_tokenizer_library,
+                encoder_tokenizer_vocab_file=cfg.encoder_tokenizer.get('vocab_file', None),
+                decoder_tokenizer_model=cfg.decoder_tokenizer.get('tokenizer_model'),
+                decoder_bpe_dropout=cfg.decoder_tokenizer.get('bpe_dropout', 0.0)
+                if cfg.decoder_tokenizer.get('bpe_dropout', 0.0) is not None
+                else 0.0,
+                decoder_model_name=cfg.decoder.get('model_name') if hasattr(cfg.decoder, 'model_name') else None,
+                decoder_r2l=cfg.decoder_tokenizer.get('r2l', False),
+                decoder_word_tokens=cfg.decoder_tokenizer.get('word_tokens'),
+                decoder_tokenizer_vocab_file=cfg.decoder_tokenizer.get('vocab_file'),
+            )
 
-        # Instantiates tokenizers and register to be saved with NeMo Model archive
-        # After this call, ther will be self.encoder_tokenizer and self.decoder_tokenizer
-        # Which can convert between tokens and token_ids for SRC and TGT languages correspondingly.
-        self.setup_enc_dec_tokenizers(
-            encoder_tokenizer_library=self.encoder_tokenizer_library,
-            encoder_tokenizer_model=cfg.encoder_tokenizer.get('tokenizer_model'),
-            encoder_bpe_dropout=cfg.encoder_tokenizer.get('bpe_dropout', 0.0)
-            if cfg.encoder_tokenizer.get('bpe_dropout', 0.0) is not None
-            else 0.0,
-            encoder_model_name=cfg.encoder.get('model_name') if hasattr(cfg.encoder, 'model_name') else None,
-            encoder_r2l=cfg.encoder_tokenizer.get('r2l', False),
-            decoder_tokenizer_library=self.decoder_tokenizer_library,
-            encoder_tokenizer_vocab_file=cfg.encoder_tokenizer.get('vocab_file', None),
-            decoder_tokenizer_model=cfg.decoder_tokenizer.get('tokenizer_model'),
-            decoder_bpe_dropout=cfg.decoder_tokenizer.get('bpe_dropout', 0.0)
-            if cfg.decoder_tokenizer.get('bpe_dropout', 0.0) is not None
-            else 0.0,
-            decoder_model_name=cfg.decoder.get('model_name') if hasattr(cfg.decoder, 'model_name') else None,
-            decoder_r2l=cfg.decoder_tokenizer.get('r2l', False),
-            decoder_word_tokens=cfg.decoder_tokenizer.get('word_tokens'),
-            decoder_tokenizer_vocab_file=cfg.decoder_tokenizer.get('vocab_file'),
-        )
+            if self.multilingual:
+                if isinstance(self.src_language, ListConfig) and isinstance(self.tgt_language, ListConfig):
+                    raise ValueError(
+                        "cfg.src_language and cfg.tgt_language cannot both be lists. We only support many-to-one or "
+                        "one-to-many multilingual models."
+                    )
+                elif isinstance(self.src_language, ListConfig):
+                    for lng in self.src_language:
+                        self.multilingual_ids.append(None)
+                elif isinstance(self.tgt_language, ListConfig):
+                    for lng in self.tgt_language:
+                        self.multilingual_ids.append(self.encoder_tokenizer.token_to_id("<" + lng + ">"))
+                else:
+                    raise ValueError(
+                        "Expect either cfg.src_language or cfg.tgt_language to be a list when multilingual=True."
+                    )
 
-        if self.multilingual:
-            if isinstance(self.src_language, ListConfig) and isinstance(self.tgt_language, ListConfig):
-                raise ValueError(
-                    "cfg.src_language and cfg.tgt_language cannot both be lists. We only support many-to-one or one-to-many multilingual models."
-                )
-            elif isinstance(self.src_language, ListConfig):
-                for lng in self.src_language:
-                    self.multilingual_ids.append(None)
-            elif isinstance(self.tgt_language, ListConfig):
-                for lng in self.tgt_language:
-                    self.multilingual_ids.append(self.encoder_tokenizer.token_to_id("<" + lng + ">"))
+                if isinstance(self.src_language, ListConfig):
+                    self.tgt_language = [self.tgt_language] * len(self.src_language)
+                else:
+                    self.src_language = [self.src_language] * len(self.tgt_language)
+
+                self.source_processor_list = []
+                self.target_processor_list = []
+                for src_lng, tgt_lng in zip(self.src_language, self.tgt_language):
+                    src_prcsr, tgt_prscr = self.setup_pre_and_post_processing_utils(src_lng, tgt_lng)
+                    self.source_processor_list.append(src_prcsr)
+                    self.target_processor_list.append(tgt_prscr)
+
             else:
-                raise ValueError(
-                    "Expect either cfg.src_language or cfg.tgt_language to be a list when multilingual=True."
-                )
-
-            if isinstance(self.src_language, ListConfig):
-                self.tgt_language = [self.tgt_language] * len(self.src_language)
-            else:
-                self.src_language = [self.src_language] * len(self.tgt_language)
-
-            self.source_processor_list = []
-            self.target_processor_list = []
-            for src_lng, tgt_lng in zip(self.src_language, self.tgt_language):
-                src_prcsr, tgt_prscr = self.setup_pre_and_post_processing_utils(src_lng, tgt_lng)
-                self.source_processor_list.append(src_prcsr)
-                self.target_processor_list.append(tgt_prscr)
-
-        else:
-            # After this call, the model will have  self.source_processor and self.target_processor objects
-            self.setup_pre_and_post_processing_utils(self.src_language, self.tgt_language)
-            self.multilingual_ids = [None]
+                # After this call, the model will have  self.source_processor and self.target_processor objects
+                self.setup_pre_and_post_processing_utils(self.src_language, self.tgt_language)
+                self.multilingual_ids = [None]
         self.use_decoder_tips = cfg.get('use_decoder_tips', False)
         if cfg.get('tgt_character_vocabulary') is None:
             self.tgt_character_vocabulary = None

@@ -142,6 +142,7 @@ def main(cfg: MTEncDecConfig) -> None:
             mt_model.setup_test_data(cfg.model.test_ds)
         if cfg.do_training:
             mt_model.setup_training_data(cfg.model.train_ds)
+            mt_model.setup_validation_data(cfg.model.validation_ds)
 
     logging.info("\n\n************** Model parameters and their sizes ***********")
     for name, param in mt_model.named_parameters():
