@@ -163,4 +163,4 @@ exp_manager:
   checkpoint_callback_params:
     save_best_model: true
     monitor: val_sacreBLEU
-    mode: min
+    mode: max
