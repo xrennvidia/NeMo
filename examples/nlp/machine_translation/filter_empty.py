@@ -33,7 +33,7 @@ def main():
         )
     with args.isrc.open() as isf, args.itgt.open() as itf, args.osrc.open('w') as osf, args.otgt.open('w') as otf:
         for sline, tline in tqdm(zip(isf, itf), total=src_num_lines, desc="Filtering empty lines", unit="line"):
-            if sline and tline:
+            if sline.strip() and tline.strip():
                 osf.write(sline)
                 otf.write(tline)
 
