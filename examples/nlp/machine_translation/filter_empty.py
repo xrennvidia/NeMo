@@ -12,7 +12,7 @@ def get_args():
     parser.add_argument("--osrc", type=Path, required=True)
     parser.add_argument("--otgt", type=Path, required=True)
     args = parser.parse_args()
-    for arg_name in ["input_source", "input_target", "output_source", "output_target"]:
+    for arg_name in ["isrc", "itgt", "osrc", "otgt"]:
         setattr(args, arg_name, getattr(args, arg_name).expanduser())
     return args
 
