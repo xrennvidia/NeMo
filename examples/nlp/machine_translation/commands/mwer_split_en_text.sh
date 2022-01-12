@@ -1,4 +1,4 @@
-dataset_dir=/home/apeganov/iwslt/IWSLT-SLT/eval/en-de/IWSLT.tst2019
+dataset_dir=/home/apeganov/data/iwslt/IWSLT-SLT/eval/en-de/IWSLT.tst2019
 result_dir=/home/apeganov/iwslt_2019_test_result/AAYNLarge6x6_all_punc_no_u_kenlm
 mwer_xml="${result_dir}/punc_transcripts_not_segmented_input/stt_en_citrinet_1024_mwer_segmented.xml"
 mwer_txt="${result_dir}/punc_transcripts_not_segmented_input/stt_en_citrinet_1024_mwer_segmented.txt"
