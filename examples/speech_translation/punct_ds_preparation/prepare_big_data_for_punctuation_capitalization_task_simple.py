@@ -616,11 +616,31 @@ def preprocess_news_commentary(
     return {doc_id: start_file_id for doc_id in docs.keys()}
 
 
+class WikiExtractedWorker:
+    def __init__(self, document_dir: Path, lang: str, tokenizer: TokenizerSpec):
+        self.document_dir = document_dir
+        self.lang = lang
+        self.tokenizer = tokenizer
+
+    def __call__(self, input_file: Path, doc_id: int) -> None:
+
+
+
 def preprocess_wiki_extracted(
-    dir_path: Path, document_dir: Path, lang: str, start_doc_id: int, start_file_id: int, tokenizer: TokenizerSpec
+    dir_path: Path,
+    document_dir: Path,
+    lang: str,
+    start_doc_id: int,
+    start_file_id: int,
+    tokenizer: TokenizerSpec,
+    n_jobs: int,
 ) -> Dict[int, int]:
     files_with_data = [file for inner_dir in dir_path.iterdir() for file in inner_dir.iterdir()]
-    doc_ids =
+    with mp.Pool(n_jobs) as pool:
+        pool.starmap(
+            WikiExtractedWorker(document_dir, lang, tokenizer),
+            zip(files_with_data, range(start_doc_id, start_file_id + len(files_with_data)))
+        )
 
 
 def is_int(s):
@@ -1005,7 +1025,13 @@ def main():
                 )
             elif corpus_type == SUPPORTED_CORPUS_TYPES[5]:  # wiki-extracted
                 corpus_doc_id_to_file_i = preprocess_wiki_extracted(
-                    file_or_dir_path, document_dir, args.input_language, start_doc_id, start_file_id, tokenizer,
+                    file_or_dir_path,
+                    document_dir,
+                    args.input_language,
+                    start_doc_id,
+                    start_file_id,
+                    tokenizer,
+                    args.n_jobs,
                 )
             else:
                 raise ValueError(
