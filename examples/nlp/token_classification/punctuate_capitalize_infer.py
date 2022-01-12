@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Dict, List, Union
 
 import torch.cuda
+from tqdm import tqdm
 
 from nemo.collections.nlp.models import PunctuationCapitalizationModel
 
@@ -245,7 +246,9 @@ def main() -> None:
         pickled_features=args.pickled_features,
     )
     if args.make_queries_contain_intact_sentences:
-        for i, text in enumerate(processed_texts):
+        for i, text in tqdm(
+            enumerate(processed_texts), total=len(processed_texts), desc="Making queries intact sentences", unit="query"
+        ):
             text = LEFT_PUNCTUATION_STRIP_PATTERN.sub('', text.strip())
             if not text:
                 processed_texts.append('')
@@ -260,17 +263,21 @@ def main() -> None:
                 text = RIGHT_PUNCTUATION_STRIP_PATTERN.sub('', text) + '.'
             processed_texts[i] = text
     if args.fix_decimals and not args.save_labels_instead_of_text:
-        for i, text in enumerate(processed_texts):
+        for i, text in tqdm(
+            enumerate(processed_texts), total=len(processed_texts), desc="Fixing decimals", unit="query"
+        ):
             processed_texts[i] = DECIMAL.sub(decimal_repl, SPACE_DEDUP.sub(' ', text))
     if args.output_manifest is None:
         args.output_text.parent.mkdir(exist_ok=True, parents=True)
         with args.output_text.open('w') as f:
-            for t in processed_texts:
+            for t in tqdm(processed_texts, desc="Writing results", unit="query"):
                 f.write(t + '\n')
     else:
         args.output_manifest.parent.mkdir(exist_ok=True, parents=True)
         with args.output_manifest.open('w') as f:
-            for item, t in zip(manifest, processed_texts):
+            for item, t in tqdm(
+                zip(manifest, processed_texts), total=len(processed_texts), desc="Writing results", unit="query"
+            ):
                 item[text_key] = t
                 f.write(json.dumps(item) + '\n')
 

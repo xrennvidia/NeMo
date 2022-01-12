@@ -9,7 +9,7 @@ from pathlib import Path
 from queue import Empty
 from subprocess import run
 from time import sleep
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 from bs4 import BeautifulSoup, NavigableString
@@ -28,7 +28,7 @@ logging.basicConfig(level="INFO", format='%(levelname)s -%(asctime)s - %(name)s 
 random.seed(42)
 
 
-SUPPORTED_CORPUS_TYPES = ["wikipedia", "europarl", "TED", "rapid", "news-commentary"]
+SUPPORTED_CORPUS_TYPES = ["wikipedia", "europarl", "TED", "rapid", "news-commentary", "wiki-extracted"]
 
 
 FORBIDDEN_PUNCTUATION_IN_THE_START_OF_SEGMENT = re.compile(f'^[^{WC}]+')
@@ -237,7 +237,7 @@ def preprocess_wikipedia(
     start_doc_id,
     start_line_id,
     nltk_tokenization,
-):
+) -> Dict[int, int]:
     doc_id_to_file_i = {}
     page = ""
     page_i = start_doc_id
@@ -401,7 +401,7 @@ def preprocess_europarl(
     start_doc_id: int,
     start_file_id: int,
     tokenizer: TokenizerSpec,
-):
+) -> Dict[int, int]:
     with file_path.open() as f:
         text = f.read()
     text = small.SPACING_CHARACTERS_TO_REPLACE.sub(' ', text)
@@ -446,7 +446,7 @@ def preprocess_europarl(
 
 def preprocess_ted(
     file_path: Path, document_dir: Path, lang: str, start_doc_id: int, start_file_id: int, tokenizer: TokenizerSpec
-):
+) -> Dict[int, int]:
     with file_path.open() as f:
         original_text = f.read()
     text = small.SPACING_CHARACTERS_TO_REPLACE.sub(' ', original_text)
@@ -498,7 +498,7 @@ def preprocess_ted(
 
 def preprocess_rapid(
     file_path: Path, document_dir: Path, lang: str, start_doc_id: int, start_file_id: int, tokenizer: TokenizerSpec
-):
+) -> Dict[int, int]:
     with file_path.open() as f:
         original_text = f.read()
     text = small.SPACING_CHARACTERS_TO_REPLACE.sub(' ', original_text)
@@ -559,7 +559,7 @@ def preprocess_rapid(
 
 def preprocess_news_commentary(
     file_path: Path, document_dir: Path, lang: str, start_doc_id: int, start_file_id: int, tokenizer: TokenizerSpec
-):
+) -> Dict[int, int]:
     with file_path.open() as f:
         original_text = f.read()
     docs = {}
@@ -614,6 +614,13 @@ def preprocess_news_commentary(
     else:
         logging.warning(f"News-commentary file {file_path} gave no documents.")
     return {doc_id: start_file_id for doc_id in docs.keys()}
+
+
+def preprocess_wiki_extracted(
+    dir_path: Path, document_dir: Path, lang: str, start_doc_id: int, start_file_id: int, tokenizer: TokenizerSpec
+) -> Dict[int, int]:
+    files_with_data = [file for inner_dir in dir_path.iterdir() for file in inner_dir.iterdir()]
+    doc_ids =
 
 
 def is_int(s):
@@ -967,12 +974,12 @@ def main():
         tokenizer = get_tokenizer(args.tokenizer)
         doc_id_to_file_i = {}
         start_doc_id, start_file_id = 0, 0
-        for corpus_type, file_path in zip(args.corpus_types, args.input_files):
+        for corpus_type, file_or_dir_path in zip(args.corpus_types, args.input_files_or_dirs):
             if corpus_type == SUPPORTED_CORPUS_TYPES[0]:  # wikipedia
-                logging.info(f"Preprocessing wikipedia file {file_path}...")
+                logging.info(f"Preprocessing wikipedia file {file_or_dir_path}...")
                 corpus_doc_id_to_file_i = preprocess_wikipedia_parallel(
                     args.num_jobs,
-                    file_path,
+                    file_or_dir_path,
                     document_dir,
                     args.input_language,
                     tokenizer,
@@ -982,19 +989,23 @@ def main():
                 )
             elif corpus_type == SUPPORTED_CORPUS_TYPES[1]:  # europarl
                 corpus_doc_id_to_file_i = preprocess_europarl(
-                    file_path, document_dir, args.input_language, start_doc_id, start_file_id, tokenizer,
+                    file_or_dir_path, document_dir, args.input_language, start_doc_id, start_file_id, tokenizer,
                 )
             elif corpus_type == SUPPORTED_CORPUS_TYPES[2]:  # TED
                 corpus_doc_id_to_file_i = preprocess_ted(
-                    file_path, document_dir, args.input_language, start_doc_id, start_file_id, tokenizer,
+                    file_or_dir_path, document_dir, args.input_language, start_doc_id, start_file_id, tokenizer,
                 )
             elif corpus_type == SUPPORTED_CORPUS_TYPES[3]:  # rapid
                 corpus_doc_id_to_file_i = preprocess_rapid(
-                    file_path, document_dir, args.input_language, start_doc_id, start_file_id, tokenizer,
+                    file_or_dir_path, document_dir, args.input_language, start_doc_id, start_file_id, tokenizer,
                 )
             elif corpus_type == SUPPORTED_CORPUS_TYPES[4]:  # news-commentary
                 corpus_doc_id_to_file_i = preprocess_news_commentary(
-                    file_path, document_dir, args.input_language, start_doc_id, start_file_id, tokenizer,
+                    file_or_dir_path, document_dir, args.input_language, start_doc_id, start_file_id, tokenizer,
+                )
+            elif corpus_type == SUPPORTED_CORPUS_TYPES[5]:  # wiki-extracted
+                corpus_doc_id_to_file_i = preprocess_wiki_extracted(
+                    file_or_dir_path, document_dir, args.input_language, start_doc_id, start_file_id, tokenizer,
                 )
             else:
                 raise ValueError(
@@ -1085,9 +1096,10 @@ def get_args(
 ):
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,)
     parser.add_argument(
-        "--input_files",
-        help="List of files with input data. You should also provide `--corpus_types` list which elements are types "
-        "corresponding files.",
+        "--input_files_or_dirs",
+        help="List of files or directories with input data. Directory is required only for 'wiki-extracted' corpus. "
+        "It should be a directory with data created by WikiExtractor instrument. You should also provide "
+        "`--corpus_types` list which elements are types of corpuses for corresponding files and directories.",
         nargs="+",
         type=Path,
         required=not add_resume_argument,
@@ -1112,8 +1124,8 @@ def get_args(
         "--corpus_types",
         "-c",
         help="List of names of WMT corpuses which is used as raw material for creating punctuation capitalization "
-        "dataset. Number and order of elements in this list should be equal to the number of elements in `input_files` "
-        "list.",
+        "dataset. Number and order of elements in this list should be equal to the number of elements in "
+        "`input_files_or_dirs` list.",
         choices=supported_corpus_types,
         nargs="+",
         required=True,
@@ -1190,10 +1202,11 @@ def get_args(
     )
     parser.add_argument("--num_jobs", default=1, type=int)
     args = parser.parse_args()
-    args.input_files = [x.expanduser() for x in args.input_files]
-    if len(args.input_files) != len(args.corpus_types):
+    args.input_files_or_dirs = [x.expanduser() for x in args.input_files_or_dirs]
+    if len(args.input_files_or_dirs) != len(args.corpus_types):
         raise ValueError(
-            f"Number {len(args.input_files)} of input files {args.input_files} is not equal to the number "
+            f"Number {len(args.input_files_or_dirs)} of input files or directories in parameter "
+            f"`--input_files_or_dirs` {args.input_files_or_dirs} is not equal to the number "
             f"{len(args.corpus_types)} of corpus types {args.corpus_types}."
         )
     args.output_dir = args.output_dir.expanduser()
