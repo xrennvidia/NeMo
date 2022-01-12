@@ -5,10 +5,10 @@ from pathlib import Path
 
 SRCSET = re.compile(r'^<srcset setid="([^"]+)" srclang="([^"]+)">$', flags=re.MULTILINE)
 REFSET = re.compile(
-    r'^<refset setid="([^"]+)" srclang="([^"]+)" tgtlang="([^"]+)" refid="([^"]+)">$', flags=re.MULTILINE
+    r'^<refset setid="([^"]+)" srclang="([^"]+)" trglang="([^"]+)" refid="([^"]+)">$', flags=re.MULTILINE
 )
 srcset_tmpl = '<srcset setid="{setid}" srclang="{srclang}">'
-refset_tmpl = '<refset setid="{setid}" srclang="{srclang}" tgtlang="{tgtlang}" refid="{refid}">'
+refset_tmpl = '<refset setid="{setid}" srclang="{srclang}" trglang="{trglang}" refid="{refid}">'
 
 
 def get_args():
@@ -55,19 +55,19 @@ def main():
             f"<srcset> in file {args.isrc} equals '{src_srclang}', whereas 'srclang' value in <refset> in "
             f"{args.itgt} file equals '{ref_srclang}'"
         )
-    tgtlang = ref_line_match.group(3)
+    trglang = ref_line_match.group(3)
     refid = ref_line_match.group(4)
     src_span = src_line_match.span()
     ref_span = ref_line_match.span()
     new_target_text = (
         source_text[:src_span[0]]
-        + refset_tmpl.format(setid=src_setid, srclang=tgtlang, tgtlang=src_srclang, refid=refid)
+        + refset_tmpl.format(setid=src_setid, srclang=trglang, trglang=src_srclang, refid=refid)
         + '\n'
         + source_text[src_span[1]:]
     )
     new_source_text = (
         target_text[:ref_span[0]]
-        + srcset_tmpl.format(setid=src_setid, srclang=tgtlang)
+        + srcset_tmpl.format(setid=src_setid, srclang=trglang)
         + '\n'
         + target_text[ref_span[1]:]
     )
