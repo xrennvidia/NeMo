@@ -15,7 +15,7 @@ model:
   tgt_language: 'de'
 
   train_ds:
-    src_file_name: /home/apeganov/en_de_shuffled_4M/train.filtered.normalized.en
+    src_file_name: /home/apeganov/en_de_shuffled_4M/train.filtered.tokenized.en
     tgt_file_name: /home/apeganov/en_de_shuffled_4M/train.filtered.de
     use_tarred_dataset: False # if true tar_file_name and meta_file_name will be used (or created automatically) 
     # config for preprocessing training data and creating a tarred datset automatically
