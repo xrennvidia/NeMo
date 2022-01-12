@@ -31,7 +31,7 @@ def main():
             f"Number of lines {src_num_lines} in file {args.isrc} is not equal to number of lines {tgt_num_lines} in "
             f"file {args.itgt}."
         )
-    with args.isrc.open() as isf, args.itgt.open() as itf, args.osrc.open('w') as osf, args.otgt.open() as otf:
+    with args.isrc.open() as isf, args.itgt.open() as itf, args.osrc.open('w') as osf, args.otgt.open('w') as otf:
         for sline, tline in tqdm(zip(isf, itf), total=src_num_lines, desc="Filtering empty lines", unit="line"):
             if sline and tline:
                 osf.write(sline)
