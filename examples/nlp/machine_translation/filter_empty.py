@@ -1,5 +1,8 @@
 import argparse
 from pathlib import Path
+from subprocess import PIPE, run
+
+from tqdm import tqdm
 
 
 def get_args():
@@ -14,10 +17,22 @@ def get_args():
     return args
 
 
+def count_lines(input_file: Path) -> int:
+    result = run(['wc', '-l', str(input_file)], stdout=PIPE, stderr=PIPE)
+    return int(result.stdout.decode('utf-8').split()[0])
+
+
 def main():
     args = get_args()
+    src_num_lines = count_lines(args.isrc)
+    tgt_num_lines = count_lines(args.itgt)
+    if src_num_lines != tgt_num_lines:
+        raise ValueError(
+            f"Number of lines {src_num_lines} in file {args.isrc} is not equal to number of lines {tgt_num_lines} in "
+            f"file {args.itgt}."
+        )
     with args.isrc.open() as isf, args.itgt.open() as itf, args.osrc.open('w') as osf, args.otgt.open() as otf:
-        for sline, tline in zip(isf, itf):
+        for sline, tline in tqdm(zip(isf, itf), total=src_num_lines, desc="Filtering empty lines", unit="line"):
             if sline and tline:
                 osf.write(sline)
                 otf.write(tline)
