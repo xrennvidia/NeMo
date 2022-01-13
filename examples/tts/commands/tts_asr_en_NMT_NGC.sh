@@ -15,7 +15,7 @@ while [ ! -f "${output}" ]; do
     --input /data/train.en \
     --output "${output}" \
     --tmp_wav_dir /raid/tmp \
-    --tmp_txt_dir /raid/tmp \
+    --tmp_txt_dir /result \
     --num_lines_per_process_for_1_iteration 24000 \
     --cuda_devices 0 1 2 3 4 5 6 7 \
     --asr_batch_size 48 \
