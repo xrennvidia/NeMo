@@ -314,7 +314,12 @@ def prepare_for_resuming_and_get_start_line(tmp_wav_dir: Path, tmp_txt_dir: Path
         if file.is_file() and file.suffix == '.wav':
             file.unlink()
     text_files = sorted(
-        [file for file in tmp_txt_dir.iterdir() if file.suffix == '.txt'], key=lambda x: int(x.stem.split('_')[0])
+        [
+            file
+            for file in tmp_txt_dir.iterdir()
+            if file.suffix == '.txt' and TXT_FILE_STEM.match(file.stem)
+        ],
+        key=lambda x: int(x.stem.split('_')[0])
     )
     start_line = 0
     for i, text_file in enumerate(text_files):
@@ -340,12 +345,12 @@ async def main() -> None:
     args = get_args()
     cpu_device = torch.device('cpu')
     # Downloading checkpoints here to avoid downloading in several spawned processes
-    tts_model_spectrogram = SpectrogramGenerator.from_pretrained(args.tts_model_spectrogram, map_location=cpu_device)
-    vocoder = Vocoder.from_pretrained(args.tts_model_vocoder, map_location=cpu_device)
+    SpectrogramGenerator.from_pretrained(args.tts_model_spectrogram, map_location=cpu_device)
+    Vocoder.from_pretrained(args.tts_model_vocoder, map_location=cpu_device)
     if args.asr_model in [x.pretrained_model_name for x in EncDecCTCModel.list_available_models()]:
-        asr_model = EncDecCTCModel.from_pretrained(args.asr_model, map_location=cpu_device)
+        EncDecCTCModel.from_pretrained(args.asr_model, map_location=cpu_device)
     elif args.asr_model in [x.pretrained_model_name for x in EncDecCTCModelBPE.list_available_models()]:
-        asr_model = EncDecCTCModelBPE.from_pretrained(args.asr_model, map_location=cpu_device)
+        EncDecCTCModelBPE.from_pretrained(args.asr_model, map_location=cpu_device)
     else:
         raise ValueError(
             f"Unsupported ASR pretrained name '{args.asr_model}'. Supported values are: "
@@ -369,6 +374,7 @@ async def main() -> None:
         elif args.tmp_wav_dir.is_file():
             args.tmp_wav_dir.unlink()
     args.tmp_wav_dir.mkdir(parents=True, exist_ok=True)
+    args.tmp_txt_dir.mkdir(parents=True, exist_ok=True)
     normalizer = Normalizer(input_case='cased', lang='en')
     with Progress(
         num_lines - start_line,
