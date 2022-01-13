@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 
-from nemo.collections.asr.models import EncDecCTCModel
+from nemo.collections.asr.models import EncDecCTCModel, EncDecCTCModelBPE
 
 from tts_asr import asr_worker
 
@@ -16,7 +16,10 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--asr_model",
         required=True,
-        choices=[x.pretrained_model_name for x in EncDecCTCModel.list_available_models()],
+        choices=[
+            x.pretrained_model_name
+            for x in EncDecCTCModel.list_available_models() + EncDecCTCModelBPE.list_available_models()
+        ],
     )
     parser.add_argument("--asr_batch_size", required=True, type=int)
     parser.add_argument("--tmp_dir", required=True, type=Path)

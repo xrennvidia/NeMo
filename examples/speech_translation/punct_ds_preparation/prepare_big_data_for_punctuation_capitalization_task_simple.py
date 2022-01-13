@@ -33,7 +33,7 @@ SUPPORTED_CORPUS_TYPES = ["wikipedia", "europarl", "TED", "rapid", "news-comment
 
 FORBIDDEN_PUNCTUATION_IN_THE_START_OF_SEGMENT = re.compile(f'^[^{WC}]+')
 
-WIKI_EXTRACTED_NOT_EMPTY_DOC = re.compile('^<doc id="[^\n]+')
+WIKI_EXTRACTED_NOT_EMPTY_DOC = re.compile('^<doc id="[^\n]+\n[^\n]+\n+[^\n]+')
 
 
 MAX_NUM_CHARACTERS_IN_1_FILE = 10 ** 9
@@ -630,7 +630,12 @@ class WikiExtractedWorker:
 def count_not_empty_docs_in_file(file_path: Path) -> int:
     with file_path.open() as f:
         text = f.read()
-
+    docs = text.split('</doc>')
+    num_not_empty = 0
+    for doc in docs:
+        if WIKI_EXTRACTED_NOT_EMPTY_DOC.match(doc.lstrip()):
+            num_not_empty += 1
+    return num_not_empty
 
 
 def preprocess_wiki_extracted(
