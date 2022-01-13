@@ -13,7 +13,7 @@ import torch
 import torch.multiprocessing as tmp
 from torch.utils.data import DataLoader, Dataset
 
-from nemo.collections.asr.models import EncDecCTCModel
+from nemo.collections.asr.models import EncDecCTCModel, EncDecCTCModelBPE
 from nemo.collections.nlp.data.token_classification.punctuation_capitalization_dataset import Progress
 from nemo.collections.tts.models.base import SpectrogramGenerator, Vocoder
 from nemo.utils import logging
@@ -218,7 +218,10 @@ def asr_worker(
 ) -> None:
     slice_start, num_lines_to_process = get_start_and_num_lines(num_lines, rank, world_size)
     device = torch.device(f'cuda:{cuda_device}')
-    asr_model = EncDecCTCModel.from_pretrained(asr_model, map_location=device).eval()
+    if asr_model in EncDecCTCModel.list_available_models():
+        asr_model = EncDecCTCModel.from_pretrained(asr_model, map_location=device).eval()
+    elif asr_model in EncDecCTCModelBPE.list_available_models():
+        asr_model = EncDecCTCModelBPE.from_pretrained(asr_model, map_location=device).eval()
     audio_files = [
         file
         for file in tmp_dir.iterdir()

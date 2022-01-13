@@ -33,6 +33,8 @@ SUPPORTED_CORPUS_TYPES = ["wikipedia", "europarl", "TED", "rapid", "news-comment
 
 FORBIDDEN_PUNCTUATION_IN_THE_START_OF_SEGMENT = re.compile(f'^[^{WC}]+')
 
+WIKI_EXTRACTED_NOT_EMPTY_DOC = re.compile('^<doc id="[^\n]+')
+
 
 MAX_NUM_CHARACTERS_IN_1_FILE = 10 ** 9
 BUFFER_SIZE = 2 ** 24
