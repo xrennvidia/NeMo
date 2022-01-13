@@ -644,6 +644,16 @@ class WikiExtractedWorker:
             doc, self.tokenizer, tok_chars, untok_chars, remove_entire_lines=True
         )
         doc = big.BROKEN_PARENTHESES_WITH_CONTENT.sub(' ', doc)
+        doc = big.SPACE_DUP.sub(' ', doc)
+        after_suspicious_removal, _ = big.remove_suspicious_lines_and_rearrange_quotes_and_spaces(
+            doc,
+            normalize_and_check_quotes_and_parentheses=True,
+            check_suspicious_endings=True,
+            check_suspicious_parentheses=True,
+        )
+        doc = big.normalize_punctuation(after_suspicious_removal, self.lang)
+        doc = big.NEW_LINE_DUP.sub('\n', doc)
+
 
     def __call__(self, input_file: Path, file_id: int, start_doc_id: int) -> None:
         with input_file.open() as f:

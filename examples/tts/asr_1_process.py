@@ -22,9 +22,11 @@ def get_args() -> argparse.Namespace:
         ],
     )
     parser.add_argument("--asr_batch_size", required=True, type=int)
-    parser.add_argument("--tmp_dir", required=True, type=Path)
+    parser.add_argument("--tmp_wav_dir", required=True, type=Path)
+    parser.add_argument("--tmp_txt_dir", required=True, type=Path)
     args = parser.parse_args()
-    args.tmp_dir = args.tmp_dir.expanduser()
+    args.tmp_wav_dir = args.tmp_wav_dir.expanduser()
+    args.tmp_txt_dir = args.tmp_txt_dir.expanduser()
     return args
 
 
@@ -36,7 +38,8 @@ def main() -> None:
         args.cuda_device,
         args.asr_model,
         args.asr_batch_size,
-        args.tmp_dir,
+        args.tmp_wav_dir,
+        args.tmp_txt_dir,
         args.start_line,
         args.num_lines,
     )

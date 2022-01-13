@@ -6,18 +6,22 @@ git pull
 bash reinstall.sh
 mkdir -p /raid/tmp
 cd examples/tts
-python tts_asr.py \
-  --tts_model_spectrogram tts_en_fastpitch \
-  --tts_model_vocoder tts_squeezewave \
-  --asr_model QuartzNet15x5Base-En \
-  --input /data/train.en \
-  --output /result/train__tts_en_fastpitch__tts_squeezewave__QuartzNet15x5Base-En.en \
-  --tmp_dir /raid/tmp \
-  --num_lines_per_process_for_1_iteration 24000 \
-  --cuda_devices 0 1 2 3 4 5 6 7 \
-  --asr_batch_size 48 \
-  --tts_tokens_in_batch 15000 \
-  --resume 2>&1 | tee --append /result/logs.txt
+output=/result/train__tts_en_fastpitch__tts_squeezewave__QuartzNet15x5Base-En.en
+while [ ! -f "${output}" ]; do
+  python tts_asr.py \
+    --tts_model_spectrogram tts_en_fastpitch \
+    --tts_model_vocoder tts_squeezewave \
+    --asr_model QuartzNet15x5Base-En \
+    --input /data/train.en \
+    --output "${output}" \
+    --tmp_wav_dir /raid/tmp \
+    --tmp_txt_dir /raid/tmp \
+    --num_lines_per_process_for_1_iteration 24000 \
+    --cuda_devices 0 1 2 3 4 5 6 7 \
+    --asr_batch_size 48 \
+    --tts_tokens_in_batch 15000 \
+    --resume 2>&1 | tee --append /result/logs.txt
+done
 set +e +x
 EOF
 

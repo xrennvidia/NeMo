@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import multiprocessing as mp
+import re
 import shutil
 from math import ceil
 from pathlib import Path
@@ -23,6 +24,8 @@ from nemo_text_processing.text_normalization.normalize import Normalizer
 TTS_PARSING_REPORT_PERIOD = 100
 TTS_SPECTROGRAM_VOCODER_SWITCH_PERIOD = 200
 NUM_ASR_BATCHES_LOADED_SIMULTANEOUSLY = 32
+
+TXT_FILE_STEM = re.compile(r'[0-9]+_[0-9]+$')
 
 
 def get_args() -> argparse.Namespace:
@@ -61,11 +64,18 @@ def get_args() -> argparse.Namespace:
         required=True,
     )
     parser.add_argument(
-        "--tmp_dir",
+        "--tmp_wav_dir",
         type=Path,
         required=True,
-        help="Path to a directory where temporary .wav and .txt files will be saved.",
+        help="Path to a directory where temporary .wav files will be saved.",
         default=Path("_tmp_wav_files"),
+    )
+    parser.add_argument(
+        "--tmp_txt_dir",
+        type=Path,
+        required=True,
+        help="Path to a directory where temporary .txt files will be saved.",
+        default=Path("_tmp_txt_files"),
     )
     parser.add_argument(
         "--num_lines_per_process_for_1_iteration",
@@ -101,9 +111,8 @@ def get_args() -> argparse.Namespace:
         help="If provided resumes from the last complete text file."
     )
     args = parser.parse_args()
-    args.input = args.input.expanduser()
-    args.output = args.output.expanduser()
-    args.tmp_dir = args.tmp_dir.expanduser()
+    for arg_name in ["input", "output", "tmp_wav_dir", "tmp_txt_dir"]:
+        setattr(args, arg_name, getattr(args, arg_name).expanduser())
     if args.n_jobs is None:
         args.n_jobs = mp.cpu_count()
     return args
@@ -197,7 +206,7 @@ def tts_worker(
                 for _specs, _indices in zip(accumulated_specs, accumulated_indices):
                     audio = vocoder.convert_spectrogram_to_audio(spec=_specs).cpu()
                     for aud, i in zip(audio, _indices):
-                        soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud, samplerate=22050)
+                        soundfile.write(args.tmp_wav_dir / f"{i}.proc{rank}.wav", aud, samplerate=22050)
                     vocoder_progress_queue.put(len(_indices))
                 accumulated_specs, accumulated_indices = [], []
             spectrogram_progress_queue.put(len(indices))
@@ -205,7 +214,7 @@ def tts_worker(
             for _specs, _indices in zip(accumulated_specs, accumulated_indices):
                 audio = vocoder.convert_spectrogram_to_audio(spec=_specs)
                 for aud, i in zip(audio, _indices):
-                    soundfile.write(args.tmp_dir / f"{i}.proc{rank}.wav", aud.cpu(), samplerate=22050)
+                    soundfile.write(args.tmp_wav_dir / f"{i}.proc{rank}.wav", aud.cpu(), samplerate=22050)
                 vocoder_progress_queue.put(len(_indices))
 
 
@@ -215,7 +224,8 @@ def asr_worker(
     cuda_device: int,
     asr_model: str,
     batch_size: int,
-    tmp_dir: Path,
+    tmp_wav_dir: Path,
+    tmp_txt_dir: Path,
     start_line: int,
     num_lines: int,
 ) -> None:
@@ -227,7 +237,7 @@ def asr_worker(
         asr_model = EncDecCTCModelBPE.from_pretrained(asr_model, map_location=device).eval()
     audio_files = [
         file
-        for file in tmp_dir.iterdir()
+        for file in tmp_wav_dir.iterdir()
         if file.suffixes == [f'.proc{rank}', '.wav'] and file.is_file()
     ]
     audio_files = sorted(audio_files, key=lambda x: int(x.stem.split('.')[0]))
@@ -246,7 +256,7 @@ def asr_worker(
     )
     for file in audio_files:
         file.unlink()
-    output_file = tmp_dir / f'{start_line + slice_start}_{num_lines_to_process}.txt'
+    output_file = tmp_txt_dir / f'{start_line + slice_start}_{num_lines_to_process}.txt'
     with output_file.open('w') as f:
         for h in hypotheses:
             f.write(h + '\n')
@@ -266,8 +276,11 @@ def check_and_sort_text_files(files: List[Path], num_lines: int) -> List[Path]:
     return files
 
 
-def unite_text_files(tmp_dir: Path, output: Path, num_lines: int) -> None:
-    text_files = [file_path for file_path in tmp_dir.iterdir() if file_path.suffix == '.txt']
+def unite_text_files(tmp_txt_dir: Path, output: Path, num_lines: int) -> None:
+    text_files = [
+        file_path for file_path in tmp_txt_dir.iterdir()
+        if file_path.suffix == '.txt' and TXT_FILE_STEM.match(file_path.stem)
+    ]
     text_files = check_and_sort_text_files(text_files, num_lines)
     with output.open('w') as out_f:
         for text_file in text_files:
@@ -285,7 +298,8 @@ async def run_asr(cuda_device: int, rank: int, start_line: int, num_lines: int, 
         f"--num_lines {num_lines} "
         f"--asr_model {args.asr_model} "
         f"--asr_batch_size {args.asr_batch_size} "
-        f"--tmp_dir {args.tmp_dir}"
+        f"--tmp_wav_dir {args.tmp_wav_dir}"
+        f"--tmp_txt_dir {args.tmp_txt_dir}"
     )
     await proc.communicate()
 
@@ -295,12 +309,12 @@ def incomplete(text_file: Path) -> bool:
     return num_lines != count_lines(text_file)
 
 
-def prepare_for_resuming_and_get_start_line(tmp_dir: Path) -> int:
-    for file in tmp_dir.iterdir():
+def prepare_for_resuming_and_get_start_line(tmp_wav_dir: Path, tmp_txt_dir: Path) -> int:
+    for file in tmp_wav_dir.iterdir():
         if file.is_file() and file.suffix == '.wav':
             file.unlink()
     text_files = sorted(
-        [file for file in tmp_dir.iterdir() if file.suffix == '.txt'], key=lambda x: int(x.stem.split('_')[0])
+        [file for file in tmp_txt_dir.iterdir() if file.suffix == '.txt'], key=lambda x: int(x.stem.split('_')[0])
     )
     start_line = 0
     for i, text_file in enumerate(text_files):
@@ -346,15 +360,15 @@ async def main() -> None:
         )
     num_lines = count_lines(args.input)
     if args.resume:
-        start_line = prepare_for_resuming_and_get_start_line(args.tmp_dir)
+        start_line = prepare_for_resuming_and_get_start_line(args.tmp_wav_dir, args.tmp_txt_dir)
         logging.info(f"Resuming from line {start_line}")
     else:
         start_line = 0
-        if args.tmp_dir.is_dir():
-            shutil.rmtree(args.tmp_dir)
-        elif args.tmp_dir.is_file():
-            args.tmp_dir.unlink()
-    args.tmp_dir.mkdir(parents=True, exist_ok=True)
+        if args.tmp_wav_dir.is_dir():
+            shutil.rmtree(args.tmp_wav_dir)
+        elif args.tmp_wav_dir.is_file():
+            args.tmp_wav_dir.unlink()
+    args.tmp_wav_dir.mkdir(parents=True, exist_ok=True)
     normalizer = Normalizer(input_case='cased', lang='en')
     with Progress(
         num_lines - start_line,
@@ -389,7 +403,7 @@ async def main() -> None:
                 )
                 start_line += len(lines)
     logging.info("Uniting text files...")
-    unite_text_files(args.tmp_dir, args.output, num_lines)
+    unite_text_files(args.tmp_txt_dir, args.output, num_lines)
 
 
 if __name__ == "__main__":
