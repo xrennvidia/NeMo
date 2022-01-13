@@ -155,6 +155,50 @@ def add_ordinals_to_numbers():
 add_ordinals_to_numbers()
 
 
+def add_hyphen_numbers():
+    global TEXT_TO_NUMBERS
+    new_text_to_numbers = {}
+    for k, v in TEXT_TO_NUMBERS.copy().items():
+        if any(
+            [
+                k.startswith(start)
+                for start in ['twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety']
+            ]
+        ) and any(
+            [
+                k.endswith(end)
+                for end in [
+                    'one',
+                    'two',
+                    'three',
+                    'four',
+                    'five',
+                    'six',
+                    'seven',
+                    'eight',
+                    'nine',
+                    'first',
+                    'second',
+                    'third',
+                    'fourth',
+                    'fifth',
+                    'sixth',
+                    'seventh',
+                    'eighth',
+                    'ninth',
+                ]
+            ]
+        ):
+            new_text_to_numbers[k] = v
+            new_text_to_numbers[k.replace(' ', '-')] = v
+        else:
+            new_text_to_numbers[k] = v
+    TEXT_TO_NUMBERS = new_text_to_numbers
+
+
+add_hyphen_numbers()
+
+
 def add_decades_to_numbers():
     decades = {
         "twenties": "20s",

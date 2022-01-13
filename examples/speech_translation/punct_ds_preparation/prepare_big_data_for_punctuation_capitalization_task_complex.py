@@ -14,11 +14,13 @@ from pathlib import Path
 from queue import Empty
 from subprocess import run
 from time import sleep
+from typing import Dict, List, Match, Pattern, Set, Tuple, Union
 
+import nltk
 import numpy as np
 from tqdm import tqdm
 
-import nltk
+from nemo.collections.common.tokenizers import TokenizerSpec
 from nemo.collections.nlp.modules import get_tokenizer
 
 import prepare_small_data_for_punctuation_capitalization_task as small
@@ -156,7 +158,9 @@ POSSIBLE_LINE_ENDS = {'\n', '\r', '\v', '\f', '\x1c', '\x1d', '\x1e', '\x85', '\
 MAX_NUM_LINES_PER_PROCESS = 10 ** 6
 
 
-def remove_tag_with_content(text, start_re, end_re, remove_whole_line, pos_info):
+def remove_tag_with_content(
+    text: str, start_re: Pattern, end_re: Pattern, remove_whole_line: bool, pos_info: Tuple[Path, int, int]
+) -> str:
     result = ""
     start_iter = start_re.finditer(text)
     end_iter = end_re.finditer(text)
@@ -204,7 +208,14 @@ def remove_tag_with_content(text, start_re, end_re, remove_whole_line, pos_info)
     return result
 
 
-def remove_tag_with_content_nested(text, start_re, end_re, start_or_end_re, remove_whole_line, pos_info):
+def remove_tag_with_content_nested(
+    text: str,
+    start_re: Pattern,
+    end_re: Pattern,
+    start_or_end_re: Pattern,
+    remove_whole_line: bool,
+    pos_info: Tuple[Path, int, int],
+) -> str:
     result = ""
     num_opened = 0
     last_end = 0
@@ -233,7 +244,7 @@ def remove_tag_with_content_nested(text, start_re, end_re, start_or_end_re, remo
     return result
 
 
-def remove_double_square_brackets_specials(text, pos_info):
+def remove_double_square_brackets_specials(text: str, pos_info: Tuple[Path, int, int]) -> str:
     result = ""
     last_end = 0
     for m in SPECIAL_SQUARE_BRACKETS_START.finditer(text):
@@ -257,7 +268,7 @@ def remove_double_square_brackets_specials(text, pos_info):
     return result + text[last_end:]
 
 
-def remove_lists(text):
+def remove_lists(text: str) -> str:
     result = ""
     start_idx_of_clean_text = 0
     for m in LIST_ELEMENT_START.finditer(text):
@@ -278,7 +289,7 @@ def remove_lists(text):
     return result
 
 
-def check_quotes_and_parentheses(line, do_no_allow_nested=True):
+def check_quotes_and_parentheses(line: str, do_no_allow_nested: bool = True) -> bool:
     opened = 0
     for m in PARENTHESES.finditer(line):
         if m.group(0) == '(':
@@ -292,7 +303,7 @@ def check_quotes_and_parentheses(line, do_no_allow_nested=True):
     return opened == 0 and line.count('"') % 2 == 0
 
 
-def normalize_quotes(text, skip_if_odd_number_of_quotes):
+def normalize_quotes(text: str, skip_if_odd_number_of_quotes: bool) -> str:
     if skip_if_odd_number_of_quotes:
         if text.count('"') % 2 == 1:
             return text
@@ -323,8 +334,11 @@ def normalize_quotes(text, skip_if_odd_number_of_quotes):
 
 
 def remove_suspicious_lines_and_rearrange_quotes_and_spaces(
-    original_text, normalize_and_check_quotes_and_parentheses, check_suspicious_endings, check_suspicious_parentheses
-):
+    original_text: str,
+    normalize_and_check_quotes_and_parentheses: bool,
+    check_suspicious_endings: bool,
+    check_suspicious_parentheses: bool,
+) -> Tuple[str, int]:
     text = UNICODE_APOSTROPHE.sub(r"\1'\2", original_text)
     text = text.replace('`', "'")
     text = text.replace('‘', "'")
@@ -371,7 +385,7 @@ def remove_suspicious_lines_and_rearrange_quotes_and_spaces(
     return text, num_removed_lines
 
 
-def normalize_punctuation(text, lang):
+def normalize_punctuation(text: str, lang: str) -> str:
     text = LONG_HYPHEN.sub(' - ', text)
     text = SPACE_DUP.sub(' ', text)
     text = NOT_USUAL_HYPHENS.sub('-', text)
@@ -397,7 +411,16 @@ def normalize_punctuation(text, lang):
     return text
 
 
-def get_wiki_text_lines(text, lang, tokenizer, tok_chars, untok_chars, pos_info, nltk_tokenization, remove_parentheses):
+def get_wiki_text_lines(
+    text: str,
+    lang: str,
+    tokenizer: TokenizerSpec,
+    tok_chars: Set[str],
+    untok_chars: Set[str],
+    pos_info: Tuple[Path, int, int],
+    nltk_tokenization: bool,
+    remove_parentheses: bool,
+) -> Tuple[List[str], Set[str], Set[str]]:
     text = html.unescape(html.unescape(text))
     text = small.SPACING_CHARACTERS_TO_REPLACE.sub(' ', text)
     text = REDIRECT.sub('', text)
@@ -438,7 +461,7 @@ def get_wiki_text_lines(text, lang, tokenizer, tok_chars, untok_chars, pos_info,
     text = remove_tag_with_content_nested(text, PRE_START, PRE_END, PRE_START_OR_END, False, pos_info)
     text = EQUALS_SIGN_HEADERS.sub('\n', text)
 
-    def double_square_brackets_replacement(match):
+    def double_square_brackets_replacement(match: Match) -> str:
         match_text = match.group(1)
         match_text = match_text.split('|')
         if len(match_text) == 1:

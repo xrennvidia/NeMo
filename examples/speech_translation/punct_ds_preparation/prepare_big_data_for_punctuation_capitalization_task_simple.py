@@ -1,5 +1,6 @@
 import argparse
 import io
+import itertools
 import logging
 import multiprocessing as mp
 import random
@@ -9,7 +10,7 @@ from pathlib import Path
 from queue import Empty
 from subprocess import run
 from time import sleep
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple, Union
 
 import numpy as np
 from bs4 import BeautifulSoup, NavigableString
@@ -618,16 +619,47 @@ def preprocess_news_commentary(
     return {doc_id: start_file_id for doc_id in docs.keys()}
 
 
+def wiki_extracted_initializer():
+    global tok_chars
+    global untok_chars
+    tok_chars: Set[str] = set()
+    untok_chars: Set[str] = set()
+
+
 class WikiExtractedWorker:
-    def __init__(self, document_dir: Path, lang: str, tokenizer: TokenizerSpec):
+    def __init__(self, document_dir: Path, lang: str, tokenizer: TokenizerSpec, progress_queue: mp.Queue):
         self.document_dir = document_dir
         self.lang = lang
         self.tokenizer = tokenizer
+        self.progress_queue = progress_queue
 
-    def __call__(self, input_file: Path, file_id: int) -> None:
+    def prepare_wiki_extracted_doc(self, doc: str, start_line: int, end_line: int) -> Dict[str, Union[str, int, Path]]:
+        doc = doc.strip()
+        first_end_line = doc.find('\n')
+        doc = doc[first_end_line:]
+        doc = small.SPACING_CHARACTERS_TO_REPLACE.sub(' ', doc)
+        global tok_chars
+        global untok_chars
+        doc, tok_chars, untok_chars, _ = small.remove_untokenizable_characters_from_text(
+            doc, self.tokenizer, tok_chars, untok_chars, remove_entire_lines=True
+        )
+        doc = big.BROKEN_PARENTHESES_WITH_CONTENT.sub(' ', doc)
+
+    def __call__(self, input_file: Path, file_id: int, start_doc_id: int) -> None:
+        with input_file.open() as f:
+            text = f.read()
+        docs = text.split('</doc>')
+        prepared_docs = []
+        start_line = 0
+        for doc in docs:
+            num_lines = doc.count('\n')
+            if WIKI_EXTRACTED_NOT_EMPTY_DOC.match(doc.lstrip()):
+                prepared_docs.append(self.prepare_wiki_extracted_doc(doc, start_line, start_line + num_lines))
+            start_line += num_lines
+        big.write_docs_to_file(docs, self.document_dir / (str(file_id) + '.xml'))
 
 
-def count_not_empty_docs_in_file(file_path: Path) -> int:
+def count_not_empty_docs_in_file(file_path: Path, progress_queue: mp.Queue) -> int:
     with file_path.open() as f:
         text = f.read()
     docs = text.split('</doc>')
@@ -635,6 +667,7 @@ def count_not_empty_docs_in_file(file_path: Path) -> int:
     for doc in docs:
         if WIKI_EXTRACTED_NOT_EMPTY_DOC.match(doc.lstrip()):
             num_not_empty += 1
+    progress_queue.put(1)
     return num_not_empty
 
 
@@ -648,13 +681,26 @@ def preprocess_wiki_extracted(
     n_jobs: int,
 ) -> Dict[int, int]:
     files_with_data = [file for inner_dir in dir_path.iterdir() for file in inner_dir.iterdir()]
-    with mp.Pool(n_jobs) as pool:
-        num_not_empty_docs_in_files = pool.map(count_not_empty_docs_in_file, files_with_data)
-    with mp.Pool(n_jobs) as pool:
-        pool.starmap(
-            WikiExtractedWorker(document_dir, lang, tokenizer),
-            zip(files_with_data, range(start_file_id, start_file_id + len(files_with_data)))
-        )
+    with Progress(
+        len(files_with_data), "Counting not empty documents in extracted Wikipedia", "file"
+    ) as progress_queue:
+        with mp.Pool(n_jobs) as pool:
+            num_not_empty_docs_in_files = pool.starmap(
+                count_not_empty_docs_in_file, zip(files_with_data, [progress_queue] * len(files_with_data))
+            )
+    start_doc_ids = list(itertools.accumulate(num_not_empty_docs_in_files, initial=start_doc_id))
+    file_id_values = list(range(start_file_id, start_file_id + len(files_with_data)))
+    with Progress(start_doc_ids[-1], "Preparing extracted Wikipedia", "doc") as progress_queue:
+        with mp.Pool(n_jobs) as pool:
+            pool.starmap(
+                WikiExtractedWorker(document_dir, lang, tokenizer, progress_queue),
+                zip(files_with_data, file_id_values, start_doc_ids),
+            )
+    return {
+        doc_id: file_id
+        for i, file_id in enumerate(file_id_values)
+        for doc_id in range(start_doc_ids[i], start_doc_ids[i+1])
+    }
 
 
 def is_int(s):
