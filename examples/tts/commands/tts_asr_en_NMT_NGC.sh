@@ -1,5 +1,5 @@
 read -r -d '' command << EOF
-set -e -x
+set -x
 cd NeMo
 git checkout feat/punc_tarred
 git pull
@@ -22,7 +22,7 @@ while [ ! -f "${output}" ]; do
     --tts_tokens_in_batch 15000 \
     --resume 2>&1 | tee --append /result/logs.txt
 done
-set +e +x
+set +x
 EOF
 
 ngc batch run \
