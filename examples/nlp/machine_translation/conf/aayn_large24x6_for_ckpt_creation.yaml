@@ -46,14 +46,6 @@ model:
     drop_last: false
     pin_memory: false
     num_workers: 8
-    reverse_lang_direction: false
-    metadata_path: null
-    tar_shuffle_n: 100
-    n_preproc_jobs: -2
-    tar_file_prefix: parallel
-    backtranslated_tar_files: null
-    backtranslated_metadata_file: null
-    parallel_oversampling_factor: 1.0
   test_ds:
     src_file_name: null
     tgt_file_name: null
@@ -75,16 +67,6 @@ model:
     drop_last: false
     pin_memory: false
     num_workers: 8
-    load_from_cached_dataset: false
-    reverse_lang_direction: false
-    load_from_tarred_dataset: false
-    metadata_path: null
-    tar_shuffle_n: 100
-    n_preproc_jobs: -2
-    tar_file_prefix: parallel
-    backtranslated_tar_files: null
-    backtranslated_metadata_file: null
-    parallel_oversampling_factor: 1.0
   optim:
     name: adam
     lr: 0.0004
