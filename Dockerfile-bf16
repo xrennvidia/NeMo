@@ -24,3 +24,7 @@ RUN git clone https://github.com/NVIDIA/apex.git
 WORKDIR /opt/apex
 RUN git checkout 05f2d96baf9387c271134e292c811c3d94ed5fd2
 RUN pip install -v --disable-pip-version-check --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./
+<<<<<<< HEAD
+=======
+
+>>>>>>> 89b9efbcc559006d1a2422424f12343e6bbb754f
