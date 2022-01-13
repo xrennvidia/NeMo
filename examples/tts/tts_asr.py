@@ -298,7 +298,7 @@ async def run_asr(cuda_device: int, rank: int, start_line: int, num_lines: int, 
         f"--num_lines {num_lines} "
         f"--asr_model {args.asr_model} "
         f"--asr_batch_size {args.asr_batch_size} "
-        f"--tmp_wav_dir {args.tmp_wav_dir}"
+        f"--tmp_wav_dir {args.tmp_wav_dir} "
         f"--tmp_txt_dir {args.tmp_txt_dir}"
     )
     await proc.communicate()
