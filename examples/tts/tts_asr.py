@@ -356,7 +356,6 @@ async def main() -> None:
             f"Unsupported ASR pretrained name '{args.asr_model}'. Supported values are: "
             f"{' '.join([x.pretrained_model_name for x in EncDecCTCModel.list_available_models()] + [x.pretrained_model_name for x in EncDecCTCModelBPE.list_available_models()])}"
         )
-    del tts_model_spectrogram, vocoder, asr_model
     world_size = torch.cuda.device_count()
     if any([d >= world_size for d in args.cuda_devices]):
         raise ValueError(
