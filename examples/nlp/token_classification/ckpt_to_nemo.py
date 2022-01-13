@@ -41,6 +41,7 @@ class MTEncDecConfig(NemoConfig):
     name: Optional[str] = 'MTEncDec'
     do_training: bool = True
     do_testing: bool = False
+    nemo_file: Optional[str] = None
     model: MTEncDecModelConfig = MTEncDecModelConfig()
     trainer: Optional[TrainerConfig] = TrainerConfig()
     exp_manager: Optional[ExpManagerConfig] = ExpManagerConfig(name='MTEncDec', files_to_copy=[])
