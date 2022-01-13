@@ -43,7 +43,10 @@ def get_args() -> argparse.Namespace:
         "--asr_model",
         help="Name of ASR CTC char model.",
         required=True,
-        choices=[x.pretrained_model_name for x in EncDecCTCModel.list_available_models()]
+        choices=[
+            x.pretrained_model_name
+            for x in EncDecCTCModel.list_available_models() + EncDecCTCModelBPE.list_available_models()
+        ]
     )
     parser.add_argument(
         "--input",
