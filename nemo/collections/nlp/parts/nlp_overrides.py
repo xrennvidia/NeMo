@@ -38,16 +38,6 @@ except (ImportError, ModuleNotFoundError):
 
     HAVE_APEX = False
 
-try:
-    from apex.transformer import parallel_state
-    from nemo.collections.nlp.modules.common.megatron.clip_grads import clip_grad_norm_fp32
-
-    HAVE_APEX = True
-
-except (ImportError, ModuleNotFoundError):
-
-    HAVE_APEX = False
-
 
 class NLPDDPPlugin(DDPPlugin):
     """ DDP plugin for Pytorch Lightning. Needed to customize DDP for model parallel models.
@@ -242,6 +232,7 @@ class GradScaler(torch.cuda.amp.GradScaler):
             growth_interval=growth_interval,
             enabled=enabled,
         )
+        self.optimizer_update_skipped: Optional[bool] = None
 
     def _maybe_opt_step(self, optimizer, optimizer_state, *args, **kwargs):
         retval = None
@@ -254,6 +245,9 @@ class GradScaler(torch.cuda.amp.GradScaler):
 
         if found_inf.item() == 0:
             retval = optimizer.step(*args, **kwargs)
+            self.optimizer_update_skipped = False
+        else:
+            self.optimizer_update_skipped = True
         return retval
 
     def update(self, new_scale=None):
