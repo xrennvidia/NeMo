@@ -47,8 +47,8 @@ model:
     pin_memory: false
     num_workers: 8
   test_ds:
-    src_file_name: null
-    tgt_file_name: null
+    src_file_name: ~/en_de_shuffled_4M/IWSLT19/en.tokenized
+    tgt_file_name: ~/en_de_shuffled_4M/IWSLT19/de.tokenized
     use_tarred_dataset: false
     tar_files: null
     metadata_file: null
