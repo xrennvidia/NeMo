@@ -320,7 +320,7 @@ def prepare_for_resuming_and_get_start_line(tmp_wav_dir: Path, tmp_txt_dir: Path
             if file.suffix == '.txt' and TXT_FILE_STEM.match(file.stem)
         ],
         key=lambda x: int(x.stem.split('_')[0])
-    )
+    ) if tmp_txt_dir.is_dir() else []
     start_line = 0
     for i, text_file in enumerate(text_files):
         if incomplete(text_file):
