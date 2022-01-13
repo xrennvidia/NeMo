@@ -225,9 +225,6 @@ def flip_dict(d):
     return result
 
 
-NUMBERS_TO_TEXT = flip_dict(TEXT_TO_NUMBERS)
-
-
 SINGLE_NUMBERS = {
     "0": "zero",
     "1": "one",
@@ -240,6 +237,17 @@ SINGLE_NUMBERS = {
     "8": "eight",
     "9": "nine",
 }
+SINGLE_ORDINALS = {
+    "1st": "first",
+    "2nd": "second",
+    "3rd": "third",
+    "4th": "forth",
+    "5th": "fifth",
+    "6th": "sixth",
+    "7th": "seventh",
+    "8th": "eighth",
+    "9th": "nineth",
+}
 
 
 def str_to_number_repl(match):
@@ -251,7 +259,7 @@ def single_number_to_str_repl(match):
 
 
 def single_ordinal_to_str_repl(match):
-    return NUMBERS_TO_TEXT[match.group(0)]
+    return SINGLE_ORDINALS[match.group(0)]
 
 
 def hundred_repl(match_obj):
@@ -339,7 +347,7 @@ REPLACEMENTS = [
         re.compile(
             f'({"|".join(MONTHS)})'
             + ' ('
-            + "|".join([rf"\b{k}\b" for k in list(TEXT_TO_NUMBERS.values())[131:100:-1]])
+            + "|".join([rf"\b{k}\b" for k in list(TEXT_TO_NUMBERS.values())[212:172:-1]])  # ordinals from 31st to 1st
             + ')',
             flags=re.I,
         ),
@@ -347,7 +355,7 @@ REPLACEMENTS = [
     ),
     (
         re.compile(
-            rf"\b(?:{'|'.join(list(TEXT_TO_NUMBERS.values())[100:110])})\b(?! of ({'|'.join(MONTHS)})\b)", flags=re.I
+            rf"\b(?:{'|'.join(list(TEXT_TO_NUMBERS.values())[173:182])})\b(?! of ({'|'.join(MONTHS)})\b)", flags=re.I
         ),
         single_ordinal_to_str_repl,
     ),
