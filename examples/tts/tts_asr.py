@@ -221,9 +221,9 @@ def asr_worker(
 ) -> None:
     slice_start, num_lines_to_process = get_start_and_num_lines(num_lines, rank, world_size)
     device = torch.device(f'cuda:{cuda_device}')
-    if asr_model in EncDecCTCModel.list_available_models():
+    if asr_model in [x.pretrained_model_name for x in EncDecCTCModel.list_available_models()]:
         asr_model = EncDecCTCModel.from_pretrained(asr_model, map_location=device).eval()
-    elif asr_model in EncDecCTCModelBPE.list_available_models():
+    elif asr_model in [x.pretrained_model_name for x in EncDecCTCModelBPE.list_available_models()]:
         asr_model = EncDecCTCModelBPE.from_pretrained(asr_model, map_location=device).eval()
     audio_files = [
         file
@@ -328,7 +328,15 @@ async def main() -> None:
     # Downloading checkpoints here to avoid downloading in several spawned processes
     tts_model_spectrogram = SpectrogramGenerator.from_pretrained(args.tts_model_spectrogram, map_location=cpu_device)
     vocoder = Vocoder.from_pretrained(args.tts_model_vocoder, map_location=cpu_device)
-    asr_model = EncDecCTCModel.from_pretrained(args.asr_model, map_location=cpu_device)
+    if args.asr_model in [x.pretrained_model_name for x in EncDecCTCModel.list_available_models()]:
+        asr_model = EncDecCTCModel.from_pretrained(args.asr_model, map_location=cpu_device)
+    elif args.asr_model in [x.pretrained_model_name for x in EncDecCTCModelBPE.list_available_models()]:
+        asr_model = EncDecCTCModelBPE.from_pretrained(args.asr_model, map_location=cpu_device)
+    else:
+        raise ValueError(
+            f"Unsupported ASR pretrained name '{args.asr_model}'. Supported values are: "
+            f"{' '.join([x.pretrained_model_name for x in EncDecCTCModel.list_available_models()] + [x.pretrained_model_name for x in EncDecCTCModelBPE.list_available_models()])}"
+        )
     del tts_model_spectrogram, vocoder, asr_model
     world_size = torch.cuda.device_count()
     if any([d >= world_size for d in args.cuda_devices]):
