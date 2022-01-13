@@ -1,3 +1,5 @@
+part="$1"
+
 read -r -d '' command << EOF
 set -e -x
 cd NeMo
@@ -6,13 +8,13 @@ git pull
 bash reinstall.sh
 mkdir -p /raid/tmp
 cd examples/tts
-output=/result/train__tts_en_fastpitch__tts_squeezewave__stt_en_citrinet_1024.en
+output=/result/train__${part}__tts_en_fastpitch__tts_squeezewave__stt_en_citrinet_1024.en
 while [ ! -f "${output}" ]; do
   python tts_asr.py \
     --tts_model_spectrogram tts_en_fastpitch \
     --tts_model_vocoder tts_squeezewave \
     --asr_model stt_en_citrinet_1024 \
-    --input /data/train.en \
+    --input "/data/${part}.en" \
     --output "${output}" \
     --tmp_wav_dir /raid/tmp \
     --tmp_txt_dir /raid/tmp \
@@ -30,5 +32,5 @@ ngc batch run \
   --name "ml-model.tts_asr nmt_data_augmentation" \
   --image "nvcr.io/nvidian/ac-aiapps/speech_translation:latest" \
   --result /result \
-  --datasetid 93942:/data \
+  --datasetid 94200:/data \
   --commandline "${command}"
