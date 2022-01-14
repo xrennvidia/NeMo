@@ -622,8 +622,8 @@ def preprocess_news_commentary(
 def wiki_extracted_initializer():
     global tok_chars
     global untok_chars
-    tok_chars = set()
-    untok_chars = set()
+    tok_chars = None
+    untok_chars = None
 
 
 class WikiExtractedWorker:
