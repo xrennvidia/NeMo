@@ -36,6 +36,7 @@ FORBIDDEN_PUNCTUATION_IN_THE_START_OF_SEGMENT = re.compile(f'^[^{WC}]+')
 
 WIKI_EXTRACTED_NOT_EMPTY_DOC = re.compile('^<doc id="[^\n]+\n[^\n]+\n+[^\n]+')
 WIKI_EXTRACTED_HEADER = re.compile(r'^<doc id="([^"]+)" url="([^"]+)" title="([^"]+)">$', flags=re.MULTILINE)
+WIKI_EXTRACTED_DOC_PROGRESS_PERIOD = 100
 
 
 MAX_NUM_CHARACTERS_IN_1_FILE = 10 ** 9
@@ -686,7 +687,7 @@ class WikiExtractedWorker:
                 if prepared_doc['text']:
                     prepared_docs[doc_id] = prepared_doc
                 doc_count += 1
-                if doc_count % 100:
+                if doc_count % WIKI_EXTRACTED_DOC_PROGRESS_PERIOD == 0:
                     self.progress_queue.put(doc_count)
                     doc_count = 0
             start_line += num_lines
