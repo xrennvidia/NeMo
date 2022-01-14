@@ -665,13 +665,13 @@ class WikiExtractedWorker:
         with input_file.open() as f:
             text = f.read()
         docs = text.split('</doc>')
-        prepared_docs = []
+        prepared_docs = {}
         start_line = 0
-        for doc in docs:
+        for doc_id, doc in enumerate(docs, start=start_doc_id):
             num_lines = doc.count('\n')
             if WIKI_EXTRACTED_NOT_EMPTY_DOC.match(doc.lstrip()):
-                prepared_docs.append(
-                    self.prepare_wiki_extracted_doc(doc, start_line, start_line + num_lines, input_file)
+                prepared_docs[doc_id] = self.prepare_wiki_extracted_doc(
+                    doc, start_line, start_line + num_lines, input_file
                 )
             start_line += num_lines
         big.write_docs_to_file(docs, self.document_dir / (str(file_id) + '.xml'))
