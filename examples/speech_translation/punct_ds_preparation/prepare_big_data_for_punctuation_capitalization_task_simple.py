@@ -648,6 +648,7 @@ class WikiExtractedWorker:
             doc, self.tokenizer, tok_chars, untok_chars, remove_entire_lines=True
         )
         print("after removal of untokenizable characters:", doc.count('\n'))
+        print("untok_chars:", untok_chars)
         doc = big.BROKEN_PARENTHESES_WITH_CONTENT.sub(' ', doc)
         doc = big.SPACE_DUP.sub(' ', doc)
         after_suspicious_removal, _ = big.remove_suspicious_lines_and_rearrange_quotes_and_spaces(
