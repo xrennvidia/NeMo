@@ -633,9 +633,12 @@ class WikiExtractedWorker:
         self.tokenizer = tokenizer
         self.progress_queue = progress_queue
 
-    def prepare_wiki_extracted_doc(self, doc: str, start_line: int, end_line: int) -> Dict[str, Union[str, int, Path]]:
+    def prepare_wiki_extracted_doc(
+        self, doc: str, start_line: int, end_line: int, input_file: Path
+    ) -> Dict[str, Union[str, int, Path]]:
         doc = doc.strip()
         first_end_line = doc.find('\n')
+        title = doc[:first_end_line].strip().replace('\n', ' ')
         doc = doc[first_end_line:]
         doc = small.SPACING_CHARACTERS_TO_REPLACE.sub(' ', doc)
         global tok_chars
@@ -653,7 +656,10 @@ class WikiExtractedWorker:
         )
         doc = big.normalize_punctuation(after_suspicious_removal, self.lang)
         doc = big.NEW_LINE_DUP.sub('\n', doc)
-
+        doc = [sent.strip() for sent in doc.split('\n')]
+        doc = [sent for sent in doc if sent]
+        doc = '\n'.join(doc)
+        return {"text": doc, "start_line": start_line, "end_line": end_line, "source": input_file, "title": title}
 
     def __call__(self, input_file: Path, file_id: int, start_doc_id: int) -> None:
         with input_file.open() as f:
@@ -664,7 +670,9 @@ class WikiExtractedWorker:
         for doc in docs:
             num_lines = doc.count('\n')
             if WIKI_EXTRACTED_NOT_EMPTY_DOC.match(doc.lstrip()):
-                prepared_docs.append(self.prepare_wiki_extracted_doc(doc, start_line, start_line + num_lines))
+                prepared_docs.append(
+                    self.prepare_wiki_extracted_doc(doc, start_line, start_line + num_lines, input_file)
+                )
             start_line += num_lines
         big.write_docs_to_file(docs, self.document_dir / (str(file_id) + '.xml'))
 
