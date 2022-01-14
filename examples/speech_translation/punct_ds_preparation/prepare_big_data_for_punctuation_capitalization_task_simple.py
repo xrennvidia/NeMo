@@ -35,6 +35,7 @@ SUPPORTED_CORPUS_TYPES = ["wikipedia", "europarl", "TED", "rapid", "news-comment
 FORBIDDEN_PUNCTUATION_IN_THE_START_OF_SEGMENT = re.compile(f'^[^{WC}]+')
 
 WIKI_EXTRACTED_NOT_EMPTY_DOC = re.compile('^<doc id="[^\n]+\n[^\n]+\n+[^\n]+')
+WIKI_EXTRACTED_HEADER = re.compile(r'^<doc id="([^"]+)" url="([^"]+)" title="([^"]+)">$', flags=re.MULTILINE)
 
 
 MAX_NUM_CHARACTERS_IN_1_FILE = 10 ** 9
@@ -636,9 +637,16 @@ class WikiExtractedWorker:
     def prepare_wiki_extracted_doc(
         self, doc: str, start_line: int, end_line: int, input_file: Path
     ) -> Dict[str, Union[str, int, Path]]:
+        header_match = WIKI_EXTRACTED_HEADER.search(doc)
+        if header_match is None:
+            raise ValueError(
+                f"Document header is not found in file {input_file} for document in lines between {start_line} and "
+                f"{end_line}"
+            )
+        title = header_match.group(3)
+        doc = doc[header_match.span()[1]:]
         doc = doc.strip()
         first_end_line = doc.find('\n')
-        title = doc[:first_end_line].strip().replace('\n', ' ')
         doc = doc[first_end_line:].strip()
         doc = big.NEW_LINE_DUP.sub('\n', doc)
         doc = small.SPACING_CHARACTERS_TO_REPLACE.sub(' ', doc)
