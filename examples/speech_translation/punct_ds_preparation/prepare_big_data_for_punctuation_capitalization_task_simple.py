@@ -667,7 +667,7 @@ class WikiExtractedWorker:
         doc = big.normalize_punctuation(after_suspicious_removal, self.lang)
         doc = big.NEW_LINE_DUP.sub('\n', doc)
         doc = [sent.strip() for sent in doc.split('\n')]
-        doc = [sent for sent in doc if sent]
+        doc = [sent for sent in doc if sent.count(' ') > 4]
         doc = '\n'.join(doc)
         return {"text": doc, "start_line": start_line, "end_line": end_line, "source": input_file, "title": title}
 
@@ -804,19 +804,28 @@ def count_words(text):
     return len(small.WORD_WITH_PRECEDING_AND_FOLLOWING_PUNCTUATION.findall(text))
 
 
-def get_segment_info(sentences: List[str], sequence_length_range: Tuple[int, int], num_segments: int, file: Path):
+def generate_segment_location_and_size(
+    sentences: List[str], sequence_length_range: Tuple[int, int], num_segments: int, file: Path
+) -> Tuple[List[int], List[int]]:
     num_words = 0
+    # Calculating the maximum number of start sentence. There have to be enough sentences after start sentence to form
+    # even longest segment.
     sent_i = len(sentences) - 1
     while sent_i > 0 and num_words < sequence_length_range[1]:
         num_words += count_words(sentences[sent_i])
         sent_i -= 1
     if num_segments > sent_i + 1:
         raise ValueError(
-            f"Not enough words ({num_words}) in file {file} to cut {num_segments} segments with number of words in "
-            f"range {sequence_length_range}"
+            f"Not enough words in file {file} to cut {num_segments} segments with number of words in "
+            f"range {sequence_length_range}. If {num_words} words are taken in the end of document, the number of "
+            f"remaining sentences {sent_i + 1} is less than number of segments to cut."
         )
     logging.info(f"Cutting {num_segments} segments from {sent_i + 1} sentences in file {file}.")
-    start_sentences = sorted(random.sample(list(range(sent_i + 1)), num_segments))
+    try:
+        start_sentences = sorted(random.sample(list(range(sent_i + 1)), num_segments))
+    except ValueError:
+        print("sequence_length_range, num_segments, file, sent_i:", sequence_length_range, num_segments, file, sent_i)
+        raise
     lengths = list(range(sequence_length_range[0], sequence_length_range[1]))
     num_words = []
     for i in range(num_segments):
@@ -856,7 +865,9 @@ def extract_dev_text_segments_worker(
         sentences += doc['lines']
         doc_ids += [doc_id] * len(doc['lines'])
         sent_indices.extend(range(len(doc['lines'])))
-    start_sentences, num_words_by_segments = get_segment_info(sentences, sequence_length_range, num_segments, file)
+    start_sentences, num_words_by_segments = generate_segment_location_and_size(
+        sentences, sequence_length_range, num_segments, file
+    )
     curr_segment_i = 0
     sentence_i = 0
     progress = 0
