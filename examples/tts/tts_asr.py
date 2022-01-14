@@ -313,9 +313,16 @@ def incomplete(text_file: Path) -> bool:
 
 
 def prepare_for_resuming_and_get_start_line(tmp_wav_dir: Path, tmp_txt_dir: Path) -> int:
-    for file in tmp_wav_dir.iterdir():
-        if file.is_file() and file.suffix == '.wav':
-            file.unlink()
+    if tmp_wav_dir.is_dir():
+        for file in tmp_wav_dir.iterdir():
+            if file.is_file() and file.suffix == '.wav':
+                file.unlink()
+    elif tmp_wav_dir.is_file():
+        logging.warning(
+            f"Found a file with name {tmp_wav_dir} which name matches name of temporary directory for .wav files. "
+            f"This file is going to be removed."
+        )
+        tmp_wav_dir.unlink()
     text_files = sorted(
         [
             file
