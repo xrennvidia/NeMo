@@ -696,20 +696,20 @@ def preprocess_wiki_extracted(
     start_doc_id: int,
     start_file_id: int,
     tokenizer: TokenizerSpec,
-    n_jobs: int,
+    num_jobs: int,
 ) -> Dict[int, int]:
     files_with_data = [file for inner_dir in dir_path.iterdir() for file in inner_dir.iterdir()]
     with Progress(
         len(files_with_data), "Counting not empty documents in extracted Wikipedia", "file"
     ) as progress_queue:
-        with mp.Pool(n_jobs) as pool:
+        with mp.Pool(num_jobs) as pool:
             num_not_empty_docs_in_files = pool.starmap(
                 count_not_empty_docs_in_file, zip(files_with_data, [progress_queue] * len(files_with_data))
             )
     start_doc_ids = list(itertools.accumulate(num_not_empty_docs_in_files, initial=start_doc_id))
     file_id_values = list(range(start_file_id, start_file_id + len(files_with_data)))
     with Progress(start_doc_ids[-1], "Preparing extracted Wikipedia", "doc") as progress_queue:
-        with mp.Pool(n_jobs) as pool:
+        with mp.Pool(num_jobs) as pool:
             pool.starmap(
                 WikiExtractedWorker(document_dir, lang, tokenizer, progress_queue),
                 zip(files_with_data, file_id_values, start_doc_ids),
@@ -1109,7 +1109,7 @@ def main():
                     start_doc_id,
                     start_file_id,
                     tokenizer,
-                    args.n_jobs,
+                    args.num_jobs,
                 )
             else:
                 raise ValueError(
