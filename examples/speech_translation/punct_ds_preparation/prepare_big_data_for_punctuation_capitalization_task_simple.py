@@ -644,12 +644,9 @@ class WikiExtractedWorker:
         doc = small.SPACING_CHARACTERS_TO_REPLACE.sub(' ', doc)
         global tok_chars
         global untok_chars
-        print("original num lines:", doc.count('\n'))
         doc, tok_chars, untok_chars, _ = small.remove_untokenizable_characters_from_text(
             doc, self.tokenizer, tok_chars, untok_chars, remove_entire_lines=True
         )
-        print("after removal of untokenizable characters:", doc.count('\n'))
-        print("untok_chars:", untok_chars)
         doc = big.BROKEN_PARENTHESES_WITH_CONTENT.sub(' ', doc)
         doc = big.SPACE_DUP.sub(' ', doc)
         after_suspicious_removal, _ = big.remove_suspicious_lines_and_rearrange_quotes_and_spaces(
@@ -658,7 +655,6 @@ class WikiExtractedWorker:
             check_suspicious_endings=True,
             check_suspicious_parentheses=True,
         )
-        print("after suspicious removal:", doc.count('\n'))
         doc = big.normalize_punctuation(after_suspicious_removal, self.lang)
         doc = big.NEW_LINE_DUP.sub('\n', doc)
         doc = [sent.strip() for sent in doc.split('\n')]
@@ -681,9 +677,6 @@ class WikiExtractedWorker:
                 )
                 if prepared_doc['text']:
                     prepared_docs[doc_id] = prepared_doc
-                else:
-                    logging.info(f"Original empty doc:")
-                    logging.info(f"{doc}")
                 doc_count += 1
                 if doc_count % 100:
                     self.progress_queue.put(doc_count)
