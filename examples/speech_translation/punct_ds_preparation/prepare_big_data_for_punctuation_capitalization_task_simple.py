@@ -636,14 +636,15 @@ class WikiExtractedWorker:
     def prepare_wiki_extracted_doc(
         self, doc: str, start_line: int, end_line: int, input_file: Path
     ) -> Dict[str, Union[str, int, Path]]:
-        print("original num lines:", doc.count('\n'))
         doc = doc.strip()
         first_end_line = doc.find('\n')
         title = doc[:first_end_line].strip().replace('\n', ' ')
         doc = doc[first_end_line:].strip()
+        doc = big.NEW_LINE_DUP.sub('\n', doc)
         doc = small.SPACING_CHARACTERS_TO_REPLACE.sub(' ', doc)
         global tok_chars
         global untok_chars
+        print("original num lines:", doc.count('\n'))
         doc, tok_chars, untok_chars, _ = small.remove_untokenizable_characters_from_text(
             doc, self.tokenizer, tok_chars, untok_chars, remove_entire_lines=True
         )
