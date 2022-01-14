@@ -674,7 +674,7 @@ class WikiExtractedWorker:
                     doc, start_line, start_line + num_lines, input_file
                 )
             start_line += num_lines
-        big.write_docs_to_file(docs, self.document_dir / (str(file_id) + '.xml'))
+        big.write_docs_to_file(prepared_docs, self.document_dir / (str(file_id) + '.xml'))
 
 
 def count_not_empty_docs_in_file(file_path: Path, progress_queue: mp.Queue) -> int:
