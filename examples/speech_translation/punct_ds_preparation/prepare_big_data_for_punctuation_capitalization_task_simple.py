@@ -742,6 +742,18 @@ def preprocess_wiki_extracted(
     }
 
 
+def preprocess_news_crawl(
+    dir_path: Path,
+    document_dir: Path,
+    lang: str,
+    start_doc_id: int,
+    start_file_id: int,
+    tokenizer: TokenizerSpec,
+    num_jobs: int,
+) -> Dict[int, int]:
+    pass
+
+
 def is_int(s):
     try:
         int(s)
@@ -1102,10 +1114,11 @@ def cut_and_save_parallel(document_dir, sorted_text_file, num_passes_through_dat
     progress_queue.put(-1)
     progress_process.join()
     with sorted_text_file.open('w') as out_f:
-        run(
-            [f'cat'] + [str(p.resolve()) for p in output_dir.iterdir() if is_int(p.stem) and p.suffixes == ['.txt']],
-            stdout=out_f,
-        )
+        for p in output_dir.iterdir():
+            with p.open() as in_f:
+                if is_int(p.stem) and p.suffixes == ['.txt']:
+                    text = in_f.read()
+                    out_f.write(text + ('' if text[-1] == '\n' else '\n'))
 
 
 def shuffle_file_lines(input_file, output_file):
