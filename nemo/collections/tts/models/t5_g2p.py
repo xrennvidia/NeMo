@@ -61,10 +61,12 @@ class T5G2PModel(ModelPT):  # TODO: Check parent class
             self.world_size = trainer.num_nodes * trainer.num_gpus
 
         # Load appropriate tokenizer from HuggingFace
-        self._tokenizer = T5Tokenizer.from_pretrained("t5-small")
+        self.model_name = cfg.get("model_name", "t5-small")     # One of: t5-small, t5-base, t5-large, t5-3b, t5-11b
+        print(f"----------> Using model: {self.model_name}")
+        self._tokenizer = T5Tokenizer.from_pretrained(self.model_name)
 
-        self.max_source_len = cfg.get('max_source_len', self._tokenizer.model_max_length)
-        self.max_target_len = cfg.get('max_target_len', self._tokenizer.model_max_length)
+        self.max_source_len = cfg.get("max_source_len", self._tokenizer.model_max_length)
+        self.max_target_len = cfg.get("max_target_len", self._tokenizer.model_max_length)
 
         # Ensure passed cfg is compliant with schema
         schema = OmegaConf.structured(T5G2PConfig)
@@ -78,7 +80,7 @@ class T5G2PModel(ModelPT):  # TODO: Check parent class
         super().__init__(cfg, trainer)
 
         # Load pretrained T5 model from HuggingFace
-        self.model = T5ForConditionalGeneration.from_pretrained("t5-small")
+        self.model = T5ForConditionalGeneration.from_pretrained(self.model_name)
 
     @typecheck()
     def forward(self, input_ids, attention_mask, labels):
@@ -144,7 +146,7 @@ class T5G2PModel(ModelPT):  # TODO: Check parent class
         return generated_texts, generated_ids, sequence_toks_scores
 
     # ===== Dataset Setup Functions ===== #
-    def __setup_dataloader_from_config(self, cfg, name):
+    def _setup_dataloader_from_config(self, cfg, name):
         if "dataset" not in cfg or not isinstance(cfg.dataset, DictConfig):
             raise ValueError(f"No dataset for {name}")
         if "dataloader_params" not in cfg or not isinstance(cfg.dataloader_params, DictConfig):
@@ -157,10 +159,13 @@ class T5G2PModel(ModelPT):  # TODO: Check parent class
         return torch.utils.data.DataLoader(dataset, collate_fn=dataset.collate_fn, **cfg.dataloader_params)
 
     def setup_training_data(self, cfg):
-        self._train_dl = self.__setup_dataloader_from_config(cfg, name="train")
+        self._train_dl = self._setup_dataloader_from_config(cfg, name="train")
 
     def setup_validation_data(self, cfg):
-        self._validation_dl = self.__setup_dataloader_from_config(cfg, name="validation")
+        self._validation_dl = self._setup_dataloader_from_config(cfg, name="validation")
+
+    def setup_test_data(self, cfg):
+        self._test_dl = self._setup_dataloader_from_config(cfg, name="test")
 
     # ===== List Available Models - N/A =====$
     @classmethod

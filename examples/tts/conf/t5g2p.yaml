@@ -5,6 +5,7 @@ train_dataset: ???
 validation_dataset: ???
 
 model:
+  model_name: "t5-small"
   max_source_len: 150
   max_target_len: 730
 
