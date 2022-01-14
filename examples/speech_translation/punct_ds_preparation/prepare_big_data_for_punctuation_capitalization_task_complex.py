@@ -370,6 +370,8 @@ def remove_suspicious_lines_and_rearrange_quotes_and_spaces(
             original_text.count('\n') - (original_text[-1] == '\n') - text.count('\n') + (text[-1] == '\n')
     )
     for suspicious_regexp in suspicious_regexps:
+        if not text:
+            break
         result = ""
         i = 0
         for m in suspicious_regexp.finditer(text, pos=text[0] == '\n', endpos=len(text) - (text[-1] == '\n')):
