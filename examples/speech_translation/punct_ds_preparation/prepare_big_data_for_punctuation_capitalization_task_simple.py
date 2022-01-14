@@ -29,7 +29,7 @@ logging.basicConfig(level="INFO", format='%(levelname)s -%(asctime)s - %(name)s 
 random.seed(42)
 
 
-SUPPORTED_CORPUS_TYPES = ["wikipedia", "europarl", "TED", "rapid", "news-commentary", "wiki-extracted"]
+SUPPORTED_CORPUS_TYPES = ["wikipedia", "europarl", "TED", "rapid", "news-commentary", "wiki-extracted", "news-crawl"]
 
 
 FORBIDDEN_PUNCTUATION_IN_THE_START_OF_SEGMENT = re.compile(f'^[^{WC}]+')
@@ -807,6 +807,8 @@ def count_words(text):
 def generate_segment_location_and_size(
     sentences: List[str], sequence_length_range: Tuple[int, int], num_segments: int, file: Path
 ) -> Tuple[List[int], List[int]]:
+    if num_segments < 0:
+        raise ValueError(f"Number of cut segments cannot be negative whereas num_segments={num_segments}")
     num_words = 0
     # Calculating the maximum number of start sentence. There have to be enough sentences after start sentence to form
     # even longest segment.
@@ -824,7 +826,8 @@ def generate_segment_location_and_size(
         start_sentences = sorted(random.sample(list(range(sent_i + 1)), num_segments))
     except ValueError:
         logging.info(
-            "sequence_length_range, num_segments, file, sent_i:", sequence_length_range, num_segments, file, sent_i
+            f"sequence_length_range, num_segments, file, sent_i: "
+            f"{sequence_length_range}, {num_segments}, {file}, {sent_i}"
         )
         raise
     lengths = list(range(sequence_length_range[0], sequence_length_range[1]))
@@ -995,12 +998,28 @@ def cut_and_save(file_num, progress_queue, file, num_passes_through_dataset, out
             cut_and_save_one_pass(text, out_f, progress_queue, num_words_in_segments)
 
 
-def get_how_many_segments_to_cut_by_files(files, size):
+def get_how_many_segments_to_cut_by_files(files: List[Path], size: int) -> List[int]:
     stats = [f.stat().st_size for f in files]
     total_size = sum(stats)
     fracs = [s / total_size for s in stats]
-    sizes = [round(f * size) for f in fracs[:-1]]
+    sizes = [round(f * size) for f in fracs]
+    if sum(sizes) > size:
+        sum_ = sum(sizes)
+        permutation = random.sample(list(range(len(sizes))), len(sizes))
+        i = 0
+        while sum_ > size:
+            if sizes[permutation[i]] > 0:
+                sizes[permutation[i]] -= 1
+                sum_ -= 1
+            i += 1
+    if sum(sizes) < size:
+        sum_ = sum(sizes)
+        permutation = random.sample(list(range(len(sizes))), len(sizes))
+        for i in range(sum_ - size):
+            sizes[permutation[i]] += 1
     sizes += [size - sum(sizes)]
+    assert all([s >= 0 for s in sizes])
+    assert sum(sizes) == size
     return sizes
 
 
@@ -1136,6 +1155,16 @@ def main():
                 )
             elif corpus_type == SUPPORTED_CORPUS_TYPES[5]:  # wiki-extracted
                 corpus_doc_id_to_file_i = preprocess_wiki_extracted(
+                    file_or_dir_path,
+                    document_dir,
+                    args.input_language,
+                    start_doc_id,
+                    start_file_id,
+                    tokenizer,
+                    args.num_jobs,
+                )
+            elif corpus_type == SUPPORTED_CORPUS_TYPES[6]:  # news-crawl
+                corpus_doc_id_to_file_i = preprocess_news_crawl(
                     file_or_dir_path,
                     document_dir,
                     args.input_language,
