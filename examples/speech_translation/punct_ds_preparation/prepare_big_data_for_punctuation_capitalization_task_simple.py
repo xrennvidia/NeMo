@@ -639,7 +639,7 @@ class WikiExtractedWorker:
         doc = doc.strip()
         first_end_line = doc.find('\n')
         title = doc[:first_end_line].strip().replace('\n', ' ')
-        doc = doc[first_end_line:]
+        doc = doc[first_end_line:].strip()
         doc = small.SPACING_CHARACTERS_TO_REPLACE.sub(' ', doc)
         global tok_chars
         global untok_chars
@@ -675,9 +675,10 @@ class WikiExtractedWorker:
                     doc, start_line, start_line + num_lines, input_file
                 )
                 if prepared_doc['text']:
-                    logging.info(f"Original doc:")
-                    logging.info(f"{doc}")
                     prepared_docs[doc_id] = prepared_doc
+                else:
+                    logging.info(f"Original empty doc:")
+                    logging.info(f"{doc}")
                 doc_count += 1
                 if doc_count % 100:
                     self.progress_queue.put(doc_count)
