@@ -636,6 +636,7 @@ class WikiExtractedWorker:
     def prepare_wiki_extracted_doc(
         self, doc: str, start_line: int, end_line: int, input_file: Path
     ) -> Dict[str, Union[str, int, Path]]:
+        print("original num lines:", doc.count('\n'))
         doc = doc.strip()
         first_end_line = doc.find('\n')
         title = doc[:first_end_line].strip().replace('\n', ' ')
@@ -646,6 +647,7 @@ class WikiExtractedWorker:
         doc, tok_chars, untok_chars, _ = small.remove_untokenizable_characters_from_text(
             doc, self.tokenizer, tok_chars, untok_chars, remove_entire_lines=True
         )
+        print("after removal of untokenizable characters:", doc.count('\n'))
         doc = big.BROKEN_PARENTHESES_WITH_CONTENT.sub(' ', doc)
         doc = big.SPACE_DUP.sub(' ', doc)
         after_suspicious_removal, _ = big.remove_suspicious_lines_and_rearrange_quotes_and_spaces(
@@ -654,6 +656,7 @@ class WikiExtractedWorker:
             check_suspicious_endings=True,
             check_suspicious_parentheses=True,
         )
+        print("after suspicious removal:", doc.count('\n'))
         doc = big.normalize_punctuation(after_suspicious_removal, self.lang)
         doc = big.NEW_LINE_DUP.sub('\n', doc)
         doc = [sent.strip() for sent in doc.split('\n')]
