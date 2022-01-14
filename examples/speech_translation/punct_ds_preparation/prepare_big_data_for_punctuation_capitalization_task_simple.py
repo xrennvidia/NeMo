@@ -670,9 +670,13 @@ class WikiExtractedWorker:
         for doc_id, doc in enumerate(docs, start=start_doc_id):
             num_lines = doc.count('\n')
             if WIKI_EXTRACTED_NOT_EMPTY_DOC.match(doc.lstrip()):
-                prepared_docs[doc_id] = self.prepare_wiki_extracted_doc(
+                prepared_doc = self.prepare_wiki_extracted_doc(
                     doc, start_line, start_line + num_lines, input_file
                 )
+                if prepared_doc['text']:
+                    logging.info(f"Original doc:")
+                    logging.info(f"{doc}")
+                    prepared_docs[doc_id] = prepared_doc
             start_line += num_lines
         big.write_docs_to_file(prepared_docs, self.document_dir / (str(file_id) + '.xml'))
 
