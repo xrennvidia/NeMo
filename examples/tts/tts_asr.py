@@ -5,7 +5,7 @@ import re
 import shutil
 from math import ceil
 from pathlib import Path
-from subprocess import run, PIPE
+from subprocess import run, PIPE, Popen
 from time import sleep
 from typing import List, Tuple
 
@@ -288,20 +288,23 @@ def unite_text_files(tmp_txt_dir: Path, output: Path, num_lines: int) -> None:
                 out_f.write(tf.read())
 
 
-async def run_asr(cuda_device: int, rank: int, start_line: int, num_lines: int, args: argparse.Namespace) -> None:
-    proc = await asyncio.create_subprocess_shell(
-        f"python asr_1_process.py "
-        f"--cuda_device {cuda_device} "
-        f"--world_size {len(args.cuda_devices)} "
-        f"--rank {rank} "
-        f"--start_line {start_line} "
-        f"--num_lines {num_lines} "
-        f"--asr_model {args.asr_model} "
-        f"--asr_batch_size {args.asr_batch_size} "
-        f"--tmp_wav_dir {args.tmp_wav_dir} "
-        f"--tmp_txt_dir {args.tmp_txt_dir}"
-    )
-    await proc.communicate()
+def run_asr(start_line: int, num_lines: int, args: argparse.Namespace) -> None:
+    processes = [
+        Popen(
+            f"python asr_1_process.py "
+            f"--cuda_device {cuda_device} "
+            f"--world_size {len(args.cuda_devices)} "
+            f"--rank {rank} "
+            f"--start_line {start_line} "
+            f"--num_lines {num_lines} "
+            f"--asr_model {args.asr_model} "
+            f"--asr_batch_size {args.asr_batch_size} "
+            f"--tmp_wav_dir {args.tmp_wav_dir} "
+            f"--tmp_txt_dir {args.tmp_txt_dir}".split()
+        ) for rank, cuda_device in enumerate(args.cuda_devices)
+    ]
+    for proc in processes:
+        proc.wait()
 
 
 def incomplete(text_file: Path) -> bool:
@@ -341,7 +344,7 @@ def prepare_for_resuming_and_get_start_line(tmp_wav_dir: Path, tmp_txt_dir: Path
     return start_line
 
 
-async def main() -> None:
+def main() -> None:
     args = get_args()
     cpu_device = torch.device('cpu')
     # Downloading checkpoints here to avoid downloading in several spawned processes
@@ -400,16 +403,11 @@ async def main() -> None:
                     nprocs=len(args.cuda_devices),
                     join=True,
                 )
-                await asyncio.gather(
-                    *[
-                        run_asr(cuda_device, rank, start_line, len(lines), args)
-                        for rank, cuda_device in enumerate(args.cuda_devices)
-                    ]
-                )
+                run_asr(start_line, len(lines), args)
                 start_line += len(lines)
     logging.info("Uniting text files...")
     unite_text_files(args.tmp_txt_dir, args.output, num_lines)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
