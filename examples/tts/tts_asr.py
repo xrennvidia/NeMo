@@ -384,6 +384,10 @@ def main() -> None:
         'line'
     ) as progress_queues:
         with args.input.open() as f:
+            count = 0
+            while count < start_line:
+                f.readline()
+                count += 1
             while True:
                 lines = []
                 for i in range(args.num_lines_per_process_for_1_iteration * len(args.cuda_devices)):
