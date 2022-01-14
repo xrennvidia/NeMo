@@ -820,11 +820,12 @@ def generate_segment_location_and_size(
             f"range {sequence_length_range}. If {num_words} words are taken in the end of document, the number of "
             f"remaining sentences {sent_i + 1} is less than number of segments to cut."
         )
-    logging.info(f"Cutting {num_segments} segments from {sent_i + 1} sentences in file {file}.")
     try:
         start_sentences = sorted(random.sample(list(range(sent_i + 1)), num_segments))
     except ValueError:
-        print("sequence_length_range, num_segments, file, sent_i:", sequence_length_range, num_segments, file, sent_i)
+        logging.info(
+            "sequence_length_range, num_segments, file, sent_i:", sequence_length_range, num_segments, file, sent_i
+        )
         raise
     lengths = list(range(sequence_length_range[0], sequence_length_range[1]))
     num_words = []
