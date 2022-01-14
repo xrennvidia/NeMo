@@ -699,8 +699,8 @@ def preprocess_wiki_extracted(
     num_jobs: int,
 ) -> Dict[int, int]:
     files_with_data = [
-        file for inner_dir in dir_path.iterdir() for file in inner_dir.iterdir()
-        if inner_dir.is_dir() if file.stem.startswith('wiki')
+        file for inner_dir in dir_path.iterdir() if inner_dir.is_dir()
+        for file in inner_dir.iterdir() if file.stem.startswith('wiki')
     ]
     with Progress(
         len(files_with_data), "Counting not empty documents in extracted Wikipedia", "file"
