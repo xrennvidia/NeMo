@@ -712,7 +712,7 @@ def preprocess_wiki_extracted(
     start_doc_ids = list(itertools.accumulate(num_not_empty_docs_in_files, initial=start_doc_id))
     file_id_values = list(range(start_file_id, start_file_id + len(files_with_data)))
     with Progress(start_doc_ids[-1], "Preparing extracted Wikipedia", "doc") as progress_queues:
-        with mp.Pool(num_jobs) as pool:
+        with mp.Pool(num_jobs, initializer=wiki_extracted_initializer) as pool:
             pool.starmap(
                 WikiExtractedWorker(document_dir, lang, tokenizer, progress_queues[0]),
                 zip(files_with_data, file_id_values, start_doc_ids),
