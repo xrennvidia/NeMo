@@ -5,17 +5,9 @@ set -x
 echo "set -x" >> /result/logs.txt
 tmux source /workspace/.tmux.conf
 echo "source /workspace/.tmux.conf" >> /result/logs.txt
-cd NeMo
-echo "cd NeMo" >> /result/logs.txt
-git checkout feat/punc_tarred
-echo "git checkout feat/punc_tarred" >> /result/logs.txt
-git pull
-echo "git pull" >> /result/logs.txt
-bash reinstall.sh
-echo "bash reinstall.sh" >> /result/logs.txt
 mkdir -p /raid/tmp
 echo "mkdir -p /raid/tmp" >> /result/logs.txt
-cd examples/tts
+cd /workspace/NeMo/examples/tts
 echo "cd examples/tts" >> /result/logs.txt
 output=/result/train__${part}__tts_en_fastpitch__tts_squeezewave__stt_en_citrinet_1024.en
 echo "output=/result/train__${part}__tts_en_fastpitch__tts_squeezewave__stt_en_citrinet_1024.en" >> /result/logs.txt
