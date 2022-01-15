@@ -759,7 +759,7 @@ def preprocess_wiki_extracted(
 
 def split_large_files_into_small_files(input_dir: Path, output_dir: Path, num_lines_per_file: int) -> List[Path]:
     new_file_count = 0
-    split_files = []
+    split_files, source_files, start_lines, end_lines = [], [], [], []
     for i, input_file in enumerate(input_dir.iterdir()):
         num_lines_in_input_file = count_lines_in_file(input_file)
         processes = []
@@ -767,6 +767,9 @@ def split_large_files_into_small_files(input_dir: Path, output_dir: Path, num_li
         for start in range(0, num_lines_in_input_file, num_lines_per_file):
             new_file = output_dir / f"{new_file_count}.txt"
             split_files.append(new_file)
+            source_files.append(input_file)
+            start_lines.append(start)
+            end_lines.append(min(num_lines_per_file, num_lines_in_input_file - start))
             opened_files.append(new_file.open('w'))
             processes.append(
                 Popen(
@@ -785,6 +788,98 @@ def split_large_files_into_small_files(input_dir: Path, output_dir: Path, num_li
         for f in opened_files:
             f.close()
     return split_files
+
+
+class NewsCrawlWorker:
+    def __init__(self, document_dir: Path, lang: str, tokenizer: TokenizerSpec, progress_queue: mp.Queue):
+        self.document_dir = document_dir
+        self.lang = lang
+        self.tokenizer = tokenizer
+        self.progress_queue = progress_queue
+
+    def prepare_wiki_extracted_doc(
+        self, doc: str, start_line: int, end_line: int, input_file: Path
+    ) -> Dict[str, Union[str, int, Path]]:
+        header_match = WIKI_EXTRACTED_HEADER.search(doc)
+        if header_match is None:
+            raise ValueError(
+                f"Document header is not found in file {input_file} for document in lines between {start_line} and "
+                f"{end_line}"
+            )
+        title = header_match.group(3)
+        doc = doc[header_match.span()[1]:]
+        doc = doc.strip()
+        first_end_line = doc.find('\n')
+        doc = doc[first_end_line:].strip()
+        doc = big.NEW_LINE_DUP.sub('\n', doc)
+        doc = small.SPACING_CHARACTERS_TO_REPLACE.sub(' ', doc)
+        global tok_chars
+        global untok_chars
+        doc, tok_chars, untok_chars, _ = small.remove_untokenizable_characters_from_text(
+            doc, self.tokenizer, tok_chars, untok_chars, remove_entire_lines=True
+        )
+        doc = big.BROKEN_PARENTHESES_WITH_CONTENT.sub(' ', doc)
+        doc = big.SPACE_DUP.sub(' ', doc)
+        after_suspicious_removal, _ = big.remove_suspicious_lines_and_rearrange_quotes_and_spaces(
+            doc,
+            normalize_and_check_quotes_and_parentheses=True,
+            check_suspicious_endings=True,
+            check_suspicious_parentheses=True,
+        )
+        doc = big.normalize_punctuation(after_suspicious_removal, self.lang)
+        doc = big.NEW_LINE_DUP.sub('\n', doc)
+        doc = [sent.strip() for sent in doc.split('\n')]
+        doc = [sent for sent in doc if sent.count(' ') > 4]
+        doc = '\n'.join(doc)
+        return {"text": doc, "start_line": start_line, "end_line": end_line, "source": input_file, "title": title}
+
+    def __call__(self, input_file: Path, file_id: int, doc_id: int) -> None:
+        with input_file.open() as f:
+            text = f.read()
+        text = small.SPACING_CHARACTERS_TO_REPLACE.sub(' ', text)
+        global tok_chars
+        global untok_chars
+        text, tok_chars, untok_chars, _ = small.remove_untokenizable_characters_from_text(
+            text, self.tokenizer, tok_chars, untok_chars, remove_entire_lines=True
+        )
+        text = big.BROKEN_PARENTHESES_WITH_CONTENT.sub(' ', text)
+        text = big.SPACE_DUP.sub(' ', text)
+        after_suspicious_removal, _ = big.remove_suspicious_lines_and_rearrange_quotes_and_spaces(
+            text,
+            normalize_and_check_quotes_and_parentheses=True,
+            check_suspicious_endings=True,
+            check_suspicious_parentheses=True,
+        )
+        text = big.normalize_punctuation(after_suspicious_removal, self.lang)
+        text = big.NEW_LINE_DUP.sub('\n', text)
+        text = [sent.strip() for sent in text.split('\n')]
+        text = [sent for sent in text]
+        text = '\n'.join(text)
+        if not text:
+            return
+        prepared_docs = {
+            doc_id: {
+                "text": text + ('' if text[-1] == '\n' else '\n'),
+                "start_line":
+            }
+        }
+        start_line = 0
+        doc_count = 0
+        for doc_id, doc in enumerate(docs, start=start_doc_id):
+            num_lines = doc.count('\n')
+            if WIKI_EXTRACTED_NOT_EMPTY_DOC.match(doc.lstrip()):
+                prepared_doc = self.prepare_wiki_extracted_doc(
+                    doc, start_line, start_line + num_lines, input_file
+                )
+                if prepared_doc['text']:
+                    prepared_docs[doc_id] = prepared_doc
+                doc_count += 1
+                if doc_count % WIKI_EXTRACTED_DOC_PROGRESS_PERIOD == 0:
+                    self.progress_queue.put(doc_count)
+                    doc_count = 0
+            start_line += num_lines
+        self.progress_queue.put(1)
+        big.write_docs_to_file(prepared_docs, self.document_dir / (str(file_id) + '.xml'))
 
 
 def preprocess_news_crawl(

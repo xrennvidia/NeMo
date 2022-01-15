@@ -12,7 +12,7 @@ for i in $(seq "${start}" 1 "${end}"); do
   python normalize_parallel.py \
     --input_file "/data/${i}.txt" \
     --tmp_dir "${tmp_normed}" \
-    --output_file "${normed_output}"
+    --output_file "${normed_output}" 2>&1 | tee --append /result/logs.txt
   while [ ! -f "${output}" ]; do
     echo "while [ ! -f "${output}" ]; do" >> /result/logs.txt
     python tts_asr.py \
