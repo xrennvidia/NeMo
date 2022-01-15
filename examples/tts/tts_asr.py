@@ -11,7 +11,9 @@ from typing import List, Tuple
 
 import soundfile
 import torch
+import torch.distributed as dist
 import torch.multiprocessing as tmp
+import torch.nn.parallel.DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, Dataset
 
 from nemo.collections.asr.models import EncDecCTCModel, EncDecCTCModelBPE
@@ -182,14 +184,21 @@ def tts_worker(
     spectrogram_progress_queue: mp.Queue,
     vocoder_progress_queue: mp.Queue
 ) -> None:
+    dist.init_process_group("nccl", rank=rank, world_size=len(args.cuda_devices))
     with torch.no_grad():
         slice_start, num_lines_to_process = get_start_and_num_lines(len(lines), rank, len(args.cuda_devices))
         logging.info(f"num_lines_to_process={num_lines_to_process}, len(lines)={len(lines)}")
         device = torch.device(f'cuda:{args.cuda_devices[rank]}')
-        tts_model_spectrogram = SpectrogramGenerator.from_pretrained(
-            args.tts_model_spectrogram, map_location=device
+        tts_model_spectrogram = DDP(
+            SpectrogramGenerator.from_pretrained(args.tts_model_spectrogram, map_location=device),
+            device_ids=[args.cuda_devices[rank]],
+            output_device=args.cuda_devices[rank],
         ).eval()
-        vocoder = Vocoder.from_pretrained(args.tts_model_vocoder, map_location=device).eval()
+        vocoder = DDP(
+            Vocoder.from_pretrained(args.tts_model_vocoder, map_location=device),
+            device_ids=[args.cuda_devices[rank]],
+            output_device=args.cuda_devices[rank],
+        ).eval()
         text_dataset = TTSDataset(
             lines[slice_start : slice_start + num_lines_to_process],
             start_line + slice_start,
@@ -307,6 +316,59 @@ def run_asr(start_line: int, num_lines: int, args: argparse.Namespace) -> None:
         proc.wait()
 
 
+def asr_worker_ddp(
+    rank: int,
+    args: argparse.Namespace,
+    start_line: int,
+    num_lines: int,
+) -> None:
+    dist.init_process_group("nccl", rank=rank, world_size=len(args.cuda_devices))
+    with torch.no_grad():
+        slice_start, num_lines_to_process = get_start_and_num_lines(num_lines, rank, len(args.cuda_devices))
+        device = torch.device(f'cuda:{args.cuda_devices[rank]}')
+        if args.asr_model in [x.pretrained_model_name for x in EncDecCTCModel.list_available_models()]:
+            asr_model = DDP(
+                EncDecCTCModel.from_pretrained(args.asr_model, map_location=device),
+                device_ids=[args.cuda_devices[rank]],
+                output_device=args.cuda_devices[rank],
+            ).eval()
+        elif args.asr_model in [x.pretrained_model_name for x in EncDecCTCModelBPE.list_available_models()]:
+            asr_model = DDP(
+                EncDecCTCModelBPE.from_pretrained(args.asr_model, map_location=device),
+                device_ids=[args.cuda_devices[rank]],
+                output_device=args.cuda_devices[rank],
+            ).eval()
+        audio_files = [
+            file
+            for file in args.tmp_wav_dir.iterdir()
+            if file.suffixes == [f'.proc{rank}', '.wav'] and file.is_file()
+        ]
+        audio_files = sorted(audio_files, key=lambda x: int(x.stem.split('.')[0]))
+        assert len(audio_files) == num_lines_to_process, (
+            f"len(audio_files)={len(audio_files)} num_lines_to_process={num_lines_to_process}"
+        )
+        hypotheses = []
+        for start in range(0, len(audio_files), args.batch_size * NUM_ASR_BATCHES_LOADED_SIMULTANEOUSLY):
+            hypotheses += asr_model.transcribe(
+                [
+                    str(file) for file in audio_files[
+                        start : start + args.batch_size * NUM_ASR_BATCHES_LOADED_SIMULTANEOUSLY
+                    ]
+                ],
+                batch_size=args.batch_size,
+                num_workers=min(ceil(mp.cpu_count() / len(args.cuda_devices)), args.batch_size),
+            )
+        assert len(hypotheses) == num_lines_to_process, (
+            f"len(hypotheses)={len(hypotheses)} num_lines_to_process={num_lines_to_process}"
+        )
+        for file in audio_files:
+            file.unlink()
+        output_file = args.tmp_txt_dir / f'{start_line + slice_start}_{num_lines_to_process}.txt'
+        with output_file.open('w') as f:
+            for h in hypotheses:
+                f.write(h + '\n')
+
+
 def incomplete(text_file: Path) -> bool:
     num_lines = int(text_file.stem.split('_')[1])
     return num_lines != count_lines(text_file)
@@ -414,7 +476,13 @@ def main() -> None:
                     nprocs=len(args.cuda_devices),
                     join=True,
                 )
-                run_asr(start_line, len(lines), args)
+                tmp.spawn(
+                    asr_worker,
+                    args=(args, start_line, len(lines)),
+                    nprocs=len(args.cuda_devices),
+                    join=True,
+                )
+                # run_asr(start_line, len(lines), args)
                 start_line += len(lines)
     logging.info("Uniting text files...")
     unite_text_files(args.tmp_txt_dir, args.output, num_lines)
