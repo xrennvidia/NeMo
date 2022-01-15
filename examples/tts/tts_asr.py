@@ -6,7 +6,7 @@ import re
 import shutil
 from math import ceil
 from pathlib import Path
-from subprocess import run, PIPE, Popen
+from subprocess import PIPE, Popen, TimeoutExpired, run
 from time import sleep
 from typing import List, Tuple
 
@@ -27,6 +27,8 @@ from nemo_text_processing.text_normalization.normalize import Normalizer
 TTS_PARSING_REPORT_PERIOD = 100
 TTS_SPECTROGRAM_VOCODER_SWITCH_PERIOD = 200
 NUM_ASR_BATCHES_LOADED_SIMULTANEOUSLY = 32
+
+NUM_SECONDS_TO_WAIT_FOR_ASR_PROCESS = 1
 
 TXT_FILE_STEM = re.compile(r'[0-9]+_[0-9]+$')
 
@@ -307,8 +309,17 @@ def run_asr(start_line: int, num_lines: int, args: argparse.Namespace) -> None:
             f"--tmp_txt_dir {args.tmp_txt_dir}".split()
         ) for rank, cuda_device in enumerate(args.cuda_devices)
     ]
-    for proc in processes:
-        proc.wait()
+    return_codes = [None] * len(processes)
+    while any([c is None for c in return_codes]):
+        for i, proc in enumerate(processes):
+            try:
+                code = proc.wait(NUM_SECONDS_TO_WAIT_FOR_ASR_PROCESS)
+            except TimeoutExpired:
+                code = None
+                pass
+            if code is not None and code != 0:
+                raise RuntimeError(f"An ASR process number {i} terminated with non zero return code {code}.")
+            return_codes[i] = code
 
 
 def asr_worker_ddp(

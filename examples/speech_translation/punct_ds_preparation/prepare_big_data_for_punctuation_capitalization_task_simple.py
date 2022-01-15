@@ -8,7 +8,7 @@ import re
 from itertools import accumulate, chain
 from pathlib import Path
 from queue import Empty
-from subprocess import PIPE, run
+from subprocess import PIPE, Popen, run
 from tempfile import TemporaryDirectory
 from time import sleep
 from typing import Dict, List, Set, Tuple, Union
@@ -743,17 +743,34 @@ def preprocess_wiki_extracted(
     }
 
 
-def copy_lines_from_file_to_file(source_file: Path, new_file: Path, num_lines: int) -> None:
-
+def copy_lines_from_file_to_file(source_file: Path, new_file: Path, start: int, num_lines: int) -> None:
+    with new_file.open('w') as out_f:
+        result = run(['sed', '-n', f'{start},{start + num_lines - 1}p', str(source_file)], stdout=out_f, stderr=PIPE)
 
 
 def split_large_files_into_small_files(input_dir: Path, output_dir: Path, num_lines_per_file: int) -> List[Path]:
+    new_file_count =
     for i, input_file in enumerate(input_dir.iterdir()):
         num_lines_in_input_file = count_lines_in_file(input_file)
+        processes = []
+        opened_files = []
         for start in range(0, num_lines_in_input_file, num_lines_per_file):
-            copy_lines_from_file_to_file(
-                input_file, output_dir / f"{i}.txt", min(num_lines_per_file, num_lines_in_input_file - start)
+            opened_files.append((output_dir / f"{i}.txt").open('w'))
+            processes.append(
+                Popen(
+                    [
+                        'sed',
+                        '-n',
+                        f'{start},{start + min(num_lines_per_file, num_lines_in_input_file - start) - 1}p',
+                        str(input_file),
+                    ],
+                    stdout=opened_files[-1],
+                )
             )
+        for proc in processes:
+            proc.wait()
+        for f in opened_files:
+            f.close()
 
 
 def preprocess_news_crawl(
