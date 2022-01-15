@@ -11,7 +11,7 @@ from queue import Empty
 from subprocess import PIPE, Popen, run
 from tempfile import TemporaryDirectory
 from time import sleep
-from typing import Dict, List, Set, Tuple, Union
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 from bs4 import BeautifulSoup, NavigableString
@@ -65,16 +65,27 @@ def count_in_blocks(files, size=BUFFER_SIZE, specific_to_count=None, num_charact
             break
 
 
-def count_lines_in_file(file_path, start=0, num_characters=None):
+def count_lines_in_file(file_path: Path, start: int = 0, num_characters: Optional[int] = None) -> int:
     with file_path.open() as f:
         f.seek(start)
         count = sum(count_in_blocks(f, specific_to_count='\n', num_characters=num_characters))
     return count
 
 
-def count_characters_in_file(file_path):
+def count_lines_in_file_fast(file_path: Path) -> int:
     result = run(['wc', '-l', str(file_path)], stdout=PIPE, stderr=PIPE)
+    if not result:
+        raise ValueError(
+            f"Bash command `wc -l {file_path}` returned and empty string. "
+            f"Possibly, file {file_path} does not exist."
+        )
     return int(result.stdout.decode('utf-8').split()[0])
+
+
+def count_characters_in_file(file_path):
+    with file_path.open() as f:
+        count = sum(count_in_blocks(f))
+    return count
 
 
 def count_pages_in_file(file_path, start, num_characters):
@@ -195,7 +206,10 @@ def preprocess_wikipedia_parallel(
     manager = mp.Manager()
     progress_queue = manager.Queue()
     logging.info("Creating progress process...")
-    progress_process = mp.Process(target=big.show_prog, args=(progress_queue, count_lines_in_file(file_path), "Lines"))
+    progress_process = mp.Process(
+        target=big.show_prog,
+        args=(progress_queue, count_lines_in_file_fast(file_path), "Lines"),
+    )
     logging.info("Starting progress process...")
     progress_process.start()
     with mp.Pool(num_jobs) as pool:

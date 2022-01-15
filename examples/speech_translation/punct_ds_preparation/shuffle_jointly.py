@@ -53,6 +53,11 @@ def get_args() -> argparse.Namespace:
 
 def get_num_lines(input_file):
     result = run(['wc', '-l', str(input_file)], stdout=PIPE, stderr=PIPE)
+    if not result:
+        raise ValueError(
+            f"Bash command `wc -l {input_file}` returned and empty string. "
+            f"Possibly, file {input_file} does not exist."
+        )
     return int(result.stdout.decode('utf-8').split()[0])
 
 
