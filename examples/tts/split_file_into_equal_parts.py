@@ -9,7 +9,7 @@ from typing import List
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--input_file", required=True, type=Path)
-    parser.add_argument("--part_size", required=True, type=Path)
+    parser.add_argument("--part_size", required=True, type=int)
     parser.add_argument("--output_dir", required=True, type=Path)
     parser.add_argument("--num_jobs", type=int)
     args = parser.parse_args()
