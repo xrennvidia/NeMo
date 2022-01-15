@@ -33,13 +33,15 @@ def count_lines(input_file: Path) -> int:
     return int(result.stdout.decode('utf-8').split()[0])
 
 
-def split_large_file_into_small_files(input_file: Path, output_dir: Path, num_lines_per_file: int) -> List[Path]:
+def split_large_file_into_small_files(input_file: Path, output_dir: Path, num_jobs: int) -> List[Path]:
     num_lines_in_input_file = count_lines(input_file)
     processes = []
     opened_files = []
     split_files = []
     output_dir.mkdir(parents=True, exist_ok=True)
-    for i, start in enumerate(range(0, num_lines_in_input_file, num_lines_per_file)):
+    num_lines_per_file = num_lines_in_input_file // num_jobs
+    for i in range(num_jobs):
+        start = i * num_lines_per_file
         new_file = output_dir / f"{i}.txt"
         opened_files.append(new_file.open('w'))
         split_files.append(new_file)
@@ -112,9 +114,7 @@ def main() -> None:
     args.tmp_dir.mkdir(exist_ok=True, parents=True)
     split_dir = args.tmp_dir / "split"
     norm_dir = args.tmp_dir / "norm"
-    num_lines = count_lines(args.input_file)
-    num_lines_per_file = num_lines // args.num_jobs
-    split_files = split_large_file_into_small_files(args.input_file, split_dir, num_lines_per_file)
+    split_files = split_large_file_into_small_files(args.input_file, split_dir, args.num_jobs)
     normalized_files = run_normalization(split_files, norm_dir)
     unite_text_files(normalized_files, args.output_file)
 
