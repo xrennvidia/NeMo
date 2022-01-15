@@ -7,6 +7,9 @@ mkdir -p /raid/tmp
 cd /workspace/NeMo/examples/tts
 for i in $(seq "${start}" 1 "${end}"); do
   output="/result/${i}.txt"
+  if [ -f "${output}" ]; then
+    continue
+  fi
   normed_output="/raid/normed${i}.txt"
   tmp_normed=/raid/tmp_norm
   python normalize_parallel.py \

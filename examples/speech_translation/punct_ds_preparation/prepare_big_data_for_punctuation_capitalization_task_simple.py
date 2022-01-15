@@ -757,7 +757,9 @@ def preprocess_wiki_extracted(
     }
 
 
-def split_large_files_into_small_files(input_dir: Path, output_dir: Path, num_lines_per_file: int) -> List[Path]:
+def split_large_files_into_small_files(
+    input_dir: Path, output_dir: Path, num_lines_per_file: int
+) -> Tuple[List[Path], List[Path], List[int], List[int]]:
     new_file_count = 0
     split_files, source_files, start_lines, end_lines = [], [], [], []
     for i, input_file in enumerate(input_dir.iterdir()):
@@ -787,7 +789,7 @@ def split_large_files_into_small_files(input_dir: Path, output_dir: Path, num_li
             proc.wait()
         for f in opened_files:
             f.close()
-    return split_files
+    return split_files, source_files, start_lines, end_lines
 
 
 class NewsCrawlWorker:
@@ -892,10 +894,17 @@ def preprocess_news_crawl(
     num_jobs: int,
 ) -> Dict[int, int]:
     with TemporaryDirectory() as tmp_dir:
-        tmp_files = split_large_files_into_small_files(dir_path, tmp_dir, NUM_LINES_PER_NEWS_CRAWL_TMP_FILE)
+        tmp_files, source_files, start_lines, end_lines = split_large_files_into_small_files(
+            dir_path, tmp_dir, NUM_LINES_PER_NEWS_CRAWL_TMP_FILE
+        )
+    doc_ids = list(range(start_file_id, start_doc_id + len(tmp_files)))
+    file_ids = list(range(start_file_id, start_file_id + len(tmp_files)))
     with Progress(len(tmp_files), "Preparing extracted Wikipedia", "doc") as progress_queues:
         with mp.Pool(num_jobs) as pool:
-            pool.starmap(NewsCrawlWorker(document_dir, lang, tokenizer, progress_queues[0]), tmp_files)
+            pool.starmap(
+                NewsCrawlWorker(document_dir, lang, tokenizer, progress_queues[0]),
+                zip(tmp_files, source_files, start_lines, end_lines),
+            )
 
 
 def is_int(s):
