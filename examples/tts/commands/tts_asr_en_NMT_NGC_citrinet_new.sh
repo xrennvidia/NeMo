@@ -1,7 +1,10 @@
 part="$1"
 
 read -r -d '' command << EOF
+set -x -e
 tmux new-session -d -s "work" /workspace/NeMo/examples/tts/commands/tts_asr_en_NMT_NGC_citrinet_tmux.sh
+sleep 1000000
+set +x +e
 EOF
 
 ngc batch run \
