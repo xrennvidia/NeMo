@@ -757,11 +757,6 @@ def preprocess_wiki_extracted(
     }
 
 
-def copy_lines_from_file_to_file(source_file: Path, new_file: Path, start: int, num_lines: int) -> None:
-    with new_file.open('w') as out_f:
-        result = run(['sed', '-n', f'{start + 1},{start + num_lines}p', str(source_file)], stdout=out_f, stderr=PIPE)
-
-
 def split_large_files_into_small_files(input_dir: Path, output_dir: Path, num_lines_per_file: int) -> List[Path]:
     new_file_count = 0
     split_files = []
@@ -803,6 +798,9 @@ def preprocess_news_crawl(
 ) -> Dict[int, int]:
     with TemporaryDirectory() as tmp_dir:
         tmp_files = split_large_files_into_small_files(dir_path, tmp_dir, NUM_LINES_PER_NEWS_CRAWL_TMP_FILE)
+    with Progress(len(tmp_files), "Preparing extracted Wikipedia", "doc") as progress_queues:
+        with mp.Pool(num_jobs) as pool:
+            pool.starmap(NewsCrawlWorker(document_dir, lang, tokenizer, progress_queues[0]), tmp_files)
 
 
 def is_int(s):
