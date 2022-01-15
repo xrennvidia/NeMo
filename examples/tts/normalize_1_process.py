@@ -21,7 +21,7 @@ def main() -> None:
         lines = f.readlines()
     with args.output_file.open('w') as f:
         for line in normalizer.normalize_list(lines):
-            f.write(line + ('' if line[-1] == '\n' else '\n'))
+            f.write(line + ('' if line and line[-1] == '\n' else '\n'))
 
 
 if __name__ == "__main__":
