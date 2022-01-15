@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import multiprocessing as mp
+import os
 import re
 import shutil
 from math import ceil
@@ -470,6 +471,8 @@ def main() -> None:
                 assert all(lines)
                 lines = normalizer.normalize_list_parallel(lines, verbose=False, n_jobs=args.n_jobs)
                 assert isinstance(lines, list) and all([isinstance(line, str) for line in lines])
+                os.environ["MASTER_ADDR"] = "localhost"
+                os.environ["MASTER_PORT"] = "29501"
                 tmp.spawn(
                     tts_worker,
                     args=(args, lines, start_line, *progress_queues),
