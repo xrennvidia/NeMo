@@ -335,15 +335,15 @@ def asr_worker_ddp(
             f"len(audio_files)={len(audio_files)} num_lines_to_process={num_lines_to_process}"
         )
         hypotheses = []
-        for start in range(0, len(audio_files), args.batch_size * NUM_ASR_BATCHES_LOADED_SIMULTANEOUSLY):
+        for start in range(0, len(audio_files), args.asr_batch_size * NUM_ASR_BATCHES_LOADED_SIMULTANEOUSLY):
             hypotheses += asr_model.transcribe(
                 [
                     str(file) for file in audio_files[
-                        start : start + args.batch_size * NUM_ASR_BATCHES_LOADED_SIMULTANEOUSLY
+                        start : start + args.asr_batch_size * NUM_ASR_BATCHES_LOADED_SIMULTANEOUSLY
                     ]
                 ],
-                batch_size=args.batch_size,
-                num_workers=min(ceil(mp.cpu_count() / len(args.cuda_devices)), args.batch_size),
+                batch_size=args.asr_batch_size,
+                num_workers=min(ceil(mp.cpu_count() / len(args.cuda_devices)), args.asr_batch_size),
             )
         assert len(hypotheses) == num_lines_to_process, (
             f"len(hypotheses)={len(hypotheses)} num_lines_to_process={num_lines_to_process}"
