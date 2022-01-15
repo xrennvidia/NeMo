@@ -19,7 +19,7 @@ def main() -> None:
     normalizer = Normalizer(input_case='cased', lang='en')
     with args.input_file.open() as f:
         lines = f.readlines()
-    with args.output_file.open() as f:
+    with args.output_file.open('w') as f:
         for line in normalizer.normalize_list(lines):
             f.write(line + ('' if line[-1] == '\n' else '\n'))
 
