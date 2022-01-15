@@ -38,6 +38,7 @@ def split_large_file_into_small_files(input_file: Path, output_dir: Path, num_li
     processes = []
     opened_files = []
     split_files = []
+    output_dir.mkdir(parents=True, exist_ok=True)
     for i, start in enumerate(range(0, num_lines_in_input_file, num_lines_per_file)):
         new_file = output_dir / f"{i}.txt"
         opened_files.append(new_file.open('w'))
@@ -69,6 +70,7 @@ def is_int(s):
 
 
 def run_normalization(split_files: List[Path], norm_dir: Path) -> List[Path]:
+    norm_dir.mkdir(parents=True, exist_ok=True)
     output_files, processes = [], []
     for file in split_files:
         output_file = norm_dir / file.name
@@ -107,6 +109,7 @@ def main() -> None:
         args.tmp_dir.unlink()
     elif args.tmp_dir.is_dir():
         shutil.rmtree(str(args.tmp_dir))
+    args.tmp_dir.mkdir(exist_ok=True, parents=True)
     split_dir = args.tmp_dir / "split"
     norm_dir = args.tmp_dir / "norm"
     num_lines = count_lines(args.input_file)
