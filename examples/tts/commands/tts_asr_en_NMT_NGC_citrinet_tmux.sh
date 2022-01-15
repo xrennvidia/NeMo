@@ -1,16 +1,10 @@
 #!/bin/bash
 part="$1"
-echo "part=\"\$1\"" >> /result/logs.txt
 set -x
-echo "set -x" >> /result/logs.txt
 tmux source /workspace/.tmux.conf
-echo "source /workspace/.tmux.conf" >> /result/logs.txt
 mkdir -p /raid/tmp
-echo "mkdir -p /raid/tmp" >> /result/logs.txt
 cd /workspace/NeMo/examples/tts
-echo "cd examples/tts" >> /result/logs.txt
 output=/result/train__${part}__tts_en_fastpitch__tts_squeezewave__stt_en_citrinet_1024.en
-echo "output=/result/train__${part}__tts_en_fastpitch__tts_squeezewave__stt_en_citrinet_1024.en" >> /result/logs.txt
 normed=/raid/tmp_norm
 python normalize_parallel.py \
   --input_file "/data/${part}.en" \
