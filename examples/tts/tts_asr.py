@@ -190,16 +190,10 @@ def tts_worker(
         slice_start, num_lines_to_process = get_start_and_num_lines(len(lines), rank, len(args.cuda_devices))
         logging.info(f"num_lines_to_process={num_lines_to_process}, len(lines)={len(lines)}")
         device = torch.device(f'cuda:{args.cuda_devices[rank]}')
-        tts_model_spectrogram = DDP(
-            SpectrogramGenerator.from_pretrained(args.tts_model_spectrogram, map_location=device),
-            device_ids=[args.cuda_devices[rank]],
-            output_device=args.cuda_devices[rank],
+        tts_model_spectrogram = SpectrogramGenerator.from_pretrained(
+            args.tts_model_spectrogram, map_location=device
         ).eval()
-        vocoder = DDP(
-            Vocoder.from_pretrained(args.tts_model_vocoder, map_location=device),
-            device_ids=[args.cuda_devices[rank]],
-            output_device=args.cuda_devices[rank],
-        ).eval()
+        vocoder = Vocoder.from_pretrained(args.tts_model_vocoder, map_location=device).eval()
         text_dataset = TTSDataset(
             lines[slice_start : slice_start + num_lines_to_process],
             start_line + slice_start,
@@ -328,17 +322,9 @@ def asr_worker_ddp(
         slice_start, num_lines_to_process = get_start_and_num_lines(num_lines, rank, len(args.cuda_devices))
         device = torch.device(f'cuda:{args.cuda_devices[rank]}')
         if args.asr_model in [x.pretrained_model_name for x in EncDecCTCModel.list_available_models()]:
-            asr_model = DDP(
-                EncDecCTCModel.from_pretrained(args.asr_model, map_location=device),
-                device_ids=[args.cuda_devices[rank]],
-                output_device=args.cuda_devices[rank],
-            ).eval()
+            asr_model = EncDecCTCModel.from_pretrained(args.asr_model, map_location=device).eval()
         elif args.asr_model in [x.pretrained_model_name for x in EncDecCTCModelBPE.list_available_models()]:
-            asr_model = DDP(
-                EncDecCTCModelBPE.from_pretrained(args.asr_model, map_location=device),
-                device_ids=[args.cuda_devices[rank]],
-                output_device=args.cuda_devices[rank],
-            ).eval()
+            asr_model = EncDecCTCModelBPE.from_pretrained(args.asr_model, map_location=device).eval()
         audio_files = [
             file
             for file in args.tmp_wav_dir.iterdir()
@@ -448,6 +434,8 @@ def main() -> None:
     args.tmp_wav_dir.mkdir(parents=True, exist_ok=True)
     args.tmp_txt_dir.mkdir(parents=True, exist_ok=True)
     normalizer = Normalizer(input_case='cased', lang='en')
+    os.environ["MASTER_ADDR"] = "localhost"
+    os.environ["MASTER_PORT"] = "29501"
     with Progress(
         num_lines - start_line,
         ["TTS parsing", "TTS spectrogram generation", "TTS vocoder"],
@@ -471,8 +459,6 @@ def main() -> None:
                 assert all(lines)
                 lines = normalizer.normalize_list_parallel(lines, verbose=False, n_jobs=args.n_jobs)
                 assert isinstance(lines, list) and all([isinstance(line, str) for line in lines])
-                os.environ["MASTER_ADDR"] = "localhost"
-                os.environ["MASTER_PORT"] = "29501"
                 tmp.spawn(
                     tts_worker,
                     args=(args, lines, start_line, *progress_queues),
