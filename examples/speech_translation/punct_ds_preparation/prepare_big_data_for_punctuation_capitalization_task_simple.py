@@ -749,13 +749,16 @@ def copy_lines_from_file_to_file(source_file: Path, new_file: Path, start: int, 
 
 
 def split_large_files_into_small_files(input_dir: Path, output_dir: Path, num_lines_per_file: int) -> List[Path]:
-    new_file_count =
+    new_file_count = 0
+    split_files = []
     for i, input_file in enumerate(input_dir.iterdir()):
         num_lines_in_input_file = count_lines_in_file(input_file)
         processes = []
         opened_files = []
         for start in range(0, num_lines_in_input_file, num_lines_per_file):
-            opened_files.append((output_dir / f"{i}.txt").open('w'))
+            new_file = output_dir / f"{new_file_count}.txt"
+            split_files.append(new_file)
+            opened_files.append(new_file.open('w'))
             processes.append(
                 Popen(
                     [
@@ -767,10 +770,12 @@ def split_large_files_into_small_files(input_dir: Path, output_dir: Path, num_li
                     stdout=opened_files[-1],
                 )
             )
+            new_file_count += 1
         for proc in processes:
             proc.wait()
         for f in opened_files:
             f.close()
+    return split_files
 
 
 def preprocess_news_crawl(
