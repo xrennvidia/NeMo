@@ -8,7 +8,8 @@ import re
 from itertools import accumulate, chain
 from pathlib import Path
 from queue import Empty
-from subprocess import run
+from subprocess import PIPE, run
+from tempfile import TemporaryDirectory
 from time import sleep
 from typing import Dict, List, Set, Tuple, Union
 
@@ -38,6 +39,7 @@ WIKI_EXTRACTED_NOT_EMPTY_DOC = re.compile('^<doc id="[^\n]+\n[^\n]+\n+[^\n]+')
 WIKI_EXTRACTED_HEADER = re.compile(r'^<doc id="([^"]+)" url="([^"]+)" title="([^"]+)">$', flags=re.MULTILINE)
 WIKI_EXTRACTED_DOC_PROGRESS_PERIOD = 100
 
+NUM_LINES_PER_NEWS_CRAWL_TMP_FILE = 10 ** 6
 
 MAX_NUM_CHARACTERS_IN_1_FILE = 10 ** 9
 BUFFER_SIZE = 2 ** 24
@@ -71,9 +73,8 @@ def count_lines_in_file(file_path, start=0, num_characters=None):
 
 
 def count_characters_in_file(file_path):
-    with file_path.open() as f:
-        count = sum(count_in_blocks(f))
-    return count
+    result = run(['wc', '-l', str(file_path)], stdout=PIPE, stderr=PIPE)
+    return int(result.stdout.decode('utf-8').split()[0])
 
 
 def count_pages_in_file(file_path, start, num_characters):
@@ -742,6 +743,12 @@ def preprocess_wiki_extracted(
     }
 
 
+def split_large_files_into_small_files(input_dir: Path, output_dir: Path, num_lines_per_file: int) -> List[Path]:
+    for i, input_file in enumerate(input_dir.iterdir()):
+        for start in range(0, count_lines_in_file(input_file), num_lines_per_file):
+            copy_lines_from_file_to_file
+
+
 def preprocess_news_crawl(
     dir_path: Path,
     document_dir: Path,
@@ -751,7 +758,8 @@ def preprocess_news_crawl(
     tokenizer: TokenizerSpec,
     num_jobs: int,
 ) -> Dict[int, int]:
-    pass
+    with TemporaryDirectory() as tmp_dir:
+        tmp_files = split_large_files_into_small_files(dir_path, tmp_dir, NUM_LINES_PER_NEWS_CRAWL_TMP_FILE)
 
 
 def is_int(s):

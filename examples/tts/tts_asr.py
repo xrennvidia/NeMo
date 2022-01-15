@@ -466,7 +466,7 @@ def main() -> None:
                     join=True,
                 )
                 tmp.spawn(
-                    asr_worker,
+                    asr_worker_ddp,
                     args=(args, start_line, len(lines)),
                     nprocs=len(args.cuda_devices),
                     join=True,
