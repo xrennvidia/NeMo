@@ -50,7 +50,8 @@ def split_large_file_into_small_files(input_file: Path, output_dir: Path, num_jo
                 [
                     'sed',
                     '-n',
-                    f'{start + 1},{start + min(num_lines_per_file, num_lines_in_input_file - start)}p',
+                    f'{start + 1},'
+                    f'{start + (num_lines_per_file if i < num_jobs - 1 else num_lines_in_input_file - start)}p',
                     str(input_file),
                 ],
                 stdout=opened_files[-1],
