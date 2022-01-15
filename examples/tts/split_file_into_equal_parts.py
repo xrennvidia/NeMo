@@ -63,10 +63,6 @@ def split_large_file_into_small_files(input_file: Path, output_dir: Path, part_s
 
 def main() -> None:
     args = get_args()
-    if args.output_dir.is_file():
-        args.output_dir.unlink()
-    elif args.output_dir.is_dir():
-        shutil.rmtree(str(args.output_dir))
     split_large_file_into_small_files(args.input_file, args.output_dir, args.part_size)
 
 
