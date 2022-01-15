@@ -48,7 +48,7 @@ def split_large_file_into_small_files(input_file: Path, output_dir: Path, num_li
                 [
                     'sed',
                     '-n',
-                    f'{start},{start + min(num_lines_per_file, num_lines_in_input_file - start) - 1}p',
+                    f'{start + 1},{start + min(num_lines_per_file, num_lines_in_input_file - start)}p',
                     str(input_file),
                 ],
                 stdout=opened_files[-1],
@@ -91,7 +91,7 @@ def run_normalization(split_files: List[Path], norm_dir: Path) -> List[Path]:
                 code = None
                 pass
             if code is not None and code != 0:
-                raise RuntimeError(f"An ASR process number {i} terminated with non zero return code {code}.")
+                raise RuntimeError(f"A normalization process number {i} terminated with non zero return code {code}.")
             return_codes[i] = code
     return output_files
 

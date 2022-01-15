@@ -759,7 +759,7 @@ def preprocess_wiki_extracted(
 
 def copy_lines_from_file_to_file(source_file: Path, new_file: Path, start: int, num_lines: int) -> None:
     with new_file.open('w') as out_f:
-        result = run(['sed', '-n', f'{start},{start + num_lines - 1}p', str(source_file)], stdout=out_f, stderr=PIPE)
+        result = run(['sed', '-n', f'{start + 1},{start + num_lines}p', str(source_file)], stdout=out_f, stderr=PIPE)
 
 
 def split_large_files_into_small_files(input_dir: Path, output_dir: Path, num_lines_per_file: int) -> List[Path]:
@@ -778,7 +778,7 @@ def split_large_files_into_small_files(input_dir: Path, output_dir: Path, num_li
                     [
                         'sed',
                         '-n',
-                        f'{start},{start + min(num_lines_per_file, num_lines_in_input_file - start) - 1}p',
+                        f'{start + 1},{start + min(num_lines_per_file, num_lines_in_input_file - start)}p',
                         str(input_file),
                     ],
                     stdout=opened_files[-1],

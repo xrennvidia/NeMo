@@ -9,8 +9,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--input_file", required=True, type=Path)
     parser.add_argument("--output_file", required=True, type=Path)
     args = parser.parse_args()
-    args.input_file = args.tmp_wav_dir.expanduser()
-    args.output_file = args.tmp_txt_dir.expanduser()
+    args.input_file = args.input_file.expanduser()
+    args.output_file = args.output_file.expanduser()
     return args
 
 
