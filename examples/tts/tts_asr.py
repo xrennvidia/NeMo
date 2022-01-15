@@ -449,7 +449,7 @@ def main() -> None:
             args.tmp_wav_dir.unlink()
     args.tmp_wav_dir.mkdir(parents=True, exist_ok=True)
     args.tmp_txt_dir.mkdir(parents=True, exist_ok=True)
-    normalizer = Normalizer(input_case='cased', lang='en')
+    # normalizer = Normalizer(input_case='cased', lang='en')
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = "29501"
     with Progress(
@@ -473,7 +473,7 @@ def main() -> None:
                 if not lines:
                     break
                 assert all(lines)
-                lines = normalizer.normalize_list_parallel(lines, verbose=False, n_jobs=args.n_jobs)
+                # lines = normalizer.normalize_list_parallel(lines, verbose=False, n_jobs=args.n_jobs)
                 assert isinstance(lines, list) and all([isinstance(line, str) for line in lines])
                 tmp.spawn(
                     tts_worker,

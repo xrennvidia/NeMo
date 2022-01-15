@@ -118,6 +118,7 @@ def main() -> None:
     split_files = split_large_file_into_small_files(args.input_file, split_dir, args.num_jobs)
     normalized_files = run_normalization(split_files, norm_dir)
     unite_text_files(normalized_files, args.output_file)
+    shutil.rmtree(str(args.tmp_dir))
 
 
 if __name__ == "__main__":

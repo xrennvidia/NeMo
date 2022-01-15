@@ -11,13 +11,18 @@ cd /workspace/NeMo/examples/tts
 echo "cd examples/tts" >> /result/logs.txt
 output=/result/train__${part}__tts_en_fastpitch__tts_squeezewave__stt_en_citrinet_1024.en
 echo "output=/result/train__${part}__tts_en_fastpitch__tts_squeezewave__stt_en_citrinet_1024.en" >> /result/logs.txt
+normed=/raid/tmp_norm
+python normalize_parallel.py \
+  --input_file "/data/${part}.en" \
+  --tmp_dir "${normed}" \
+  --output_file "${output}"
 while [ ! -f "${output}" ]; do
   echo "while [ ! -f "${output}" ]; do" >> /result/logs.txt
   python tts_asr.py \
     --tts_model_spectrogram tts_en_fastpitch \
     --tts_model_vocoder tts_squeezewave \
     --asr_model stt_en_citrinet_1024 \
-    --input "/data/${part}.en" \
+    --input "${normed}" \
     --output "${output}" \
     --tmp_wav_dir /raid/tmp \
     --tmp_txt_dir /result/tmp \
