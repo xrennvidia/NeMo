@@ -13,7 +13,7 @@ import soundfile
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as tmp
-import torch.nn.parallel.DistributedDataParallel as DDP
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, Dataset
 
 from nemo.collections.asr.models import EncDecCTCModel, EncDecCTCModelBPE
