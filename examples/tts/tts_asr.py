@@ -465,13 +465,13 @@ def main() -> None:
                     nprocs=len(args.cuda_devices),
                     join=True,
                 )
-                tmp.spawn(
-                    asr_worker_ddp,
-                    args=(args, start_line, len(lines)),
-                    nprocs=len(args.cuda_devices),
-                    join=True,
-                )
-                # run_asr(start_line, len(lines), args)
+                # tmp.spawn(
+                #     asr_worker_ddp,
+                #     args=(args, start_line, len(lines)),
+                #     nprocs=len(args.cuda_devices),
+                #     join=True,
+                # )
+                run_asr(start_line, len(lines), args)
                 start_line += len(lines)
     logging.info("Uniting text files...")
     unite_text_files(args.tmp_txt_dir, args.output, num_lines)

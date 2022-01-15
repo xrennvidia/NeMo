@@ -743,10 +743,17 @@ def preprocess_wiki_extracted(
     }
 
 
+def copy_lines_from_file_to_file(source_file: Path, new_file: Path, num_lines: int) -> None:
+
+
+
 def split_large_files_into_small_files(input_dir: Path, output_dir: Path, num_lines_per_file: int) -> List[Path]:
     for i, input_file in enumerate(input_dir.iterdir()):
-        for start in range(0, count_lines_in_file(input_file), num_lines_per_file):
-            copy_lines_from_file_to_file
+        num_lines_in_input_file = count_lines_in_file(input_file)
+        for start in range(0, num_lines_in_input_file, num_lines_per_file):
+            copy_lines_from_file_to_file(
+                input_file, output_dir / f"{i}.txt", min(num_lines_per_file, num_lines_in_input_file - start)
+            )
 
 
 def preprocess_news_crawl(
