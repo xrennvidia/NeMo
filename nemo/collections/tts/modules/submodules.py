@@ -214,14 +214,14 @@ class Invertible1x1Conv(torch.nn.Module):
                 W_inverse = W_inverse.detach()
                 try:
                     W_inverse = W_inverse.inverse()
-                except RuntimeError:
+                except RuntimeError as e1:
                     logging.info(f"W_inverse.shape: {W_inverse.shape}")
                     try:
                         device = W_inverse.device
                         W_inverse = W_inverse.cpu().inverse()
                         W_inverse = W_inverse.to(device)
-                    except RuntimeError:
-                        raise
+                    except RuntimeError as e2:
+                        raise e2
                 W_inverse = W_inverse.float()
                 W_inverse = Variable(W_inverse[..., None])
                 self.inv_conv.weight.data = W_inverse.data
