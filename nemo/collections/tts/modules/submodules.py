@@ -209,8 +209,8 @@ class Invertible1x1Conv(torch.nn.Module):
                     self.conv.in_channels, self.conv.out_channels, kernel_size=1, stride=1, padding=0, bias=False
                 )
                 W_inverse = self.conv.weight.squeeze()
-                W_inverse = W_inverse.inverse()
-                W_inverse = W_inverse.data.float()
+                W_inverse = W_inverse.data.inverse()
+                W_inverse = W_inverse.float()
                 W_inverse = Variable(W_inverse[..., None])
                 self.inv_conv.weight.data = W_inverse
                 self.inv_conv.to(device=self.conv.weight.device, dtype=self.conv.weight.dtype)
