@@ -835,7 +835,9 @@ class NewsCrawlWorker:
         doc = '\n'.join(doc)
         return {"text": doc, "start_line": start_line, "end_line": end_line, "source": input_file, "title": title}
 
-    def __call__(self, input_file: Path, file_id: int, doc_id: int) -> None:
+    def __call__(
+        self, input_file: Path, file_id: int, doc_id: int, source_file: Path, start_line: int, end_line: int
+    ) -> None:
         with input_file.open() as f:
             text = f.read()
         text = small.SPACING_CHARACTERS_TO_REPLACE.sub(' ', text)
@@ -862,7 +864,9 @@ class NewsCrawlWorker:
         prepared_docs = {
             doc_id: {
                 "text": text + ('' if text[-1] == '\n' else '\n'),
-                "start_line":
+                "start_line": start_line,
+                "end_line": end_line,
+
             }
         }
         start_line = 0
@@ -903,7 +907,7 @@ def preprocess_news_crawl(
         with mp.Pool(num_jobs) as pool:
             pool.starmap(
                 NewsCrawlWorker(document_dir, lang, tokenizer, progress_queues[0]),
-                zip(tmp_files, source_files, start_lines, end_lines),
+                zip(tmp_files, file_ids, doc_ids, source_files, start_lines, end_lines),
             )
 
 
