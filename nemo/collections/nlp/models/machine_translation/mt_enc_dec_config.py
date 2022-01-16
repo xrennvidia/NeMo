@@ -71,6 +71,7 @@ class MTEncDecModelConfig(EncDecNLPModelConfig):
     detach_decoder_tips: bool = False
     sum_replacement_with_original_embeddings: bool = False
     tgt_character_vocabulary: Optional[str] = None
+    shared_embeddings: bool = False
 
     # network architecture configuration
     encoder_tokenizer: Any = MISSING

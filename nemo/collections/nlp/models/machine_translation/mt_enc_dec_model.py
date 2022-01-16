@@ -123,6 +123,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
             # Instantiates tokenizers and register to be saved with NeMo Model archive
             # After this call, ther will be self.encoder_tokenizer and self.decoder_tokenizer
             # Which can convert between tokens and token_ids for SRC and TGT languages correspondingly.
+            self.shared_embeddings = cfg.get("shared_embeddings", False)
             self.setup_enc_dec_tokenizers(
                 encoder_tokenizer_library=self.encoder_tokenizer_library,
                 encoder_tokenizer_model=cfg.encoder_tokenizer.get('tokenizer_model'),
@@ -142,7 +143,6 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
                 decoder_word_tokens=cfg.decoder_tokenizer.get('word_tokens'),
                 decoder_tokenizer_vocab_file=cfg.decoder_tokenizer.get('vocab_file'),
             )
-
             if self.multilingual:
                 if isinstance(self.src_language, ListConfig) and isinstance(self.tgt_language, ListConfig):
                     raise ValueError(
@@ -258,6 +258,24 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
             max_delta_length=cfg.max_generation_delta,
             decoder_word_ids=self.decoder_tokenizer.word_ids,
         )
+
+        # tie embedding weights
+        if self.shared_embeddings:
+            if not cfg.get("shared_tokenizer", True):
+                raise ValueError("shared_tokenizer cannot be False when shared_embeddings is True")
+
+            # validate vocabulary size and embedding dimension
+            if (
+                self.encoder.embedding.token_embedding.weight.shape
+                != self.decoder.embedding.token_embedding.weight.shape
+            ):
+                raise ValueError(
+                    f"Cannot tie encoder and decoder embeddings due to mismatch in embedding sizes "
+                    f"(num_embeddings, embedding_dim): {self.encoder.embedding.token_embedding.weight.shape} (encoder) "
+                    f"{self.decoder.embedding.token_embedding.weight.shape} (decoder)"
+                )
+
+            self.encoder.embedding.token_embedding.weight = self.decoder.embedding.token_embedding.weight
 
         # tie weights of embedding and softmax matrices
         self.log_softmax.mlp.layer0.weight = self.decoder.embedding.token_embedding.weight
@@ -566,6 +584,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
         decoder_r2l=False,
         decoder_word_tokens=None,
         decoder_tokenizer_vocab_file=None,
+        special_tokens={},
     ):
 
         supported_tokenizers = ['yttm', 'huggingface', 'sentencepiece', 'megatron', 'byte-level', 'char']
@@ -924,10 +943,10 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
             self.source_processor = ChineseProcessor()
         elif source_lang == 'hi':
             self.source_processor = IndicProcessor(source_lang)
-        elif source_lang is not None and source_lang not in ['ja', 'zh', 'hi']:
-            self.source_processor = MosesProcessor(source_lang)
         elif source_lang == 'ignore':
             self.source_processor = None
+        elif source_lang is not None and source_lang not in ['ja', 'zh', 'hi']:
+            self.source_processor = MosesProcessor(source_lang)
 
         if self.decoder_tokenizer_library == 'byte-level':
             self.target_processor = ByteLevelProcessor()
@@ -937,10 +956,10 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
             self.target_processor = ChineseProcessor()
         elif target_lang == 'hi':
             self.target_processor = IndicProcessor(target_lang)
+        elif target_lang == 'ignore':
+            self.target_processor = None
         elif target_lang is not None and target_lang not in ['ja', 'zh', 'hi']:
             self.target_processor = MosesProcessor(target_lang)
-        elif target_lang == 'ignore':
-            self.target_processor == None
 
         return self.source_processor, self.target_processor
 
@@ -1114,18 +1133,14 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
 
         return return_val
 
-    def export(self, output: str, input_example=None, output_example=None, **kwargs):
+    def export(self, output: str, input_example=None, **kwargs):
         encoder_exp, encoder_descr = self.encoder.export(
-            self._augment_output_filename(output, 'Encoder'),
-            input_example=input_example,
-            output_example=None,
-            **kwargs,
+            self._augment_output_filename(output, 'Encoder'), input_example=input_example, **kwargs,
         )
         decoder_exp, decoder_descr = self.decoder.export(
             self._augment_output_filename(output, 'Decoder'),
             # TODO: propagate from export()
             input_example=None,
-            output_example=None,
             **kwargs,
         )
         return encoder_exp + decoder_exp, encoder_descr + decoder_descr
