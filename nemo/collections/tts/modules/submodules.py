@@ -212,7 +212,7 @@ class Invertible1x1Conv(torch.nn.Module):
                 W_inverse = W_inverse.detach().inverse()
                 W_inverse = W_inverse.float()
                 W_inverse = Variable(W_inverse[..., None])
-                self.inv_conv.weight = W_inverse
+                self.inv_conv.weight.data = W_inverse.data
                 self.inv_conv.to(device=self.conv.weight.device, dtype=self.conv.weight.dtype)
             return self.inv_conv(z)
         else:
