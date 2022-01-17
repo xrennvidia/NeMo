@@ -139,7 +139,7 @@ class Normalizer:
     ) -> int:
         num_perms = 1
         for k, inner in token_group.items():
-            if isinstance(inner, OrderedDict):
+            if isinstance(inner, dict):
                 num_perms *= self.estimate_number_of_permutations_in_nested_dict(inner)
         num_perms *= factorial(len(token_group))
         return num_perms
