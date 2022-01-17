@@ -885,7 +885,7 @@ def preprocess_news_crawl(
 ) -> Dict[int, int]:
     with TemporaryDirectory() as tmp_dir:
         tmp_files, source_files, start_lines, end_lines = split_large_files_into_small_files(
-            dir_path, tmp_dir, NUM_LINES_PER_NEWS_CRAWL_TMP_FILE
+            dir_path, Path(tmp_dir), NUM_LINES_PER_NEWS_CRAWL_TMP_FILE
         )
     doc_ids = list(range(start_file_id, start_doc_id + len(tmp_files)))
     file_ids = list(range(start_file_id, start_file_id + len(tmp_files)))
