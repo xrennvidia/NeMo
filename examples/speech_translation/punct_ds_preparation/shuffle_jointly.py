@@ -72,6 +72,7 @@ def get_args() -> argparse.Namespace:
         "--split_dir",
         help="A name of a directory where split united file parts are saved. See more in `--max_shuf_lines` parameter "
         "description.",
+        default="split_files",
     )
     parser.add_argument("--resume_from", choices=['shuffling'])
     args = parser.parse_args()
