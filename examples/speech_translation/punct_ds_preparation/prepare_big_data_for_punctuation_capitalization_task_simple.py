@@ -836,7 +836,7 @@ class NewsCrawlWorker:
         return {"text": doc, "start_line": start_line, "end_line": end_line, "source": input_file, "title": title}
 
     def __call__(
-        self, input_file: Path, file_id: int, doc_id: int, source_file: Path, start_line: int, end_line: int
+        self, input_file: Path, file_id: int, doc_id: int, source_file: Path, start_line: int, end_line: int, idx: int
     ) -> None:
         with input_file.open() as f:
             text = f.read()
@@ -866,24 +866,10 @@ class NewsCrawlWorker:
                 "text": text + ('' if text[-1] == '\n' else '\n'),
                 "start_line": start_line,
                 "end_line": end_line,
-
+                "source": input_file,
+                "title": f"news-crawl-{idx}",
             }
         }
-        start_line = 0
-        doc_count = 0
-        for doc_id, doc in enumerate(docs, start=start_doc_id):
-            num_lines = doc.count('\n')
-            if WIKI_EXTRACTED_NOT_EMPTY_DOC.match(doc.lstrip()):
-                prepared_doc = self.prepare_wiki_extracted_doc(
-                    doc, start_line, start_line + num_lines, input_file
-                )
-                if prepared_doc['text']:
-                    prepared_docs[doc_id] = prepared_doc
-                doc_count += 1
-                if doc_count % WIKI_EXTRACTED_DOC_PROGRESS_PERIOD == 0:
-                    self.progress_queue.put(doc_count)
-                    doc_count = 0
-            start_line += num_lines
         self.progress_queue.put(1)
         big.write_docs_to_file(prepared_docs, self.document_dir / (str(file_id) + '.xml'))
 
@@ -907,7 +893,7 @@ def preprocess_news_crawl(
         with mp.Pool(num_jobs) as pool:
             pool.starmap(
                 NewsCrawlWorker(document_dir, lang, tokenizer, progress_queues[0]),
-                zip(tmp_files, file_ids, doc_ids, source_files, start_lines, end_lines),
+                zip(tmp_files, file_ids, doc_ids, source_files, start_lines, end_lines, range(len(tmp_files))),
             )
 
 
