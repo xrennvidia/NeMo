@@ -636,7 +636,7 @@ def preprocess_news_commentary(
     return {doc_id: start_file_id for doc_id in docs.keys()}
 
 
-def wiki_extracted_initializer():
+def tokenizability_initializer():
     global tok_chars
     global untok_chars
     tok_chars = None
@@ -745,7 +745,7 @@ def preprocess_wiki_extracted(
     start_doc_ids = list(itertools.accumulate(num_not_empty_docs_in_files, initial=start_doc_id))
     file_id_values = list(range(start_file_id, start_file_id + len(files_with_data)))
     with Progress(start_doc_ids[-1], "Preparing extracted Wikipedia", "doc") as progress_queues:
-        with mp.Pool(num_jobs, initializer=wiki_extracted_initializer) as pool:
+        with mp.Pool(num_jobs, initializer=tokenizability_initializer) as pool:
             pool.starmap(
                 WikiExtractedWorker(document_dir, lang, tokenizer, progress_queues[0]),
                 zip(files_with_data, file_id_values, start_doc_ids),
@@ -890,11 +890,12 @@ def preprocess_news_crawl(
         doc_ids = list(range(start_file_id, start_doc_id + len(tmp_files)))
         file_ids = list(range(start_file_id, start_file_id + len(tmp_files)))
         with Progress(len(tmp_files), "Preparing extracted Wikipedia", "doc") as progress_queues:
-            with mp.Pool(num_jobs) as pool:
+            with mp.Pool(num_jobs, initializer=tokenizability_initializer) as pool:
                 pool.starmap(
                     NewsCrawlWorker(document_dir, lang, tokenizer, progress_queues[0]),
                     zip(tmp_files, file_ids, doc_ids, source_files, start_lines, end_lines, range(len(tmp_files))),
                 )
+    return dict(zip(doc_ids, file_ids))
 
 
 def is_int(s):
