@@ -59,7 +59,7 @@ def get_args() -> argparse.Namespace:
         "then concatenated in random order and saved into a file with name `--united_file_name` located in the "
         "`--tmp-dir`. After that concatenated file is split into parts, parts are shuffled, and "
         "then shuffled parts are concatenated",
-        default=8 * 10 ** 7,
+        default=6 * 10 ** 7,
     )
     parser.add_argument(
         "--num_split_lines",
