@@ -134,7 +134,7 @@ def shuffle_with_splitting(
         run(["split", "--lines", f"{num_split_lines}", f"{united_file_path}", f"{split_dir}/x"], check=True)
         logging.info(f"Split {united_file_path} successfully.")
     elif resume_from not in [
-        'splitting_for_shuf_util', 'applying_shuf_to_smaller_files''uniting_smaller_shufed_files'
+        'splitting_for_shuf_util', 'applying_shuf_to_smaller_files', 'uniting_smaller_shufed_files'
     ]:
         files = list(split_dir.iterdir())
         random.shuffle(files)
