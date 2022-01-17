@@ -74,7 +74,16 @@ def get_args() -> argparse.Namespace:
         "description.",
         default="split_files",
     )
-    parser.add_argument("--resume_from", choices=['shuffling'])
+    parser.add_argument(
+        "--resume_from",
+        choices=[
+            'shuffling',
+            'uniting_small_files',
+            'splitting_for_shuf_util',
+            'applying_shuf_to_smaller_files',
+            'uniting_smaller_shufed_files',
+        ]
+    )
     args = parser.parse_args()
     for i, f in enumerate(args.input_files):
         args.input_files[i] = f.expanduser()
@@ -106,34 +115,65 @@ def shuffle_with_splitting(
     split_dir: str,
     num_split_lines: int,
     num_lines: int,
+    resume_from: str,
 ) -> None:
     split_dir = united_file_path.parent / split_dir
-    split_dir.mkdir(exist_ok=True, parents=True)
-    for file in split_dir.iterdir():
-        file.unlink()
-    run(["split", "--lines", f"{num_split_lines}", f"{united_file_path}", f"{split_dir}/x"], check=True)
-    files = list(split_dir.iterdir())
-    random.shuffle(files)
-    with united_file_path.open('w') as out_f:
-        for file in files:
-            with file.open() as in_f:
-                in_text = in_f.read()
-                out_f.write(in_text + ('' if in_text[-1] == '\n' else '\n'))
-    num_splits = 2
-    while num_lines // 2 > max_shuf_lines:
-        num_splits += 1
-    shutil.rmtree(str(split_dir))
-    split_dir.mkdir()
-    run(["split", "--number", f"l/{num_splits}", f"{united_file_path}", f"{split_dir}/x"], check=True)
-    shuffled_files = []
-    for file in split_dir.iterdir():
-        shuffled_file = Path(str(file) + '.shuf')
-        shuffled_files.append(shuffled_file)
-        with shuffled_file.open('w') as f:
-            run(['shuf', str(file)], stdout=f, check=True)
-        file.unlink()
+    if resume_from not in [
+        'uniting_small_files',
+        'splitting_for_shuf_util',
+        'applying_shuf_to_smaller_files',
+        'uniting_smaller_shufed_files',
+    ]:
+        split_dir.mkdir(exist_ok=True, parents=True)
+        for file in split_dir.iterdir():
+            file.unlink()
+        logging.info(
+            f"Splitting large file {united_file_path} into very small files which will be permuted:\n"
+            f"split --lines {num_split_lines} {united_file_path} {split_dir}/x"
+        )
+        run(["split", "--lines", f"{num_split_lines}", f"{united_file_path}", f"{split_dir}/x"], check=True)
+        logging.info(f"Split {united_file_path} successfully.")
+    elif resume_from not in [
+        'splitting_for_shuf_util', 'applying_shuf_to_smaller_files''uniting_smaller_shufed_files'
+    ]:
+        files = list(split_dir.iterdir())
+        random.shuffle(files)
+        logging.info("Uniting small files")
+        with united_file_path.open('w') as out_f:
+            for file in files:
+                with file.open() as in_f:
+                    in_text = in_f.read()
+                    out_f.write(in_text + ('' if in_text[-1] == '\n' else '\n'))
+    elif resume_from not in ['applying_shuf_to_smaller_files', 'uniting_smaller_shufed_files']:
+        num_splits = 2
+        while num_lines // 2 > max_shuf_lines:
+            num_splits += 1
+        shutil.rmtree(str(split_dir))
+        split_dir.mkdir()
+        logging.info(
+            f"Splitting large file {united_file_path} into smaller files for processing with `shuf` util:\n"
+            f"split --number l/{num_splits} {united_file_path} {split_dir}/x"
+        )
+        run(["split", "--number", f"l/{num_splits}", f"{united_file_path}", f"{split_dir}/x"], check=True)
+        logging.info(f"Split {united_file_path} successfully.")
+    elif resume_from not in ['uniting_smaller_shufed_files']:
+        shuffled_files = []
+        for file in split_dir.iterdir():
+            shuffled_file = Path(str(file) + '.shuf')
+            shuffled_files.append(shuffled_file)
+            logging.info(f"Applying `shuf` util to file {file}:\nshuf {file} > {shuffled_file}")
+            with shuffled_file.open('w') as f:
+                run(['shuf', str(file)], stdout=f, check=True)
+            logging.info(f"Successfully applied `shuf` to {file}")
+            file.unlink()
     with shuffled_file_path.open('w') as f:
-        run(['cat'] + [str(file) for file in split_dir.iterdir() if file.suffix == '.txt'], stdout=f, check=True)
+        logging.info(
+            f"Uniting shuffled files:\n"
+            f"cat {' '.join([str(file) for file in split_dir.iterdir() if file.suffix == '.shuf'])} > "
+            f"{shuffled_file_path}"
+        )
+        run(['cat'] + [str(file) for file in split_dir.iterdir() if file.suffix == '.shuf'], stdout=f, check=True)
+        logging.info("Successfully united files.")
     shutil.rmtree(str(split_dir))
 
 
@@ -173,7 +213,13 @@ def main():
             run(['shuf', str(united_file_path)], stdout=f, check=True)
     else:
         shuffle_with_splitting(
-            united_file_path, shuffled_file_path, args.max_shuf_lines, args.split_dir, args.num_split_lines, num_lines
+            united_file_path,
+            shuffled_file_path,
+            args.max_shuf_lines,
+            args.split_dir,
+            args.num_split_lines,
+            num_lines,
+            args.resume_from,
         )
     os.remove(united_file_path)
     for out_file in args.output_files:
