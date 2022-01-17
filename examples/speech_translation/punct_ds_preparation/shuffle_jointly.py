@@ -108,6 +108,9 @@ def shuffle_with_splitting(
     num_lines: int,
 ) -> None:
     split_dir = united_file_path.parent / split_dir
+    split_dir.mkdir(exist_ok=True, parents=True)
+    for file in split_dir.iterdir():
+        file.unlink()
     run(["split", "--lines", f"{num_split_lines}", f"{united_file_path}", f"{split_dir}/x"], check=True)
     files = list(split_dir.iterdir())
     random.shuffle(files)
