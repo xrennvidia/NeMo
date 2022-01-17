@@ -887,14 +887,14 @@ def preprocess_news_crawl(
         tmp_files, source_files, start_lines, end_lines = split_large_files_into_small_files(
             dir_path, Path(tmp_dir), NUM_LINES_PER_NEWS_CRAWL_TMP_FILE
         )
-    doc_ids = list(range(start_file_id, start_doc_id + len(tmp_files)))
-    file_ids = list(range(start_file_id, start_file_id + len(tmp_files)))
-    with Progress(len(tmp_files), "Preparing extracted Wikipedia", "doc") as progress_queues:
-        with mp.Pool(num_jobs) as pool:
-            pool.starmap(
-                NewsCrawlWorker(document_dir, lang, tokenizer, progress_queues[0]),
-                zip(tmp_files, file_ids, doc_ids, source_files, start_lines, end_lines, range(len(tmp_files))),
-            )
+        doc_ids = list(range(start_file_id, start_doc_id + len(tmp_files)))
+        file_ids = list(range(start_file_id, start_file_id + len(tmp_files)))
+        with Progress(len(tmp_files), "Preparing extracted Wikipedia", "doc") as progress_queues:
+            with mp.Pool(num_jobs) as pool:
+                pool.starmap(
+                    NewsCrawlWorker(document_dir, lang, tokenizer, progress_queues[0]),
+                    zip(tmp_files, file_ids, doc_ids, source_files, start_lines, end_lines, range(len(tmp_files))),
+                )
 
 
 def is_int(s):
