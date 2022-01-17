@@ -13,6 +13,7 @@ from tempfile import TemporaryDirectory
 from time import sleep
 from typing import Dict, List, Optional, Set, Tuple, Union
 
+import nltk
 import numpy as np
 from bs4 import BeautifulSoup, NavigableString
 from tqdm import tqdm
@@ -44,6 +45,8 @@ NUM_LINES_PER_NEWS_CRAWL_TMP_FILE = 10 ** 6
 MAX_NUM_CHARACTERS_IN_1_FILE = 10 ** 9
 BUFFER_SIZE = 2 ** 24
 REPORT_PROGRESS_PERIOD = 5000
+
+INTACT_SENTENCES_PROGRESS_PERIOD = 10000
 
 
 def count_in_blocks(files, size=BUFFER_SIZE, specific_to_count=None, num_characters=None):
@@ -1291,9 +1294,20 @@ class CutIntactSentencesWorker:
     def __call__(self, file: Path) -> None:
         out_file = self.output_dir / (file.stem + '.txt')
         docs = big.read_docs_from_file(file)
+        line_count = 0
         with out_file.open('w') as f:
             for doc in docs.values():
-                for line in doc['text'].splitlines()
+                for line in doc['text'].splitlines():
+                    if self.whether_use_nltk_tokenization:
+                        f.write(line + '\n')
+                    else:
+                        for sent in nltk.sent_tokenize(line):
+                            f.write(sent + '\n')
+                    line_count += 1
+                    if line_count % INTACT_SENTENCES_PROGRESS_PERIOD == 0:
+                        self.progress_queue.put(line_count)
+                        line_count = 0
+        self.progress_queue.put(line_count)
 
 
 def cut_and_save_parallel_intact_sentences(

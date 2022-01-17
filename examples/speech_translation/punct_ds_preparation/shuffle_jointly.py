@@ -168,7 +168,9 @@ def main():
         with shuffled_file_path.open('w') as f:
             run(['shuf', str(united_file_path)], stdout=f, check=True)
     else:
-        shuffle_with_splitting(united_file_path, shuffled_file_path, args.max_shuf_lines, args.split_dir, num_lines)
+        shuffle_with_splitting(
+            united_file_path, shuffled_file_path, args.max_shuf_lines, args.split_dir, args.num_split_lines, num_lines
+        )
     os.remove(united_file_path)
     for out_file in args.output_files:
         out_file.parent.mkdir(parents=True, exist_ok=True)
