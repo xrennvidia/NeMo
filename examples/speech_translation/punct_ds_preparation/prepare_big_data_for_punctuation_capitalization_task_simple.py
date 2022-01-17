@@ -761,11 +761,9 @@ def split_large_files_into_small_files(
     input_dir: Path, output_dir: Path, num_lines_per_file: int
 ) -> Tuple[List[Path], List[Path], List[int], List[int]]:
     new_file_count = 0
-    split_files, source_files, start_lines, end_lines = [], [], [], []
+    split_files, source_files, start_lines, end_lines, processes, opened_files = [], [], [], [], [], []
     for i, input_file in enumerate(input_dir.iterdir()):
         num_lines_in_input_file = count_lines_in_file(input_file)
-        processes = []
-        opened_files = []
         for start in range(0, num_lines_in_input_file, num_lines_per_file):
             new_file = output_dir / f"{new_file_count}.txt"
             split_files.append(new_file)
@@ -785,10 +783,10 @@ def split_large_files_into_small_files(
                 )
             )
             new_file_count += 1
-        for proc in processes:
-            proc.wait()
-        for f in opened_files:
-            f.close()
+    for proc in processes:
+        proc.wait()
+    for f in opened_files:
+        f.close()
     return split_files, source_files, start_lines, end_lines
 
 
@@ -889,7 +887,7 @@ def preprocess_news_crawl(
         )
         doc_ids = list(range(start_file_id, start_doc_id + len(tmp_files)))
         file_ids = list(range(start_file_id, start_file_id + len(tmp_files)))
-        with Progress(len(tmp_files), "Preparing extracted Wikipedia", "doc") as progress_queues:
+        with Progress(len(tmp_files), "Preparing news-crawl", "doc") as progress_queues:
             with mp.Pool(num_jobs, initializer=tokenizability_initializer) as pool:
                 pool.starmap(
                     NewsCrawlWorker(document_dir, lang, tokenizer, progress_queues[0]),
@@ -1265,6 +1263,52 @@ def cut_and_save_parallel(document_dir, sorted_text_file, num_passes_through_dat
                     out_f.write(text + ('' if text[-1] == '\n' else '\n'))
 
 
+def count_content_lines_in_files(files: List[Path]) -> int:
+    num_lines_processes = []
+    num_docs_processes = []
+    for i, input_file in enumerate(files):
+        num_lines_processes.append(Popen(['wc', '-l', str(input_file)], stdout=PIPE, stderr=PIPE))
+        num_docs_processes.append(
+            Popen(f'grep "<doc docid=" {input_file} | wc -l', shell=True, stdout=PIPE, stderr=PIPE)
+        )
+    for proc in num_lines_processes + num_docs_processes:
+        proc.wait()
+    total_lines = 0
+    for line_proc, doc_proc in zip(num_lines_processes, num_docs_processes):
+        num_lines = int(line_proc.stdout.read().decode('utf-8').split()[0])
+        num_docs = int(doc_proc.stdout.read().decode('utf-8').split()[0])
+        assert num_lines >= num_docs * 2
+        total_lines += (num_lines - num_docs * 2)
+    return total_lines
+
+
+class CutIntactSentencesWorker:
+    def __init__(self, output_dir: Path, progress_queue: mp.Queue, whether_use_nltk_tokenization: bool) -> None:
+        self.output_dir = output_dir
+        self.progress_queue = progress_queue
+        self.whether_use_nltk_tokenization = whether_use_nltk_tokenization
+
+    def __call__(self, file: Path) -> None:
+        out_file = self.output_dir / (file.stem + '.txt')
+        docs = big.read_docs_from_file(file)
+        with out_file.open('w') as f:
+            for doc in docs.values():
+                for line in doc['text'].splitlines()
+
+
+def cut_and_save_parallel_intact_sentences(
+    document_dir: Path, sorted_text_file: Path, whether_use_nltk_tokenization: bool, num_jobs: int
+) -> None:
+    files = [f for f in document_dir.iterdir() if is_int(f.stem) and f.suffixes == ['.xml']]
+    num_jobs = min(num_jobs, len(files))
+    total_num_lines = count_content_lines_in_files(files)
+    output_dir = sorted_text_file.parent / 'cut_separate_files'
+    with Progress(total_num_lines, "Cutting into segments", "line") as progress_queues:
+        with mp.Pool(num_jobs) as pool:
+            pool.map(CutIntactSentencesWorker(output_dir, progress_queues[0], whether_use_nltk_tokenization), files)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+
 def shuffle_file_lines(input_file, output_file):
     with output_file.open('w') as f:
         run(['shuf', str(input_file)], stdout=f)
@@ -1359,13 +1403,21 @@ def main():
             remove_parentheses_parallel(after_extraction_document_dir, rp_dir, args.num_jobs)
         else:
             rp_dir = None
-        cut_and_save_parallel(
-            rp_dir if rp else after_extraction_document_dir,
-            sorted_text_file,
-            args.num_passes_through_dataset,
-            args.sequence_length_range,
-            args.num_jobs,
-        )
+        if args.intact_sentences:
+            cut_and_save_parallel_intact_sentences(
+                rp_dir if rp else after_extraction_document_dir,
+                sorted_text_file,
+                args.whether_use_nltk_tokenization,
+                args.num_jobs,
+            )
+        else:
+            cut_and_save_parallel(
+                rp_dir if rp else after_extraction_document_dir,
+                sorted_text_file,
+                args.num_passes_through_dataset,
+                args.sequence_length_range,
+                args.num_jobs,
+            )
     shuffled_text_file = args.output_dir / 'shuffled_text.txt'
     if args.resume_from is None or args.resume_from in ["cutting", "shuffling"]:
         logging.info("shuffling segments...")
@@ -1458,7 +1510,8 @@ def get_args(
         "-S",
         type=int,
         help="How many times the script goes through data to cut train segments. Dev and test are cut train and "
-        "sentences used for dev and test are excluded from the process.",
+        "sentences used for dev and test are excluded from the process. This parameter is not used if "
+        "`--intact_sentences` is set.",
         default=1,
     )
     parser.add_argument("--dev_size", "-d", help="Number of sequences in dev data.", type=int, default=10 ** 4)
@@ -1467,10 +1520,23 @@ def get_args(
         "--sequence_length_range",
         "-r",
         help="Minimum and maximum number words in model input sequences. Number of words is sampled "
-        "using uniform distribution.",
+        "using uniform distribution. This parameter is not used if `--intact_sentences` is set.",
         type=int,
         nargs=2,
         default=(2, 64),
+    )
+    parser.add_argument(
+        "--intact_sentences",
+        help="Whether to split text into intact sentences instead of cutting them using parameters "
+        "`--num_passes_through_dataset` and `--sequence_length_range`. If this parameter is provided, then you have "
+        "provide `--whether_use_nltk_tokenization` parameter.",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--whether_use_nltk_tokenization",
+        help="Whether to apply NLTK sentence tokenization before writing intact sentences. This parameter works only "
+        "if `--intact_sentences` is provided.",
+        action="store_true",
     )
     parser.add_argument(
         "--create_model_input",
@@ -1527,7 +1593,7 @@ def get_args(
     args = parser.parse_args()
     args.input_files_or_dirs = [x.expanduser() for x in args.input_files_or_dirs]
     if len(args.input_files_or_dirs) != len(args.corpus_types):
-        raise ValueError(
+        parser.error(
             f"Number {len(args.input_files_or_dirs)} of input files or directories in parameter "
             f"`--input_files_or_dirs` {args.input_files_or_dirs} is not equal to the number "
             f"{len(args.corpus_types)} of corpus types {args.corpus_types}."

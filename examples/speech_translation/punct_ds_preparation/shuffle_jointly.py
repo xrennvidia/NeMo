@@ -1,6 +1,8 @@
 import argparse
 import logging
 import os
+import random
+import shutil
 from pathlib import Path
 from subprocess import run, PIPE
 
@@ -32,6 +34,13 @@ def get_args() -> argparse.Namespace:
         help="It has to be a character which does not occur in any of input files, e.g. tabulation '\\t'."
     )
     parser.add_argument(
+        "--tmp_dir",
+        type=Path,
+        help="Path to a directory where temporary files like `--united_file_name`, `--shuffled_file_name`, "
+        "a `--split_dir` directory are created. Be default it is the directory containing "
+        "the first input file.",
+    )
+    parser.add_argument(
         "--united_file_name",
         default="united_lines.txt",
         help="Temporary file where united lines from all input files are stored before shuffling with `shuf` util.",
@@ -41,11 +50,39 @@ def get_args() -> argparse.Namespace:
         default="shuffled_lines.txt",
         help="Temporary file where united lines from all input files after shuffling with `shuf` util.",
     )
+    parser.add_argument(
+        "--max_shuf_lines",
+        type=int,
+        help="Maximum number of lines in a file which can be shuffled by 1 `shuf` call. If the number of lines in the "
+        "united file is greater than `--max_shuf_lines`, then united file is split into smaller files of size "
+        "`--num_split_lines` and "
+        "then concatenated in random order and saved into a file with name `--united_file_name` located in the "
+        "`--tmp-dir`. After that concatenated file is split into parts, parts are shuffled, and "
+        "then shuffled parts are concatenated",
+        default=8 * 10 ** 7,
+    )
+    parser.add_argument(
+        "--num_split_lines",
+        type=int,
+        help="Number of lines files which are created for shuffling very large files. See more in `--max_shuf_lines` "
+        "parameter description.",
+        default=1000,
+    )
+    parser.add_argument(
+        "--split_dir",
+        help="A name of a directory where split united file parts are saved. See more in `--max_shuf_lines` parameter "
+        "description.",
+    )
+    parser.add_argument("--resume_from", choices=['shuffling'])
     args = parser.parse_args()
     for i, f in enumerate(args.input_files):
         args.input_files[i] = f.expanduser()
     for i, f in enumerate(args.output_files):
         args.output_files[i] = f.expanduser()
+    if args.tmp_dir is None:
+        args.tmp_dir = args.input_files[0].parent
+    else:
+        args.tmp_dir = args.tmp_dir.expanduser()
     if len(args.input_files) != len(args.output_files):
         parser.error("Number of elements in parameters `--input_files` and `--output_file` has to be equal")
     return args
@@ -61,38 +98,75 @@ def get_num_lines(input_file):
     return int(result.stdout.decode('utf-8').split()[0])
 
 
+def shuffle_with_splitting(
+    united_file_path: Path,
+    shuffled_file_path: Path,
+    max_shuf_lines: int,
+    split_dir: str,
+    num_split_lines: int,
+    num_lines: int,
+) -> None:
+    split_dir = united_file_path.parent / split_dir
+    run(["split", "--lines", f"{num_split_lines}", f"{united_file_path}", f"{split_dir}/x"])
+    files = list(split_dir.iterdir())
+    random.shuffle(files)
+    with united_file_path.open('w') as out_f:
+        for file in files:
+            with file.open() as in_f:
+                in_text = in_f.read()
+                out_f.write(in_text + ('' if in_text[-1] == '\n' else '\n'))
+    num_splits = 2
+    while num_lines // 2 > max_shuf_lines:
+        num_splits += 1
+    shutil.rmtree(str(split_dir))
+    split_dir.mkdir()
+    run(["split", "--number", f"l/{num_splits}", f"{united_file_path}", f"{split_dir}/x"])
+    shuffled_files = []
+    for file in split_dir.iterdir():
+        shuffled_file = Path(str(file) + '.shuf')
+        shuffled_files.append(shuffled_file)
+        with shuffled_file.open('w') as f:
+            run(['shuf', str(file)], stdout=f)
+    with shuffled_file_path.open('w') as f:
+        run(['cat'] + [str(file) for file in split_dir.iterdir() if file.suffix == '.txt'], stdout=f)
+
+
 def main():
     args = get_args()
     input_file_objects = [inp_file.open(buffering=BUFFER_SIZE) for inp_file in args.input_files]
-    united_file_path = args.input_files[0].parent / args.united_file_name
+    united_file_path = args.tmp_dir / args.united_file_name
     lines = [inp_obj.readline().strip('\n') for inp_obj in input_file_objects]
     line_number = 0
     num_lines = get_num_lines(args.input_files[0])
-    progress_bar = tqdm(total=num_lines, unit='line', desc="Uniting files", unit_scale=True)
-    with united_file_path.open('w', buffering=BUFFER_SIZE) as united_f:
-        while all(lines):
-            delimiter_in_line = [args.line_delimiter in line for line in lines]
-            if any(delimiter_in_line):
-                raise ValueError(
-                    f"Line delimiter {repr(args.line_delimiter)} is present in line number {line_number} in file "
-                    f"{args.input_files[delimiter_in_line.index(True)]}."
-                )
-            united_f.write(args.line_delimiter.join(lines) + '\n')
-            progress_bar.n += 1
-            progress_bar.update(0)
-            lines = [inp_obj.readline().strip('\n') for inp_obj in input_file_objects]
-    progress_bar.close()
-    if any(lines):
-        raise ValueError(
-            f"Files {', '.join([str(args.input_files[i]) for i, line in enumerate(lines) if not line])} "
-            f"before files {', '.join([str(args.input_files[i]) for i, line in enumerate(lines) if line])}."
-        )
-    for input_file_object in input_file_objects:
-        input_file_object.close()
-    shuffled_file_path = args.input_files[0].parent / args.shuffled_file_name
-    logging.info(f"Shuffling: shuf {united_file_path} > {shuffled_file_path}")
-    with shuffled_file_path.open('w') as f:
-        run(['shuf', str(united_file_path)], stdout=f)
+    if args.resume_from is None:
+        progress_bar = tqdm(total=num_lines, unit='line', desc="Uniting files", unit_scale=True)
+        with united_file_path.open('w', buffering=BUFFER_SIZE) as united_f:
+            while all(lines):
+                delimiter_in_line = [args.line_delimiter in line for line in lines]
+                if any(delimiter_in_line):
+                    raise ValueError(
+                        f"Line delimiter {repr(args.line_delimiter)} is present in line number {line_number} in file "
+                        f"{args.input_files[delimiter_in_line.index(True)]}."
+                    )
+                united_f.write(args.line_delimiter.join(lines) + '\n')
+                progress_bar.n += 1
+                progress_bar.update(0)
+                lines = [inp_obj.readline().strip('\n') for inp_obj in input_file_objects]
+        progress_bar.close()
+        if any(lines):
+            raise ValueError(
+                f"Files {', '.join([str(args.input_files[i]) for i, line in enumerate(lines) if not line])} have less "
+                f"lines than files {', '.join([str(args.input_files[i]) for i, line in enumerate(lines) if line])}."
+            )
+        for input_file_object in input_file_objects:
+            input_file_object.close()
+    shuffled_file_path = args.tmp_dir / args.shuffled_file_name
+    if num_lines < args.max_shuf_lines:
+        logging.info(f"Shuffling: shuf {united_file_path} > {shuffled_file_path}")
+        with shuffled_file_path.open('w') as f:
+            run(['shuf', str(united_file_path)], stdout=f)
+    else:
+        shuffle_with_splitting(united_file_path, shuffled_file_path, args.max_shuf_lines, args.split_dir, num_lines)
     os.remove(united_file_path)
     for out_file in args.output_files:
         out_file.parent.mkdir(parents=True, exist_ok=True)

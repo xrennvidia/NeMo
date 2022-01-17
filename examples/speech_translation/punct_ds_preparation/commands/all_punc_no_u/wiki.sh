@@ -4,7 +4,7 @@ python prepare_big_data_for_punctuation_capitalization_task_simple.py \
   --create_model_input \
   --bert_labels \
   --autoregressive_labels \
-  --sequence_length_range 92 128 \
+  --sequence_length_range 3 128 \
   --allowed_punctuation '.,?"-;:!()' \
   --no_label_if_all_characters_are_upper_case \
   --input_files ~/data/enwiki-20210920-pages-articles-multistream.xml \
