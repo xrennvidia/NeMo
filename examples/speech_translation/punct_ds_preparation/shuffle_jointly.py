@@ -107,7 +107,7 @@ def shuffle_with_splitting(
     num_lines: int,
 ) -> None:
     split_dir = united_file_path.parent / split_dir
-    run(["split", "--lines", f"{num_split_lines}", f"{united_file_path}", f"{split_dir}/x"])
+    run(["split", "--lines", f"{num_split_lines}", f"{united_file_path}", f"{split_dir}/x"], check=True)
     files = list(split_dir.iterdir())
     random.shuffle(files)
     with united_file_path.open('w') as out_f:
@@ -120,15 +120,17 @@ def shuffle_with_splitting(
         num_splits += 1
     shutil.rmtree(str(split_dir))
     split_dir.mkdir()
-    run(["split", "--number", f"l/{num_splits}", f"{united_file_path}", f"{split_dir}/x"])
+    run(["split", "--number", f"l/{num_splits}", f"{united_file_path}", f"{split_dir}/x"], check=True)
     shuffled_files = []
     for file in split_dir.iterdir():
         shuffled_file = Path(str(file) + '.shuf')
         shuffled_files.append(shuffled_file)
         with shuffled_file.open('w') as f:
-            run(['shuf', str(file)], stdout=f)
+            run(['shuf', str(file)], stdout=f, check=True)
+        file.unlink()
     with shuffled_file_path.open('w') as f:
-        run(['cat'] + [str(file) for file in split_dir.iterdir() if file.suffix == '.txt'], stdout=f)
+        run(['cat'] + [str(file) for file in split_dir.iterdir() if file.suffix == '.txt'], stdout=f, check=True)
+    shutil.rmtree(str(split_dir))
 
 
 def main():
@@ -164,7 +166,7 @@ def main():
     if num_lines < args.max_shuf_lines:
         logging.info(f"Shuffling: shuf {united_file_path} > {shuffled_file_path}")
         with shuffled_file_path.open('w') as f:
-            run(['shuf', str(united_file_path)], stdout=f)
+            run(['shuf', str(united_file_path)], stdout=f, check=True)
     else:
         shuffle_with_splitting(united_file_path, shuffled_file_path, args.max_shuf_lines, args.split_dir, num_lines)
     os.remove(united_file_path)
