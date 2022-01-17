@@ -133,7 +133,7 @@ def shuffle_with_splitting(
         )
         run(["split", "--lines", f"{num_split_lines}", f"{united_file_path}", f"{split_dir}/x"], check=True)
         logging.info(f"Split {united_file_path} successfully.")
-    elif resume_from not in [
+    if resume_from not in [
         'splitting_for_shuf_util', 'applying_shuf_to_smaller_files', 'uniting_smaller_shufed_files'
     ]:
         files = list(split_dir.iterdir())
@@ -144,7 +144,7 @@ def shuffle_with_splitting(
                 with file.open() as in_f:
                     in_text = in_f.read()
                     out_f.write(in_text + ('' if in_text[-1] == '\n' else '\n'))
-    elif resume_from not in ['applying_shuf_to_smaller_files', 'uniting_smaller_shufed_files']:
+    if resume_from not in ['applying_shuf_to_smaller_files', 'uniting_smaller_shufed_files']:
         num_splits = 2
         while num_lines // 2 > max_shuf_lines:
             num_splits += 1
@@ -156,7 +156,7 @@ def shuffle_with_splitting(
         )
         run(["split", "--number", f"l/{num_splits}", f"{united_file_path}", f"{split_dir}/x"], check=True)
         logging.info(f"Split {united_file_path} successfully.")
-    elif resume_from not in ['uniting_smaller_shufed_files']:
+    if resume_from not in ['uniting_smaller_shufed_files']:
         shuffled_files = []
         for file in split_dir.iterdir():
             shuffled_file = Path(str(file) + '.shuf')
