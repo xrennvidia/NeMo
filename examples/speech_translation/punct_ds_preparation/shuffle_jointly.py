@@ -124,9 +124,10 @@ def shuffle_with_splitting(
         'applying_shuf_to_smaller_files',
         'uniting_smaller_shufed_files',
     ]:
+        logging.info(f"Removing existing files in {split_dir}.")
+        if split_dir.exists():
+            shutil.rmtree(str(split_dir))
         split_dir.mkdir(exist_ok=True, parents=True)
-        for file in split_dir.iterdir():
-            file.unlink()
         logging.info(
             f"Splitting large file {united_file_path} into very small files which will be permuted:\n"
             f"split --lines {num_split_lines} {united_file_path} {split_dir}/x"
@@ -146,8 +147,11 @@ def shuffle_with_splitting(
                     out_f.write(in_text + ('' if in_text[-1] == '\n' else '\n'))
     if resume_from not in ['applying_shuf_to_smaller_files', 'uniting_smaller_shufed_files']:
         num_splits = 2
-        while num_lines // 2 > max_shuf_lines:
+        if max_shuf_lines < 1:
+            raise ValueError("Parameter `max_shuf_lines` must be positive.")
+        while num_lines // num_splits > max_shuf_lines:
             num_splits += 1
+        logging.info(f"Cleaning split dir {split_dir}...")
         shutil.rmtree(str(split_dir))
         split_dir.mkdir()
         logging.info(
