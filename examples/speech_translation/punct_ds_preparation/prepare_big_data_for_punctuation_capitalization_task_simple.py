@@ -1409,6 +1409,8 @@ def main():
             args.sequence_length_range,
             args.num_jobs,
         )
+    else:
+        dev_text_file, test_text_file = args.output_dir / 'dev_text.txt', args.output_dir / 'test_text.txt'
     sorted_text_file = args.output_dir / 'sorted_text.txt'
     if args.resume_from is None or args.resume_from in ["cutting"]:
         rp = '(' not in args.allowed_punctuation or ')' not in args.allowed_punctuation
