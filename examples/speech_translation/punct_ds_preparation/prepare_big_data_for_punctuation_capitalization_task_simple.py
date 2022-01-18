@@ -1436,7 +1436,7 @@ def main():
     if args.resume_from is None or args.resume_from in ["cutting", "shuffling"]:
         logging.info("shuffling segments...")
         shuffle_file_lines(sorted_text_file, shuffled_text_file)
-    size = count_lines_in_file(sorted_text_file)
+    size = count_lines_in_file(shuffled_text_file)
     logging.info(f"Train set will contain {size} lines.")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     if args.test_size > 0:
