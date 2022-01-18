@@ -7,6 +7,6 @@ python ~/NeMo/examples/nlp/token_classification/data/create_punctuation_capitali
   --tokens_in_batch="${tokens_in_batch}" \
   --num_batches_per_tarfile 100 \
   --lines_per_dataset_fragment 200000 \
-  --tokenizer_name t5-large \
+  --tokenizer_name /home/apeganov/pretrained_tokenizers/t5_large \
   --use_fast_tokenizer \
   --not_add_cls_and_sep_tokens
