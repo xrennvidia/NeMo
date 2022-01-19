@@ -11,7 +11,8 @@ python ~/NeMo/examples/nlp/machine_translation/create_tarred_parallel_dataset.py
     --out_dir "${work_dir}/for_upload/train_aayn_tarred_${tokens_in_batch}" \
     --encoder_tokenizer_model "${work_dir}/for_upload/input.BPE.25000.model" \
     --encoder_tokenizer_bpe_dropout 0 \
-    --encoder_tokenizer_model "${work_dir}/for_upload/autoregressive_labels.BPE.17.model" \
+    --encoder_tokenizer_coverage 1.0 \
+    --decoder_tokenizer_model "${work_dir}/for_upload/autoregressive_labels.BPE.17.model" \
     --decoder_tokenizer_bpe_dropout 0 \
     --decoder_tokenizer_coverage 1.0 \
     --tokens_in_batch "${tokens_in_batch}" \
