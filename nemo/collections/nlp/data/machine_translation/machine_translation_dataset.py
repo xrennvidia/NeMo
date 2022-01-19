@@ -442,6 +442,7 @@ class TarredTranslationDataset(IterableDataset):
         reverse_lang_direction: bool = False,
         prepend_id: int = None,
         add_src_num_words_to_batch: bool = False,
+        add_tgt_word_replacement_to_batch: bool = False,
     ):
         super(TarredTranslationDataset, self).__init__()
 
@@ -452,6 +453,7 @@ class TarredTranslationDataset(IterableDataset):
         self.tgt_pad_id = decoder_tokenizer.pad_id
         self.prepend_id = prepend_id
         self.add_src_num_words_to_batch = add_src_num_words_to_batch
+        self.add_tgt_word_replacement_to_batch = add_tgt_word_replacement_to_batch
 
         valid_shard_strategies = ['scatter', 'replicate']
         if shard_strategy not in valid_shard_strategies:
@@ -531,12 +533,21 @@ class TarredTranslationDataset(IterableDataset):
             src_ids = np.insert(src_ids, 0, self.prepend_id, axis=-1)
         if self.add_src_num_words_to_batch:
             src_num_words = get_number_of_words(src_ids, self.encoder_tokenizer)
+        if self.add_tgt_word_replacement_to_batch:
+            src_word_first_token_mask = get_first_token_mask(src_ids, self.encoder_tokenizer)
+            tgt_word_mask = get_word_mask(tgt_ids, self.decoder_tokenizer)
+            replacements = np.zeros_like(tgt, dtype=np.int32)
+            replacements[tgt_word_mask] = src_ids[src_word_first_token_mask]
+        else:
+            src_word_first_token_mask, tgt_word_mask = None, None
         src_mask = (src_ids != self.src_pad_id).astype(np.int32)
         tgt_mask = (tgt_ids != self.tgt_pad_id).astype(np.int32)
+        res = [src_ids, src_mask, tgt_ids, tgt_mask, labels]
         if self.add_src_num_words_to_batch:
-            res = (src_ids, src_mask, tgt_ids, tgt_mask, labels, src_num_words)
-        else:
-            res = (src_ids, src_mask, tgt_ids, tgt_mask, labels)
+            res.append(src_num_words)
+        if self.add_tgt_word_replacement_to_batch:
+            res.append(tgt_word_mask[:-1])
+            res.append(replacements[:-1])
         return res
 
     def __iter__(self):

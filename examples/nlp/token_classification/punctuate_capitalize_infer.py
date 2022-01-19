@@ -164,13 +164,8 @@ def get_args() -> argparse.Namespace:
         "user-guide/docs/en/main/nlp/punctuation_and_capitalization.html#nemo-data-format",
     )
     parser.add_argument("--not_add_cls_and_sep_tokens", action="store_true")
-    parser.add_argument(
-        "--device",
-        "-d",
-        choices=['cpu', 'cuda'],
-        help="Which device to use. If device is not set and CUDA is available, then GPU will be used. If device is "
-        "not set and CUDA is not available, then CPU is used.",
-    )
+    parser.add_argument("--cuda_device", type=int, help="A number of GPU used for inference.")
+    parser.add_argument("--cpu", action="store_true")
     parser.add_argument(
         "--make_queries_contain_intact_sentences",
         action="store_true",
@@ -215,17 +210,17 @@ def decimal_repl(match):
 
 def main() -> None:
     args = get_args()
-    if args.pretrained_name is None:
-        model = PunctuationCapitalizationModel.restore_from(args.model_path)
-    else:
-        model = PunctuationCapitalizationModel.from_pretrained(args.pretrained_name)
-    if args.device is None:
-        if torch.cuda.is_available():
-            model = model.cuda()
+    if args.cuda_device is None:
+        if args.cpu or not torch.cuda.is_available():
+            device = torch.device('cpu')
         else:
-            model = model.cpu()
+            device = torch.device('cuda:0')
     else:
-        model = model.to(args.device)
+        device = torch.device(f'cuda:{args.cuda_device}')
+    if args.pretrained_name is None:
+        model = PunctuationCapitalizationModel.restore_from(args.model_path, map_location=device)
+    else:
+        model = PunctuationCapitalizationModel.from_pretrained(args.pretrained_name, map_location=device)
     if args.input_manifest is None:
         texts = []
         with args.input_text.open() as f:
