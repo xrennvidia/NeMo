@@ -10,7 +10,7 @@ python ~/NeMo/examples/nlp/machine_translation/create_tarred_parallel_dataset.py
     --tgt_fname "${work_dir}/train/autoregressive_labels.txt" \
     --out_dir "${work_dir}/for_upload/train_aayn_tarred_${tokens_in_batch}" \
     --encoder_tokenizer_model "${work_dir}/for_upload/input.BPE.25000.model" \
-    --encoder_tokenzer_bpe_dropout 0 \
+    --encoder_tokenizer_bpe_dropout 0 \
     --encoder_tokenizer_model "${work_dir}/for_upload/autoregressive_labels.BPE.10.model" \
     --decoder_tokenizer_bpe_dropout 0 \
     --decoder_tokenizer_coverage 1.0 \
