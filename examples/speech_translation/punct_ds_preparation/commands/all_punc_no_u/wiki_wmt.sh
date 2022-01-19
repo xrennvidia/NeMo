@@ -6,7 +6,6 @@ python prepare_big_data_for_punctuation_capitalization_task_simple.py \
   --autoregressive_labels \
   --sequence_length_range 3 128 \
   --allowed_punctuation '.,?"-;:!()' \
-  --only_first_punctuation_character_after_word_in_autoregressive \
   --no_label_if_all_characters_are_upper_case \
   --input_files_or_dirs ~/data/wmt_raw/news-crawl/en \
   --num_jobs 24 \
