@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A ent_aiapps_asr
 #SBATCH -p batch_dgx2h_m2                 # luna / backfill / interactive
-#SBATCH -N 1                    # number of nodes
+#SBATCH -N 4                    # number of nodes
 #SBATCH -t 8:00:00              # wall time  (4 for luna, 8 for backfill, 2 for interactive)
 #SBATCH --exclusive
 #SBATCH --mem=0
