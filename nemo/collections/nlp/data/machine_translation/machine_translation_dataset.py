@@ -535,7 +535,7 @@ class TarredTranslationDataset(IterableDataset):
             src_num_words = get_number_of_words(src_ids, self.encoder_tokenizer)
         if self.add_tgt_word_replacement_to_batch:
             src_word_first_token_mask = get_first_token_mask(src_ids, self.encoder_tokenizer)
-            tgt_word_mask = get_word_mask(tgt_ids, self.decoder_tokenizer)
+            tgt_word_mask = get_word_mask(tgt, self.decoder_tokenizer)
             replacements = np.zeros_like(tgt, dtype=np.int32)
             replacements[tgt_word_mask] = src_ids[src_word_first_token_mask]
         else:
