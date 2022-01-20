@@ -548,7 +548,7 @@ class TarredTranslationDataset(IterableDataset):
         if self.add_tgt_word_replacement_to_batch:
             res.append(tgt_word_mask[:-1])
             res.append(replacements[:-1])
-        return res
+        return tuple(res)
 
     def __iter__(self):
         return self._dataset.__iter__()
