@@ -1268,14 +1268,15 @@ def cut_and_save_parallel(document_dir, sorted_text_file, num_passes_through_dat
 
 
 def count_content_lines_in_files(files: List[Path], file_batch_size: int = 128) -> int:
-    num_lines_processes, wc_processes = [], [], []
+    num_lines = []
     for batch_start in range(0, len(files), file_batch_size):
         batch_processes = []
         for input_file in files[batch_start: batch_start + file_batch_size]:
             batch_processes.append(Popen(['wc', '-l', str(input_file)], stdout=PIPE, stderr=PIPE))
         for proc in batch_processes:
             proc.wait()
-        num_lines_processes += batch_processes
+        num_lines += [int(p.stdout.read().decode('utf-8').split()[0]) for p in batch_processes]
+    num_docs = []
     for batch_start in range(0, len(files), file_batch_size):
         grep_batch_processes, wc_batch_processes = [], []
         for input_file in files[batch_start: batch_start + file_batch_size]:
@@ -1283,14 +1284,12 @@ def count_content_lines_in_files(files: List[Path], file_batch_size: int = 128) 
             wc_batch_processes.append(Popen(['wc', '-l'], stdin=grep_batch_processes[-1].stdout, stdout=PIPE, stderr=PIPE))
         for grep_proc, wc_proc in zip(grep_batch_processes, wc_batch_processes):
             grep_proc.wait()
-            wc_proc.terminate()
-        wc_processes += wc_batch_processes
+            outs, _ = wc_proc.communicate(input=''.encode('utf8'))
+            num_docs.append(int(outs))
     total_lines = 0
-    for line_proc, doc_proc in zip(num_lines_processes, num_docs_processes):
-        num_lines = int(line_proc.stdout.read().decode('utf-8').split()[0])
-        num_docs = int(doc_proc.stdout.read().decode('utf-8').split()[0])
-        assert num_lines >= num_docs * 2
-        total_lines += (num_lines - num_docs * 2)
+    for nl, nd in zip(num_lines, num_docs):
+        assert nl >= nd * 2
+        total_lines += (nl - nd * 2)
     return total_lines
 
 
