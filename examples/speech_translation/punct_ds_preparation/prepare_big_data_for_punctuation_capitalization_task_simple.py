@@ -1301,7 +1301,7 @@ class CutIntactSentencesWorker:
 
     def __call__(self, file: Path) -> None:
         out_file = self.output_dir / (file.stem + '.txt')
-        docs = big.read_docs_from_file(file)
+        docs, _ = big.read_docs_from_file(file)
         line_count = 0
         with out_file.open('w') as f:
             for doc in docs.values():

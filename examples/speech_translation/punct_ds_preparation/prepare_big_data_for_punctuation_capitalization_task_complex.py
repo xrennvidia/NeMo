@@ -1295,7 +1295,7 @@ def cut_and_save(segments, doc_dir, output_file):
             current_pos += len(text_seg)
 
 
-def read_docs_from_file(file_path):
+def read_docs_from_file(file_path: Path) -> Tuple[Dict[int, Dict[str, Union[Path, int, str]]], List[int]]:
     current_doc = ""
     curr_doc_id = None
     docs = {}
