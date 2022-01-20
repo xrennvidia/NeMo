@@ -1267,7 +1267,7 @@ def cut_and_save_parallel(document_dir, sorted_text_file, num_passes_through_dat
                     out_f.write(text + ('' if text[-1] == '\n' else '\n'))
 
 
-def count_content_lines_in_files(files: List[Path], file_batch_size: int = 100) -> int:
+def count_content_lines_in_files(files: List[Path], file_batch_size: int = 48) -> int:
     num_lines_processes, num_docs_processes = [], []
     for batch_start in range(0, len(files), file_batch_size):
         batch_num_lines_processes, batch_num_docs_processes = [], []
