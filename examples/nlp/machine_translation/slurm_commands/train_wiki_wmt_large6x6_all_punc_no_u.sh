@@ -25,13 +25,13 @@ LOG_EVERY_N_STEPS=100
 
 # Logging
 PROJECT="autoregressive_punctuation_capitalization"
-EXPNAME="all_punc_no_u_nmt_wiki_wmt_large6x6_bs400000_steps400000_lr2e-4"
+EXPNAME="all_punc_no_u_nmt_wiki_wmt_news_crawl_large6x6_bs400000_steps400000_lr2e-4"
 
 # Mounts
 SLURM_ACCOUNT='ent_aiapps'
 USERID='apeganov'
 LUSTRE_ACCOUNT_PREFIX=/gpfs/fs1/projects/${SLURM_ACCOUNT}
-DATA="${LUSTRE_ACCOUNT_PREFIX}/datasets/data/punctuation_capitalization/wiki_wmt_all_punc_no_u_92_128_12.12.2021"
+DATA="${LUSTRE_ACCOUNT_PREFIX}/datasets/data/punctuation_capitalization/wiki_wmt_all_punc_no_u_3_128_18.01.2022"
 RESULTS=${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/results/$PROJECT/$EXPNAME
 CODE="${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/code/NeMo"
 
