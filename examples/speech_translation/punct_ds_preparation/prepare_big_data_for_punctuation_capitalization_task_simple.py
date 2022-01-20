@@ -934,6 +934,7 @@ def remove_parentheses(rank, progress_queue, files, output_dir):
 
 
 def remove_parentheses_parallel(document_dir, output_dir, num_jobs):
+    logging.info(f"Removing parentheses.")
     files = [f for f in document_dir.iterdir() if is_int(f.stem) and f.suffixes == ['.xml']]
     num_jobs = min(num_jobs, len(files))
     num_files_per_job = len(files) // num_jobs
