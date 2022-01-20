@@ -57,7 +57,7 @@ echo "*******STARTING********" \
 	--config-name=local_large6x6_tarred25000 \
 	model.tgt_character_vocabulary="/data/autoregressive_char_vocabulary.txt" \
 	model.train_ds.use_tarred_dataset=true \
-	model.train_ds.metadata_file="/data/train_autoregressive_tarred_25000/metadata.tokens.25000.json" \
+	model.train_ds.metadata_file="/data/train_aayn_tarred_25000/metadata.tokens.25000.json" \
 	model.validation_ds.src_file_name="/data/IWSLT_tst2019/input.txt" \
 	model.validation_ds.tgt_file_name="/data/IWSLT_tst2019/autoregressive_labels.txt" \
 	model.test_ds.src_file_name="/data/IWSLT_tst2019/input.txt" \
