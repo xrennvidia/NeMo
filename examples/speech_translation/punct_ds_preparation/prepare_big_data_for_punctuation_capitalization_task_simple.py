@@ -1325,6 +1325,7 @@ def cut_and_save_parallel_intact_sentences(
     num_jobs = min(num_jobs, len(files))
     total_num_lines = count_content_lines_in_files(files)
     output_dir = sorted_text_file.parent / 'cut_separate_files'
+    output_dir.mkdir(parents=True, exist_ok=True)
     with Progress(total_num_lines, "Cutting into segments", "line") as progress_queues:
         with mp.Pool(num_jobs) as pool:
             pool.map(CutIntactSentencesWorker(output_dir, progress_queues[0], whether_use_nltk_tokenization), files)
