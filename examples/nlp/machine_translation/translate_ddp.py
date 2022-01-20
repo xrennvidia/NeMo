@@ -47,6 +47,7 @@ def get_args():
         action="store_true",
         help="Reverse source and target language direction for parallel dataset",
     )
+    parser.add_argument('--add_tgt_word_replacement_to_batch', action="store_true")
     parser.add_argument('--n_gpus', type=int, default=-1, help="Number of GPUs to use")
     args = parser.parse_args()
     return args
@@ -72,6 +73,7 @@ def translate(rank, world_size, args):
             world_size=world_size,
             global_rank=rank,
             reverse_lang_direction=args.reverse_lang_direction,
+            add_tgt_word_replacement_to_batch=args.add_tgt_word_replacement_to_batch,
         )
     else:
         dataset = TarredSentenceDataset(

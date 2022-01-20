@@ -774,6 +774,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
                     world_size=self.world_size,
                     reverse_lang_direction=cfg.get("reverse_lang_direction", False),
                     prepend_id=self.multilingual_ids[idx] if self.multilingual else None,
+                    add_tgt_word_replacement_to_batch=self.use_decoder_tips,
                 )
                 datasets.append(dataset)
 
