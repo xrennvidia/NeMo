@@ -406,7 +406,8 @@ class BeamSearchSequenceGenerator(GreedySequenceGenerator):
         if ground_truth_tgt_replacement_mask is not None:
             if ground_truth_tgt_replacements is None:
                 raise ValueError(
-                    f"Parameters `ground_truth_tgt_replacement_mask` should be not `None` or `None` simultaneously."
+                    f"Parameters `ground_truth_tgt_replacement_mask` and `ground_truth_tgt_replacements` "
+                    f"should be not `None` or `None` simultaneously."
                 )
             ground_truth_tgt_replacement_mask = ground_truth_tgt_replacement_mask.to(device)
             ground_truth_tgt_replacements = ground_truth_tgt_replacements.to(device)

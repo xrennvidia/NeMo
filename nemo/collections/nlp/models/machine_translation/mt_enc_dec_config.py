@@ -68,6 +68,7 @@ class MTEncDecModelConfig(EncDecNLPModelConfig):
     filter_beam_ids: bool = True
     increase_l2_fetch_granularity: bool = False
     use_decoder_tips: bool = False
+    hidden_states_as_tips: bool = False  # works if use_decoder_tips=True
     detach_decoder_tips: bool = False
     sum_replacement_with_original_embeddings: bool = False
     tgt_character_vocabulary: Optional[str] = None

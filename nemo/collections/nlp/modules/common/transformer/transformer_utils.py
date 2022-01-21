@@ -32,6 +32,7 @@ def get_nemo_transformer(
     pre_ln_final_layer_norm: bool = True,
     encoder_token_embedding: torch.nn.Embedding = None,
     detach_decoder_tips=False,
+    hidden_states_as_tips=False,
     sum_replacement_with_original_embeddings=False,
 ) -> Union[TransformerEncoderNM, TransformerDecoderNM]:
     """Returns NeMo transformer.
@@ -135,6 +136,7 @@ def get_nemo_transformer(
             num_token_types=cfg.get('num_token_types', 2),
             replacement_token_embedding=encoder_token_embedding,
             detach_replacements=detach_decoder_tips,
+            hidden_states_as_tips=hidden_states_as_tips,
             sum_replacement_with_original_embeddings=sum_replacement_with_original_embeddings,
         )
 

@@ -201,6 +201,7 @@ class TranslationDataset(Dataset):
         if self.add_tgt_word_replacement_to_batch:
             res.append(self.batches[idx]['tgt_word_mask'][:, :-1])
             res.append(self.batches[idx]['tgt_replacements'][:, :-1])
+            res.append(self.batches[idx]['src_word_first_token_mask'])
         return tuple(res)
 
     def pad_batches(
@@ -258,6 +259,7 @@ class TranslationDataset(Dataset):
                 replacements = np.zeros_like(batches[batch_idx]["tgt_word_mask"], dtype=np.int32)
                 replacements[batches[batch_idx]["tgt_word_mask"]] = src_ids_[src_mask]
                 batches[batch_idx]["tgt_replacements"] = replacements
+                batches[batch_idx]['src_word_first_token_mask'] = src_mask
         return batches
 
     def pack_data_into_batches(self, src_ids, tgt_ids):
@@ -548,6 +550,7 @@ class TarredTranslationDataset(IterableDataset):
         if self.add_tgt_word_replacement_to_batch:
             res.append(tgt_word_mask[:, :-1])
             res.append(replacements[:, :-1])
+            res.append(src_word_first_token_mask)
         return tuple(res)
 
     def __iter__(self):

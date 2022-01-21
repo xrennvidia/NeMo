@@ -181,6 +181,7 @@ class TransformerDecoderNM(DecoderModule, Exportable):
         pre_ln_final_layer_norm: bool = True,
         replacement_token_embedding: Optional[torch.nn.Embedding] = None,
         detach_replacements=False,
+        hidden_states_as_tips=False,
         sum_replacement_with_original_embeddings=False,
     ):
         super().__init__()
@@ -192,6 +193,7 @@ class TransformerDecoderNM(DecoderModule, Exportable):
         self.return_mems = False
         if pre_ln_final_layer_norm:
             self.num_states += 1
+        self.hidden_states_as_tips = hidden_states_as_tips
 
         self._embedding = TransformerEmbedding(
             vocab_size=self.vocab_size,
@@ -228,6 +230,7 @@ class TransformerDecoderNM(DecoderModule, Exportable):
         decoder_mems=None,
         replacement_mask=None,
         replacements=None,
+        src_word_first_token_mask=None,
     ):
         start_pos = 0
         if decoder_mems is not None:
@@ -238,6 +241,7 @@ class TransformerDecoderNM(DecoderModule, Exportable):
         decoder_embeddings = self._embedding(
             input_ids=input_ids, start_pos=start_pos, replacement_mask=replacement_mask, replacements=replacements
         )
+        decoder_embeddings[replacement_mask] = encoder_embeddings[src_word_first_token_mask]
         decoder_hidden_states = self._decoder(
             decoder_states=decoder_embeddings,
             decoder_mask=decoder_mask,

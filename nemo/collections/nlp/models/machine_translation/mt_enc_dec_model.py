@@ -177,6 +177,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
                 self.setup_pre_and_post_processing_utils(self.src_language, self.tgt_language)
                 self.multilingual_ids = [None]
         self.use_decoder_tips = cfg.get('use_decoder_tips', False)
+        self.hidden_states_as_tips = cfg.get('hidden_states_as_tips', False)
         if cfg.get('tgt_character_vocabulary') is None:
             self.tgt_character_vocabulary = None
         else:
@@ -224,8 +225,13 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
             config_dict=decoder_cfg_dict,
             encoder=False,
             pre_ln_final_layer_norm=decoder_cfg_dict.get('pre_ln_final_layer_norm', False),
-            encoder_token_embedding=self.encoder._embedding.token_embedding if self.use_decoder_tips else None,
+            encoder_token_embedding=(
+                self.encoder._embedding.token_embedding
+                if self.use_decoder_tips and not self.hidden_states_as_tips else
+                None
+            ),
             detach_decoder_tips=cfg.get('detach_decoder_tips', False),
+            hidden_states_as_tips=self.hidden_states_as_tips,
             sum_replacement_with_original_embeddings=cfg.get('sum_replacement_with_original_embeddings', True),
         )
 
@@ -336,7 +342,9 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
         return not invalid_ids
 
     @typecheck()
-    def forward(self, src, src_mask, tgt, tgt_mask, tgt_word_mask=None, tgt_replacements=None):
+    def forward(
+        self, src, src_mask, tgt, tgt_mask, tgt_word_mask=None, tgt_replacements=None, src_word_first_token_mask=None
+    ):
         if self.validate_input_ids:
             # test src/tgt for id range (i.e., hellp in catching wrong tokenizer)
             self.test_encoder_ids(src, raise_error=True)
@@ -350,6 +358,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
             encoder_mask=src_mask,
             replacement_mask=tgt_word_mask,
             replacements=tgt_replacements,
+            src_word_first_token_mask=src_word_first_token_mask,
         )
         log_probs = self.log_softmax(hidden_states=tgt_hiddens)
         return log_probs
@@ -366,8 +375,10 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
                 # is excess.
                 batch[i] = batch[i].squeeze(dim=0)
         if self.use_decoder_tips:
-            src_ids, src_mask, tgt_ids, tgt_mask, labels, tgt_word_mask, tgt_replacements = batch
-            forward_args = (src_ids, src_mask, tgt_ids, tgt_mask, tgt_word_mask, tgt_replacements)
+            src_ids, src_mask, tgt_ids, tgt_mask, labels, tgt_word_mask, tgt_replacements, src_word_first_token_mask = batch
+            forward_args = (
+                src_ids, src_mask, tgt_ids, tgt_mask, tgt_word_mask, tgt_replacements, src_word_first_token_mask
+            )
         else:
             src_ids, src_mask, tgt_ids, tgt_mask, labels = batch
             forward_args = (src_ids, src_mask, tgt_ids, tgt_mask)
