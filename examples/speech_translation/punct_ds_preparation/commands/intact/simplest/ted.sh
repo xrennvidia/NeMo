@@ -1,5 +1,5 @@
 python prepare_big_data_for_punctuation_capitalization_task_simple.py \
-  --output_dir /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/TEDx5_21.12.2021 \
+  --output_dir /media/apeganov/DATA/punctuation_and_capitalization/intact/simplest/TEDx5_21.12.2021 \
   --corpus_types TED \
   --create_model_input \
   --bert_labels \
@@ -8,7 +8,9 @@ python prepare_big_data_for_punctuation_capitalization_task_simple.py \
   --allowed_punctuation '.,?' \
   --only_first_punctuation_character_after_word_in_autoregressive \
   --no_label_if_all_characters_are_upper_case \
-  --num_passes_through_dataset 5 \
+  --input_files_or_dirs ~/data/TED_Talks/en-ja/train.tags.en-ja.en \
+  --num_jobs 24 \
   --dev_size 0 \
   --test_size 0 \
-  --input_files_or_dirs ~/data/TED_Talks/en-ja/train.tags.en-ja.en
+  --intact_sentences \
+  --resume_from cutting
