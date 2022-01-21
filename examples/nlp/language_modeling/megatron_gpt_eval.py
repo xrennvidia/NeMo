@@ -74,6 +74,10 @@ Usage:
 
 assert torch.cuda.is_available()
 
+from pdb import set_trace as bp
+import sys, csv, os
+sys.path.append('examples/nlp/bc7/utils')
+from utils_bc7tr3 import get_eval_score
 
 def main():
     parser = ArgumentParser()
@@ -149,11 +153,21 @@ def main():
         request = []
         prompts = open(args.path_to_file, 'r')
 
+        answers = []
+        predicts = []
+        prompts_org = []
+        prompts_pred = []
+
+        none_counter = 0
         for prompt in prompts.readlines():
             prompt = prompt.split('\n')[0]
 
+            prompt_ = prompt[:prompt.find('[answer]:')+9] + '"}'
+            answer = prompt[prompt.find('[answer]: ')+10:prompt.rfind('"')]
+            prompts_org.append(prompt)
+            answers.append(answer)
             if args.use_soft_prompts and model.use_soft_prompts:
-                prompt = json.loads(prompt)
+                prompt = json.loads(prompt_)
 
             request.append(prompt)
 
@@ -174,10 +188,30 @@ def main():
         model.use_soft_prompts = False
 
     response = trainer.predict(model, request_dl)
+    with open('gpt_prompt_tuning-' + os.path.basename(args.model_file )[:-5] +\
+        '-' + str(args.tokens_to_generate) +\
+        '-calc_loss_on_answer_False_indvs.csv', 'w') as csvfw:
+        csvw = csv.writer(csvfw, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+        counter = 0
+        for bi, response_bi in enumerate(response):
+            for i, response_i in enumerate(response_bi):
+                response_str = response_i[0]
+                prompts_pred.append(response_str)
+                predict = response_str[response_str.find('[answer]: ')+10:response_str.rfind('}')+1]
+                predicts.append(predict)
+                if answers[counter] != '{none}':
+                    csvw.writerow([prompts_org[counter], response_str])
+                counter += 1
 
-    print("***************************")
-    print(response)
-    print("***************************")
+    eval_score = get_eval_score(answers, predicts)
+    with open('gpt_prompt_tuning-' + os.path.basename(args.model_file )[:-5] +\
+        '-' + str(args.tokens_to_generate) +\
+        '-calc_loss_on_answer_False.csv', 'w') as csvfw:
+        csvw = csv.writer(csvfw, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+        csvw.writerow(eval_score)
+    # print("***************************")
+    # print(response)
+    # print("***************************")
 
 
 if __name__ == '__main__':
