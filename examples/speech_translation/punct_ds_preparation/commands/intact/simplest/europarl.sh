@@ -1,5 +1,5 @@
 python prepare_big_data_for_punctuation_capitalization_task_simple.py \
-  --output_dir /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/europarl_x3_21.12.2021 \
+  --output_dir /media/apeganov/DATA/punctuation_and_capitalization/intact/simplest/europarl_x3_21.12.2021 \
   --corpus_types europarl \
   --create_model_input \
   --bert_labels \
@@ -11,5 +11,7 @@ python prepare_big_data_for_punctuation_capitalization_task_simple.py \
   --input_files_or_dirs ~/data/europarl/v10/training-monolingual/europarl-v10.en.tsv \
   --num_jobs 24 \
   --num_passes_through_dataset 3 \
-  --dev_size 10000 \
-  --test_size 0
+  --dev_size 0 \
+  --test_size 0 \
+  --intact_sentences \
+  --resume_from cutting
