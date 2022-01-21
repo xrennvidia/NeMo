@@ -1329,12 +1329,17 @@ def cut_and_save_parallel_intact_sentences(
     with Progress(total_num_lines, "Cutting into segments", "line") as progress_queues:
         with mp.Pool(num_jobs) as pool:
             pool.map(CutIntactSentencesWorker(output_dir, progress_queues[0], whether_use_nltk_tokenization), files)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    with sorted_text_file.open('w') as out_f:
+        for p in output_dir.iterdir():
+            with p.open() as in_f:
+                if is_int(p.stem) and p.suffixes == ['.txt']:
+                    text = in_f.read()
+                    out_f.write(text + ('' if text[-1] == '\n' else '\n'))
 
 
 def shuffle_file_lines(input_file, output_file):
     with output_file.open('w') as f:
-        run(['shuf', str(input_file)], stdout=f)
+        run(['shuf', str(input_file)], stdout=f, check=True)
 
 
 def join_sentence_len(di_ss_se, sentence_len_by_docs):
