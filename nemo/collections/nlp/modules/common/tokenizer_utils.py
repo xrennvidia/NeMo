@@ -14,7 +14,6 @@
 
 import os.path
 from dataclasses import MISSING, dataclass
-from os import path
 from typing import Dict, List, Optional
 
 import nemo
@@ -144,6 +143,7 @@ def get_nmt_tokenizer(
     use_fast: Optional[bool] = False,
     bpe_dropout: Optional[float] = 0.0,
     r2l: Optional[bool] = False,
+    legacy: Optional[bool] = False,
 ):
     """
     Args:
@@ -162,6 +162,9 @@ def get_nmt_tokenizer(
     else:
         special_tokens_dict = special_tokens
 
+    if (library != 'byte-level') and (model_name is None and not os.path.isfile(tokenizer_model)):
+        raise ValueError("No Tokenizer path provided or file does not exist!")
+
     if library == 'yttm':
         logging.info(f'Getting YouTokenToMeTokenizer with model: {tokenizer_model} with r2l: {r2l}.')
         return YouTokenToMeTokenizer(model_path=tokenizer_model, bpe_dropout=bpe_dropout, r2l=r2l)
@@ -177,11 +180,11 @@ def get_nmt_tokenizer(
     elif library == 'sentencepiece':
         logging.info(f'Getting SentencePiece with model: {tokenizer_model}')
         return nemo.collections.common.tokenizers.sentencepiece_tokenizer.SentencePieceTokenizer(
-            model_path=tokenizer_model, special_tokens=special_tokens_dict
+            model_path=tokenizer_model, legacy=legacy
         )
     elif library == 'byte-level':
         logging.info(f'Using byte-level tokenization')
-        return ByteLevelTokenizer()
+        return ByteLevelTokenizer(special_tokens_dict)
     elif library == 'megatron':
         if model_name in megatron_tokenizer_model_map:
             model_name = megatron_tokenizer_model_map[model_name]
