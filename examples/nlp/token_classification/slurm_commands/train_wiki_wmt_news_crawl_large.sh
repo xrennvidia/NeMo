@@ -19,13 +19,13 @@ WANDB="${wandb}" # replace with your own WandB API key
 # total_tokens = max_steps * global_batch_size_in_tokens
 # global_batch_size_in_tokens = micro_batch_size * data_parallel_size * accumulate_grad_batches * seq_length
 # data_parallel_size = num_nodes * num_gpus_per_node (no model parallel)
-MAX_STEPS=300000
+MAX_STEPS=400000
 VAL_CHECK_INTERVAL=2000
 LOG_EVERY_N_STEPS=100
 
 # Logging
 PROJECT="autoregressive_punctuation_capitalization"
-EXPNAME="evelina_wiki_wmt_news_crawl_3_128_large_lr6e-5_bs640k_steps300k"
+EXPNAME="evelina_wiki_wmt_news_crawl_3_128_large_lr1e-4_bs640k_steps300k"
 
 # Mounts
 SLURM_ACCOUNT='ent_aiapps'
@@ -54,8 +54,8 @@ echo "*******STARTING********" \
 && cd /code/ \
 && CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 python \
   /code/examples/nlp/token_classification/punctuation_capitalization_train_evaluate.py \
-	--config-path=/code/examples/nlp/token_classification/conf/wiki \
-	--config-name=local_bs15000_steps100000 \
+	--config-path=/code/examples/nlp/token_classification/conf/wmt \
+	--config-name=local_large_bs20000_lr6e-5_steps300000_from_scratch \
 	do_testing=false \
 	model.train_ds.ds_item="/tar_data" \
 	model.train_ds.tar_metadata_file="metadata.punctuation_capitalization.tokens10000.max_seq_length512.bert-large-uncased.json" \
@@ -78,7 +78,7 @@ echo "*******STARTING********" \
 	exp_manager.checkpoint_callback_params.monitor=IWSLT_tst2019_val_punct_f1 \
 	exp_manager.checkpoint_callback_params.mode=max \
 	+exp_manager.checkpoint_callback_params.always_save_nemo=False \
-	model.optim.lr=6e-5 \
+	model.optim.lr=1e-4 \
 	model.optim.sched.warmup_ratio=0.03
 EOF
 
