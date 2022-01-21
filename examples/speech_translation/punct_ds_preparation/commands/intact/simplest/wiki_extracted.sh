@@ -13,4 +13,5 @@ python prepare_big_data_for_punctuation_capitalization_task_simple.py \
   --dev_size 0 \
   --test_size 0 \
   --intact_sentences \
-  --resume_from cutting
+  --resume_from cutting \
+  --use_nltk_sentence_splitting

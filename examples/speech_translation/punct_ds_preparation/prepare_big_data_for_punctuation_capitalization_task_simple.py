@@ -1294,10 +1294,10 @@ def count_content_lines_in_files(files: List[Path], file_batch_size: int = 128) 
 
 
 class CutIntactSentencesWorker:
-    def __init__(self, output_dir: Path, progress_queue: mp.Queue, whether_use_nltk_tokenization: bool) -> None:
+    def __init__(self, output_dir: Path, progress_queue: mp.Queue, use_nltk_sentence_splitting: bool) -> None:
         self.output_dir = output_dir
         self.progress_queue = progress_queue
-        self.whether_use_nltk_tokenization = whether_use_nltk_tokenization
+        self.use_nltk_sentence_splitting = use_nltk_sentence_splitting
 
     def __call__(self, file: Path) -> None:
         out_file = self.output_dir / (file.stem + '.txt')
@@ -1306,11 +1306,11 @@ class CutIntactSentencesWorker:
         with out_file.open('w') as f:
             for doc in docs.values():
                 for line in doc['text'].splitlines():
-                    if self.whether_use_nltk_tokenization:
-                        f.write(line + '\n')
-                    else:
+                    if self.use_nltk_sentence_splitting:
                         for sent in nltk.sent_tokenize(line):
                             f.write(sent + '\n')
+                    else:
+                        f.write(line + '\n')
                     line_count += 1
                     if line_count % INTACT_SENTENCES_PROGRESS_PERIOD == 0:
                         self.progress_queue.put(line_count)
@@ -1319,7 +1319,7 @@ class CutIntactSentencesWorker:
 
 
 def cut_and_save_parallel_intact_sentences(
-    document_dir: Path, sorted_text_file: Path, whether_use_nltk_tokenization: bool, num_jobs: int
+    document_dir: Path, sorted_text_file: Path, use_nltk_sentence_splitting: bool, num_jobs: int
 ) -> None:
     files = [f for f in document_dir.iterdir() if is_int(f.stem) and f.suffixes == ['.xml']]
     num_jobs = min(num_jobs, len(files))
@@ -1328,7 +1328,7 @@ def cut_and_save_parallel_intact_sentences(
     output_dir.mkdir(parents=True, exist_ok=True)
     with Progress(total_num_lines, "Cutting into segments", "line") as progress_queues:
         with mp.Pool(num_jobs) as pool:
-            pool.map(CutIntactSentencesWorker(output_dir, progress_queues[0], whether_use_nltk_tokenization), files)
+            pool.map(CutIntactSentencesWorker(output_dir, progress_queues[0], use_nltk_sentence_splitting), files)
     with sorted_text_file.open('w') as out_f:
         for p in output_dir.iterdir():
             with p.open() as in_f:
@@ -1437,7 +1437,7 @@ def main():
             cut_and_save_parallel_intact_sentences(
                 rp_dir if rp else after_extraction_document_dir,
                 sorted_text_file,
-                args.whether_use_nltk_tokenization,
+                args.use_nltk_sentence_splitting,
                 args.num_jobs,
             )
         else:
@@ -1559,11 +1559,11 @@ def get_args(
         "--intact_sentences",
         help="Whether to split text into intact sentences instead of cutting them using parameters "
         "`--num_passes_through_dataset` and `--sequence_length_range`. If this parameter is provided, then you have "
-        "provide `--whether_use_nltk_tokenization` parameter.",
+        "provide `--use_nltk_sentence_splitting` parameter.",
         action="store_true",
     )
     parser.add_argument(
-        "--whether_use_nltk_tokenization",
+        "--use_nltk_sentence_splitting",
         help="Whether to apply NLTK sentence tokenization before writing intact sentences. This parameter works only "
         "if `--intact_sentences` is provided.",
         action="store_true",
