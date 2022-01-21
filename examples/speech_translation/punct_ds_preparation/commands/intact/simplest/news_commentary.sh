@@ -1,5 +1,5 @@
 python prepare_big_data_for_punctuation_capitalization_task_simple.py \
-  --output_dir /media/apeganov/DATA/punctuation_and_capitalization/intact/simplest/europarl_x3_21.12.2021 \
+  --output_dir /media/apeganov/DATA/punctuation_and_capitalization/intact/simplest/news_commentary_x3_21.12.2021 \
   --corpus_types europarl \
   --create_model_input \
   --bert_labels \
@@ -8,7 +8,7 @@ python prepare_big_data_for_punctuation_capitalization_task_simple.py \
   --allowed_punctuation '.,?' \
   --only_first_punctuation_character_after_word_in_autoregressive \
   --no_label_if_all_characters_are_upper_case \
-  --input_files_or_dirs ~/data/europarl/v10/training-monolingual/europarl-v10.en.tsv \
+  --input_files_or_dirs ~/data/news-commentary/v16/training-monolingual/news-commentary-v16.en \
   --num_jobs 24 \
   --dev_size 0 \
   --test_size 0 \
