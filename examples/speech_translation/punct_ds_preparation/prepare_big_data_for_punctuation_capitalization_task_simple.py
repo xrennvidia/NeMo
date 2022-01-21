@@ -1308,9 +1308,13 @@ class CutIntactSentencesWorker:
                 for line in doc['text'].splitlines():
                     if self.use_nltk_sentence_splitting:
                         for sent in nltk.sent_tokenize(line):
-                            f.write(sent + '\n')
+                            sent = sent.strip()
+                            if small.WORD.search(sent):
+                                f.write(sent.strip() + '\n')
                     else:
-                        f.write(line + '\n')
+                        line = line.strip()
+                        if small.WORD.search(line):
+                            f.write(line + '\n')
                     line_count += 1
                     if line_count % INTACT_SENTENCES_PROGRESS_PERIOD == 0:
                         self.progress_queue.put(line_count)
