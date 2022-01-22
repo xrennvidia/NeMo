@@ -1,5 +1,6 @@
 import argparse
 import re
+import string
 from itertools import chain
 from pathlib import Path
 
@@ -16,6 +17,7 @@ WC = '\\w$\u058f\u060b\u07fe\u07ff\u09f2\u09f3\u09fb\u0af1\u0bf9\u0e3f\u17db\ua8
         ]
     )
 WORD = re.compile(f"((?:(?<=[ \n\"()])[+-]|^[+-])\\d+(?:[.,/]\\d+)*[{WC}']*|[{WC}]+(?:[.,/'][{WC}]+)*)")
+LETTERS = re.compile(f"[a-zA-Z]{2,}")
 
 
 def get_args() -> argparse.Namespace:
@@ -36,7 +38,7 @@ def main() -> None:
             if len(sentences) > 2:
                 for sent in sentences[1:-1]:
                     sent = sent.strip()
-                    if WORD.search(sent) is not None:
+                    if WORD.findall(sent) is not None and LETTERS.search(sent) is not None:
                         out_f.write(sent + '\n')
 
 
