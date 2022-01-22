@@ -201,6 +201,7 @@ class TranslationDataset(Dataset):
         if self.add_tgt_word_replacement_to_batch:
             res.append(self.batches[idx]['tgt_word_mask'][:, :-1])
             res.append(self.batches[idx]['src_word_first_token_mask'])
+        print("batch element shapes:", [el.shape for el in res])
         return tuple(res)
 
     def pad_batches(
