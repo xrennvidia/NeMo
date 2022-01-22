@@ -262,6 +262,22 @@ class TransformerDecoderNM(DecoderModule, Exportable):
         src_ids=None,
         src_word_first_token_mask=None,
     ):
+        if (
+            any([replacement_mask is None, src_word_first_token_mask is None])
+            and any([replacement_mask is not None, src_word_first_token_mask is not None])
+        ):
+            raise ValueError(
+                "Parameters `replacement_mask`, `src_ids`, `src_word_first_token_mask` have to be either all `None` "
+                "or not `None`.\n" + (
+                    "replacement_mask=None\n"
+                    if replacement_mask is None
+                    else f"replacement_mask.shape={replacement_mask.shape}\n"
+                ) + (
+                    "src_word_first_token_mask=None\n"
+                    if src_word_first_token_mask is None
+                    else f"src_word_first_token_mask.shape={src_word_first_token_mask.shape}\n"
+                )
+            )
         start_pos = 0
         if decoder_mems is not None:
             start_pos = input_ids.shape[1] - 1

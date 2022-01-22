@@ -101,7 +101,11 @@ class GreedySequenceGenerator:
         decoder_hidden_states, token_embeddings, position_embeddings, token_type_embeddings = self.embedding.forward(
             decoder_input_ids, start_pos=pos, return_embedding_parts=True
         )
-        if self.decoder_neural_module is not None and self.decoder_neural_module.use_decoder_tips:
+        if (
+            self.decoder_neural_module is not None
+            and self.decoder_neural_module.use_decoder_tips
+            and src_word_first_token_iteration_mask is not None
+        ):
             decoder_hidden_states = self.decoder_neural_module.perform_replacement(
                 decoder_hidden_states,
                 token_embeddings,
