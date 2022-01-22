@@ -271,7 +271,7 @@ class TransformerDecoderNM(DecoderModule, Exportable):
         decoder_embeddings, token_embeddings, position_embeddings, token_type_embeddings = self._embedding(
             input_ids=input_ids, start_pos=start_pos, return_embedding_parts=True
         )
-        if self.use_decoder_tips:
+        if self.use_decoder_tips and src_word_first_token_mask is not None:
             decoder_embeddings = self.perform_replacement(
                 decoder_embeddings,
                 token_embeddings,
