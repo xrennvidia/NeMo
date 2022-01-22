@@ -279,8 +279,8 @@ class TransformerDecoderNM(DecoderModule, Exportable):
                 token_type_embeddings,
                 src_ids,
                 encoder_embeddings,
-                replacement_mask,
                 src_word_first_token_mask,
+                replacement_mask,
             )
         decoder_hidden_states = self._decoder(
             decoder_states=decoder_embeddings,
