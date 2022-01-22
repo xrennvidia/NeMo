@@ -432,7 +432,7 @@ class BeamSearchSequenceGenerator(GreedySequenceGenerator):
         start_len = tgt.shape[1] + 1
 
         # generate initial buffer of beam_size prefixes-hypotheses
-        log_probs, decoder_mems_list = self._one_step_forward(tgt, encoder_hidden_states, encoder_input_mask, 0)
+        log_probs, decoder_mems_list = self._one_step_forward(tgt, encoder_hidden_states, encoder_input_mask, None, 0)
         # scores, prefixes = torch.topk(log_probs.permute(0, 2, 1), self.beam_size, dim=1)
         if self.decoder_word_ids is not None and num_tgt_words is not None:
             # num_generated_words = is_in(prefixes, self.decoder_word_ids).int().sum(dim=1)
