@@ -40,7 +40,7 @@ exp_manager:
     mode: max
   create_wandb_logger: true
   wandb_logger_kwargs:
-    name: evelina_large_wmt_wiki_bs20k_steps500k
+    name: local_evelina_base_wmt_wiki_intact_sentences_bs20k_steps500k
     project: autoregressive_punctuation_capitalization
     entity: anton_peganov
 
