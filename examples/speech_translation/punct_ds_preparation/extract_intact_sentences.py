@@ -38,7 +38,7 @@ def main() -> None:
             if len(sentences) > 2:
                 for sent in sentences[1:-1]:
                     sent = sent.strip()
-                    if WORD.findall(sent) is not None and LETTERS.search(sent) is not None:
+                    if WORD.search(sent) is not None and LETTERS.search(sent) is not None:
                         out_f.write(sent + '\n')
 
 
