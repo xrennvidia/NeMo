@@ -40,7 +40,7 @@ from nemo.collections.common.tokenizers.chinese_tokenizers import ChineseProcess
 from nemo.collections.common.tokenizers.en_ja_tokenizers import EnJaProcessor
 from nemo.collections.common.tokenizers.indic_tokenizers import IndicProcessor
 from nemo.collections.common.tokenizers.moses_tokenizers import MosesProcessor
-from nemo.collections.nlp.data import TarredTranslationDataset, TranslationDataset
+from nemo.collections.nlp.data import TarredTranslationDataset, TranslationDataset, get_first_token_mask
 from nemo.collections.nlp.models.enc_dec_nlp_model import EncDecNLPModel
 from nemo.collections.nlp.models.machine_translation.mt_enc_dec_config import MTEncDecModelConfig
 from nemo.collections.nlp.modules.common import TokenClassifier
@@ -225,6 +225,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
             config_dict=decoder_cfg_dict,
             encoder=False,
             pre_ln_final_layer_norm=decoder_cfg_dict.get('pre_ln_final_layer_norm', False),
+            use_decoder_tips=self.use_decoder_tips,
             encoder_token_embedding=(
                 self.encoder._embedding.token_embedding
                 if self.use_decoder_tips and not self.hidden_states_as_tips else
@@ -263,6 +264,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
             len_pen=cfg.len_pen,
             max_delta_length=cfg.max_generation_delta,
             decoder_word_ids=self.decoder_tokenizer.word_ids,
+            decoder_neural_module=self.decoder,
         )
 
         # tie embedding weights
@@ -343,7 +345,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
 
     @typecheck()
     def forward(
-        self, src, src_mask, tgt, tgt_mask, tgt_word_mask=None, tgt_replacements=None, src_word_first_token_mask=None
+        self, src, src_mask, tgt, tgt_mask, tgt_word_mask=None, src_word_first_token_mask=None
     ):
         if self.validate_input_ids:
             # test src/tgt for id range (i.e., hellp in catching wrong tokenizer)
@@ -357,7 +359,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
             encoder_embeddings=src_hiddens,
             encoder_mask=src_mask,
             replacement_mask=tgt_word_mask,
-            replacements=tgt_replacements,
+            src_ids=src,
             src_word_first_token_mask=src_word_first_token_mask,
         )
         log_probs = self.log_softmax(hidden_states=tgt_hiddens)
@@ -375,10 +377,8 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
                 # is excess.
                 batch[i] = batch[i].squeeze(dim=0)
         if self.use_decoder_tips:
-            src_ids, src_mask, tgt_ids, tgt_mask, labels, tgt_word_mask, tgt_replacements, src_word_first_token_mask = batch
-            forward_args = (
-                src_ids, src_mask, tgt_ids, tgt_mask, tgt_word_mask, tgt_replacements, src_word_first_token_mask
-            )
+            src_ids, src_mask, tgt_ids, tgt_mask, labels, tgt_word_mask, src_word_first_token_mask = batch
+            forward_args = (src_ids, src_mask, tgt_ids, tgt_mask, tgt_word_mask, src_word_first_token_mask)
         else:
             src_ids, src_mask, tgt_ids, tgt_mask, labels = batch
             forward_args = (src_ids, src_mask, tgt_ids, tgt_mask)
@@ -413,11 +413,11 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
         )
         if self.use_decoder_tips:
             if add_src_num_words_to_batch:
-                src_ids, src_mask, tgt_ids, tgt_mask, labels, num_src_words, tgt_word_mask, tgt_replacements = batch
+                src_ids, src_mask, tgt_ids, tgt_mask, labels, num_src_words, tgt_word_mask, src_word_first_token_mask = batch
             else:
-                src_ids, src_mask, tgt_ids, tgt_mask, labels, tgt_word_mask, tgt_replacements = batch
+                src_ids, src_mask, tgt_ids, tgt_mask, labels, tgt_word_mask, src_word_first_token_mask = batch
                 num_src_words = None
-            forward_args = (src_ids, src_mask, tgt_ids, tgt_mask, tgt_word_mask, tgt_replacements)
+            forward_args = (src_ids, src_mask, tgt_ids, tgt_mask, tgt_word_mask, src_word_first_token_mask)
         else:
             if add_src_num_words_to_batch:
                 src_ids, src_mask, tgt_ids, tgt_mask, labels, num_src_words = batch
@@ -433,8 +433,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
             src=src_ids,
             src_mask=src_mask,
             num_tgt_words=num_src_words,
-            tgt_replacement_mask=tgt_word_mask,
-            tgt_replacements=tgt_replacements,
+            src_word_first_token_mask=src_word_first_token_mask,
         )
         np_tgt = tgt_ids.detach().cpu().numpy()
         ground_truths = [self.decoder_tokenizer.ids_to_text(tgt) for tgt in np_tgt]
@@ -991,8 +990,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
         return_beam_scores: bool = False,
         cache={},
         num_tgt_words: Optional[List[int]] = None,
-        tgt_replacement_mask=None,
-        tgt_replacements=None,
+        src_word_first_token_mask=None,
     ):
         """
         Translates a minibatch of inputs from source language to target language.
@@ -1018,8 +1016,8 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
                 encoder_input_mask=src_mask,
                 return_beam_scores=return_beam_scores,
                 num_tgt_words=num_tgt_words,
-                ground_truth_tgt_replacement_mask=tgt_replacement_mask,
-                ground_truth_tgt_replacements=tgt_replacements,
+                src_word_first_token_mask=src_word_first_token_mask,
+                src_ids=src,
             )
             if timer is not None:
                 timer.stop("sampler")
@@ -1068,7 +1066,11 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
 
         src_mask = torch.FloatTensor((src_ids_ != tokenizer.pad_id)).to(self.device)
         src = torch.LongTensor(src_ids_).to(self.device)
-        return src, src_mask, torch.IntTensor(num_src_words) if add_src_num_words_to_batch else None
+        if self.use_decoder_tips:
+            src_word_first_token_mask = torch.LongTensor(np.stack(get_first_token_mask(src, self.encoder_tokenizer)))
+        else:
+            src_word_first_token_mask = None
+        return src, src_mask, torch.IntTensor(num_src_words) if add_src_num_words_to_batch else None, src_word_first_token_mask
 
     # TODO: We should drop source/target_lang arguments in favor of using self.src/tgt_language
     @torch.no_grad()
@@ -1116,12 +1118,17 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
 
         try:
             self.eval()
-            src, src_mask, num_src_words = self.prepare_inference_batch(
+            src, src_mask, num_src_words, src_word_first_token_mask = self.prepare_inference_batch(
                 text, prepend_ids, add_src_num_words_to_batch=add_src_num_words_to_batch
             )
             if return_beam_scores:
                 _, all_translations, scores, best_translations = self.batch_translate(
-                    src, src_mask, return_beam_scores=True, num_tgt_words=num_src_words, cache=cache,
+                    src,
+                    src_mask,
+                    return_beam_scores=True,
+                    num_tgt_words=num_src_words,
+                    cache=cache,
+                    src_word_first_token_mask=src_word_first_token_mask,
                 )
                 return_val = all_translations, scores, best_translations
             else:
@@ -1135,7 +1142,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
         if log_timing:
             timing = timer.export()
             timing["mean_src_length"] = src_mask.sum().cpu().item() / src_mask.shape[0]
-            tgt, tgt_mask = self.prepare_inference_batch(best_translations, prepend_ids, target=True)
+            tgt, tgt_mask, _, _ = self.prepare_inference_batch(best_translations, prepend_ids, target=True)
             timing["mean_tgt_length"] = tgt_mask.sum().cpu().item() / tgt_mask.shape[0]
 
             if type(return_val) is tuple:

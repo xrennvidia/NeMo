@@ -24,16 +24,7 @@ SPACE_DEDUP = re.compile(r' +')
 
 
 def get_args():
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        description="The script is for restoring punctuation and capitalization in text. Long strings are split into "
-        "segments of length `--max_seq_length`. `--max_seq_length` is the length which includes [CLS] and [SEP] "
-        "tokens. Parameter `--step` controls segments overlapping. `--step` is a distance between beginnings of "
-        "consequent segments. Model outputs for tokens near the borders of tensors are less accurate and can be "
-        "discarded before final predictions computation. Parameter `--margin` is number of discarded outputs near "
-        "segments borders. If model predictions in overlapping parts of segments are different most frequent "
-        "predictions is chosen.",
-    )
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     input_ = parser.add_mutually_exclusive_group(required=True)
     input_.add_argument(
         "--input_manifest",
@@ -134,7 +125,7 @@ def get_args():
     parser.add_argument(
         "--add_source_num_words_to_batch",
         action="store_true",
-        help="Whether to pass number of words in source sequences to beam search generator. Set this if fixed length " \
+        help="Whether to pass number of words in source sequences to beam search generator. Set this if fixed length "
         "beam search is used."
     )
     parser.add_argument(
@@ -513,6 +504,7 @@ def main():
         len_pen=args.len_pen,
         max_delta_length=args.max_delta_length,
         decoder_word_ids=model.decoder_tokenizer.word_ids,
+        decoder_neural_module=model.decoder,
     )
     autoregressive_labels = []
     for i in tqdm(range(0, len(segments), args.batch_size), unit='batch', desc="Calculating labels for segments"):

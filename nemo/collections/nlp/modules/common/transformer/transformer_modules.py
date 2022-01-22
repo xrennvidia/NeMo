@@ -96,14 +96,8 @@ class TransformerEmbedding(nn.Module):
         num_token_types=2,
         embedding_dropout=0.0,
         learn_positional_encodings=False,
-        replacement_embedding=None,
-        detach_replacements=False,
-        sum_replacement_with_original_embeddings=False
     ):
         super().__init__()
-        self.replacement_embedding = replacement_embedding
-        self.detach_replacements = detach_replacements
-        self.sum_replacement_with_original_embeddings = sum_replacement_with_original_embeddings
         self.max_sequence_length = max_sequence_length
         self.learn_positional_encodings = learn_positional_encodings
         self.token_embedding = nn.Embedding(vocab_size, hidden_size, padding_idx=0)
@@ -116,7 +110,7 @@ class TransformerEmbedding(nn.Module):
         self.layer_norm = nn.LayerNorm(hidden_size, eps=1e-5)
         self.dropout = nn.Dropout(embedding_dropout)
 
-    def forward(self, input_ids, token_type_ids=None, start_pos=0, replacement_mask=None, replacements=None):
+    def forward(self, input_ids, token_type_ids=None, start_pos=0, return_embedding_parts=False):
         seq_length = input_ids.size(1)
         # we fail here only with parametric positional embedding. FixedPositionalEncoding automatically extends.
         if self.learn_positional_encodings and (seq_length > self.max_sequence_length):
@@ -130,28 +124,19 @@ class TransformerEmbedding(nn.Module):
         position_ids = position_ids.unsqueeze(0).repeat(input_ids.size(0), 1)
 
         token_embeddings = self.token_embedding(input_ids)
-        if self.replacement_embedding is not None and replacements is not None:
-            if replacement_mask is None:
-                raise ValueError(
-                    "Parameters `replacements` and `replacement_mask` have to be either both `None` or both not `None`"
-                )
-            repl = self.replacement_embedding(replacements[replacement_mask])
-            if self.detach_replacements:
-                repl = repl.detach()
-            if self.sum_replacement_with_original_embeddings:
-                token_embeddings[replacement_mask] = (repl + token_embeddings[replacement_mask]) * 2 ** -0.5
-            else:
-                token_embeddings[replacement_mask] = repl
         position_embeddings = self.position_embedding(position_ids)
         embeddings = token_embeddings + position_embeddings
 
         if token_type_ids is not None:
             token_type_embeddings = self.token_type_embedding(token_type_ids)
             embeddings = embeddings + token_type_embeddings
+        else:
+            token_type_embeddings = None
 
         embeddings = self.layer_norm(embeddings)
         embeddings = self.dropout(embeddings)
-
+        if return_embedding_parts:
+            return embeddings, token_embeddings, position_embeddings, token_type_embeddings
         return embeddings
 
 

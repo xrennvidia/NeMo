@@ -31,7 +31,7 @@ from nemo.collections.nlp.data.data_utils.data_preprocessing import dataset_to_i
 from nemo.core import Dataset
 from nemo.utils import logging
 
-__all__ = ['TranslationDataset', 'TarredTranslationDataset', 'TranslationDataConfig']
+__all__ = ['TranslationDataset', 'TarredTranslationDataset', 'TranslationDataConfig', 'get_first_token_mask']
 
 
 @dataclass
@@ -200,7 +200,6 @@ class TranslationDataset(Dataset):
             res.append(self.batches[idx]["src_num_words"])
         if self.add_tgt_word_replacement_to_batch:
             res.append(self.batches[idx]['tgt_word_mask'][:, :-1])
-            res.append(self.batches[idx]['tgt_replacements'][:, :-1])
             res.append(self.batches[idx]['src_word_first_token_mask'])
         return tuple(res)
 
@@ -258,7 +257,6 @@ class TranslationDataset(Dataset):
                 batches[batch_idx]["tgt_word_mask"] = tgt_mask
                 replacements = np.zeros_like(batches[batch_idx]["tgt_word_mask"], dtype=np.int32)
                 replacements[batches[batch_idx]["tgt_word_mask"]] = src_ids_[src_mask]
-                batches[batch_idx]["tgt_replacements"] = replacements
                 batches[batch_idx]['src_word_first_token_mask'] = src_mask
         return batches
 
@@ -538,8 +536,6 @@ class TarredTranslationDataset(IterableDataset):
         if self.add_tgt_word_replacement_to_batch:
             src_word_first_token_mask = np.stack(get_first_token_mask(src_ids, self.encoder_tokenizer))
             tgt_word_mask = np.stack(get_word_mask(tgt, self.decoder_tokenizer))
-            replacements = np.zeros_like(tgt, dtype=np.int32)
-            replacements[tgt_word_mask] = src_ids[src_word_first_token_mask]
         else:
             src_word_first_token_mask, tgt_word_mask = None, None
         src_mask = (src_ids != self.src_pad_id).astype(np.int32)
@@ -549,7 +545,6 @@ class TarredTranslationDataset(IterableDataset):
             res.append(src_num_words)
         if self.add_tgt_word_replacement_to_batch:
             res.append(tgt_word_mask[:, :-1])
-            res.append(replacements[:, :-1])
             res.append(src_word_first_token_mask)
         return tuple(res)
 

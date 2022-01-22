@@ -269,6 +269,7 @@ def main():
                 len_pen=args.len_pen,
                 max_delta_length=args.max_delta_length,
                 decoder_word_ids=model.decoder_tokenizer.word_ids,
+                decoder_neural_module=model.decoder,
             )
 
     logging.info(f"Translating: {args.srctext}")

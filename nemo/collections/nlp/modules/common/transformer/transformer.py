@@ -179,6 +179,7 @@ class TransformerDecoderNM(DecoderModule, Exportable):
         hidden_act: str = 'relu',
         pre_ln: bool = False,
         pre_ln_final_layer_norm: bool = True,
+        use_decoder_tips: bool = False,
         replacement_token_embedding: Optional[torch.nn.Embedding] = None,
         detach_replacements=False,
         hidden_states_as_tips=False,
@@ -193,7 +194,11 @@ class TransformerDecoderNM(DecoderModule, Exportable):
         self.return_mems = False
         if pre_ln_final_layer_norm:
             self.num_states += 1
+        self.use_decoder_tips = use_decoder_tips
         self.hidden_states_as_tips = hidden_states_as_tips
+        self.replacement_token_embedding = replacement_token_embedding
+        self.detach_replacements = detach_replacements
+        self.sum_replacement_with_original_embeddings = sum_replacement_with_original_embeddings
 
         self._embedding = TransformerEmbedding(
             vocab_size=self.vocab_size,
@@ -202,9 +207,6 @@ class TransformerDecoderNM(DecoderModule, Exportable):
             num_token_types=num_token_types,
             embedding_dropout=embedding_dropout,
             learn_positional_encodings=learn_positional_encodings,
-            replacement_embedding=replacement_token_embedding,
-            detach_replacements=detach_replacements,
-            sum_replacement_with_original_embeddings=sum_replacement_with_original_embeddings,
         )
 
         self._decoder = TransformerDecoder(
@@ -220,6 +222,34 @@ class TransformerDecoderNM(DecoderModule, Exportable):
             pre_ln_final_layer_norm=pre_ln_final_layer_norm,
         )
 
+    def perform_replacement(
+        self,
+        decoder_embeddings: torch.Tensor,
+        decoder_bare_embeddings: torch.Tensor,
+        decoder_position_embeddings: torch.Tensor,
+        decoder_token_type_embeddings: Optional[torch.Tensor],
+        src_ids: torch.Tensor,
+        src_hiddens: torch.Tensor,
+        src_word_first_token_mask: torch.Tensor,
+        replacement_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.hidden_states_as_tips:
+            replacement = src_hiddens[src_word_first_token_mask]
+        else:
+            replacement = self.replacement_token_embedding(src_ids[src_word_first_token_mask])
+        if self.detach_replacements:
+            replacement = replacement.detach()
+        if self.sum_replacement_with_original_embeddings:
+            replacement += decoder_bare_embeddings[replacement_mask]
+            replacement *= 2 ** -0.5
+        replacement += decoder_position_embeddings[replacement_mask]
+        if decoder_token_type_embeddings is not None:
+            replacement += decoder_token_type_embeddings[replacement_mask]
+        replacement = self._embedding.layer_norm(replacement)
+        replacement = self._embedding.dropout(replacement)
+        decoder_embeddings[replacement_mask] = replacement
+        return decoder_embeddings
+
     #@typecheck()
     def forward(
         self,
@@ -229,7 +259,7 @@ class TransformerDecoderNM(DecoderModule, Exportable):
         encoder_mask,
         decoder_mems=None,
         replacement_mask=None,
-        replacements=None,
+        src_ids=None,
         src_word_first_token_mask=None,
     ):
         start_pos = 0
@@ -238,10 +268,20 @@ class TransformerDecoderNM(DecoderModule, Exportable):
             input_ids = input_ids[:, -1:]
             decoder_mask = decoder_mask[:, -1:]
             decoder_mems = torch.transpose(decoder_mems, 0, 1)
-        decoder_embeddings = self._embedding(
-            input_ids=input_ids, start_pos=start_pos, replacement_mask=replacement_mask, replacements=replacements
+        decoder_embeddings, token_embeddings, position_embeddings, token_type_embeddings = self._embedding(
+            input_ids=input_ids, start_pos=start_pos, return_embedding_parts=True
         )
-        decoder_embeddings[replacement_mask] = encoder_embeddings[src_word_first_token_mask]
+        if self.use_decoder_tips:
+            decoder_embeddings = self.perform_replacement(
+                decoder_embeddings,
+                token_embeddings,
+                position_embeddings,
+                token_type_embeddings,
+                src_ids,
+                encoder_embeddings,
+                replacement_mask,
+                src_word_first_token_mask,
+            )
         decoder_hidden_states = self._decoder(
             decoder_states=decoder_embeddings,
             decoder_mask=decoder_mask,

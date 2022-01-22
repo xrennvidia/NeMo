@@ -58,7 +58,8 @@ class GreedySequenceGenerator:
         max_sequence_length=512,
         max_delta_length=20,
         batch_size=1,
-        decoder_word_ids=None
+        decoder_word_ids=None,
+        decoder_neural_module=None,
     ):
         super().__init__()
         self.embedding = embedding
@@ -69,6 +70,7 @@ class GreedySequenceGenerator:
         self.max_delta_len = max_delta_length
         self.batch_size = batch_size
         self.decoder_word_ids = decoder_word_ids
+        self.decoder_neural_module = decoder_neural_module
 
     def _one_step_forward(
         self,
@@ -77,8 +79,9 @@ class GreedySequenceGenerator:
         encoder_input_mask=None,
         decoder_mems_list=None,
         pos=0,
+        src_ids=None,
         replacement_mask=None,
-        replacements=None,
+        src_word_first_token_iteration_mask=None,
     ):
         """
         One step of autoregressive output generation.
@@ -95,9 +98,20 @@ class GreedySequenceGenerator:
             pos: starting position in positional encoding
         """
 
-        decoder_hidden_states = self.embedding.forward(
-            decoder_input_ids, start_pos=pos, replacement_mask=replacement_mask, replacements=replacements
+        decoder_hidden_states, token_embeddings, position_embeddings, token_type_embeddings = self.embedding.forward(
+            decoder_input_ids, start_pos=pos, return_embedding_parts=True
         )
+        if self.decoder_neural_module is not None and self.decoder_neural_module.use_decoder_tips:
+            decoder_hidden_states = self.decoder_neural_module.perform_replacement(
+                decoder_hidden_states,
+                token_embeddings,
+                position_embeddings,
+                token_type_embeddings,
+                src_ids,
+                encoder_hidden_states,
+                src_word_first_token_iteration_mask,
+                replacement_mask,
+            )
         decoder_input_mask = mask_padded_tokens(decoder_input_ids, self.pad).float()
         if encoder_hidden_states is not None:
             decoder_mems_list = self.decoder.forward(
@@ -189,8 +203,8 @@ class GreedySequenceGenerator:
         encoder_input_mask=None,
         return_beam_scores=False,
         num_tgt_words=None,
-        ground_truth_tgt_replacement_mask=None,
-        ground_truth_tgt_replacements=None,
+        src_word_first_token_mask=None,
+        src_ids=None,
     ):
         with self.as_frozen():
             return self._forward(
@@ -199,8 +213,8 @@ class GreedySequenceGenerator:
                 encoder_input_mask,
                 return_beam_scores=return_beam_scores,
                 num_tgt_words=num_tgt_words,
-                ground_truth_tgt_replacement_mask=ground_truth_tgt_replacement_mask,
-                ground_truth_tgt_replacements=ground_truth_tgt_replacements,
+                src_word_first_token_mask=src_word_first_token_mask,
+                src_ids=src_ids,
             )
 
     def freeze(self) -> None:
@@ -365,27 +379,22 @@ class BeamSearchSequenceGenerator(GreedySequenceGenerator):
         num_generated_words += is_in(result_prefixes, self.decoder_word_ids)
         return result_scores, result_prefixes, num_generated_words
 
-    def get_replacements(
-        self, prefixes, num_generated_words, ground_truth_tgt_replacement_mask, ground_truth_tgt_replacements
+    def get_replacement_masks(
+        self, prefixes, num_generated_words, src_word_first_token_mask
     ):
-        if ground_truth_tgt_replacement_mask is None:
+        if src_word_first_token_mask is None:
             return None, None
         num_generated_words = num_generated_words.detach().clone()
         replacement_mask = is_in(prefixes, self.decoder_word_ids)
         num_generated_words[~replacement_mask.squeeze(1)] = 0
         assert torch.all(num_generated_words[replacement_mask.squeeze(1)].gt(0))
         num_generated_words[num_generated_words.eq(0)] = -1
-        replacement_indices = torch.nonzero(
-            (ground_truth_tgt_replacement_mask.cumsum(dim=-1) * ground_truth_tgt_replacement_mask).eq(
-                num_generated_words.unsqueeze(1)
-            )
+        src_word_first_token_iteration_mask = (src_word_first_token_mask.cumsum(dim=-1) * src_word_first_token_mask).eq(
+            num_generated_words.unsqueeze(1)
         )
+        replacement_indices = torch.nonzero(src_word_first_token_iteration_mask)
         assert replacement_indices.shape[0] == torch.nonzero(num_generated_words.gt(0)).shape[0]
-        replacement = torch.zeros_like(replacement_mask, dtype=torch.int32)
-        replacement[replacement_mask] = ground_truth_tgt_replacements[
-            replacement_indices[:, 0], replacement_indices[:, 1]
-        ]
-        return replacement_mask, replacement
+        return replacement_mask, src_word_first_token_iteration_mask
 
     def extend_for_beam_search(self, tensor):
         return tensor.unsqueeze(1).repeat(
@@ -399,20 +408,20 @@ class BeamSearchSequenceGenerator(GreedySequenceGenerator):
         encoder_input_mask=None,
         return_beam_scores=False,
         num_tgt_words=None,
-        ground_truth_tgt_replacement_mask=None,
-        ground_truth_tgt_replacements=None,
+        src_word_first_token_mask=None,
+        src_ids=None,
     ):
         device = next(self.decoder.parameters()).device
-        if ground_truth_tgt_replacement_mask is not None:
-            if ground_truth_tgt_replacements is None:
+        if src_word_first_token_mask is not None:
+            if src_ids is None:
                 raise ValueError(
                     f"Parameters `ground_truth_tgt_replacement_mask` and `ground_truth_tgt_replacements` "
                     f"should be not `None` or `None` simultaneously."
                 )
-            ground_truth_tgt_replacement_mask = ground_truth_tgt_replacement_mask.to(device)
-            ground_truth_tgt_replacements = ground_truth_tgt_replacements.to(device)
-            ground_truth_tgt_replacement_mask = self.extend_for_beam_search(ground_truth_tgt_replacement_mask)
-            ground_truth_tgt_replacements = self.extend_for_beam_search(ground_truth_tgt_replacements)
+            src_word_first_token_mask = src_word_first_token_mask.to(device)
+            src_ids = src_ids.to(device)
+            src_word_first_token_mask = self.extend_for_beam_search(src_word_first_token_mask)
+            src_ids = self.extend_for_beam_search(src_ids)
         if num_tgt_words is not None:
             num_tgt_words = num_tgt_words.to(device).unsqueeze(1).repeat(1, self.beam_size).view(-1)
         tgt, batch_size, max_generation_length = self._prepare_for_search(decoder_input_ids, encoder_hidden_states)
@@ -469,8 +478,8 @@ class BeamSearchSequenceGenerator(GreedySequenceGenerator):
             pad_mask = pad_profile.repeat(1, self.beam_size)
 
             # generate and score candidates for prefixes continuation
-            replacement_mask, replacements = self.get_replacements(
-                prefixes[:, -1:], num_generated_words, ground_truth_tgt_replacement_mask, ground_truth_tgt_replacements
+            replacement_mask, src_word_first_token_iteration_mask = self.get_replacement_masks(
+                prefixes[:, -1:], num_generated_words, src_word_first_token_mask,
             )
             # print("prefixes[:, -1:].shape:", prefixes[:, -1:].shape)
             log_probs, decoder_mems_list = self._one_step_forward(
@@ -478,9 +487,10 @@ class BeamSearchSequenceGenerator(GreedySequenceGenerator):
                 encoder_hidden_states,
                 encoder_input_mask,
                 decoder_mems_list,
-                i + 1,
-                replacement_mask,
-                replacements,
+                pos=i + 1,
+                src_ids=src_ids,
+                replacement_mask=replacement_mask,
+                src_word_first_token_iteration_mask=src_word_first_token_iteration_mask,
             )
             scores_i, prefixes_i, num_generated_words = self.topk_with_tgt(
                 log_probs[:, -1, :], num_generated_words, num_tgt_words, pad_mask
