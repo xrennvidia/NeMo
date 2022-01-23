@@ -476,7 +476,6 @@ class BeamSearchSequenceGenerator(GreedySequenceGenerator):
         # prefixes_len tracks lengths of generated hypotheses to perform
         # length penalty correction
         prefixes_len = torch.zeros_like(scores).fill_(prefixes.size(1) + 1)
-        print("max_generation_length:", max_generation_length)
         for i in range(max_generation_length):
 
             # mask all finished hypotheses to exclude them from beam
@@ -546,7 +545,6 @@ class BeamSearchSequenceGenerator(GreedySequenceGenerator):
             # if all hypotheses end with <eos> or <pad>, interrupt search
             if pad_profile.sum() == batch_size * self.beam_size:
                 break
-        print("generation stop:", i)
         # select best performing hypotheses in each element of the batch
         len_penalties = self.compute_len_penalty(prefixes_len, self.len_pen)
         scores = scores / len_penalties

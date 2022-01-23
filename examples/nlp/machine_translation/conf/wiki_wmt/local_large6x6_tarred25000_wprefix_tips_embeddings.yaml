@@ -6,7 +6,7 @@ model:
   beam_size: 4
   len_pen: 0.6
   multilingual: False
-  max_generation_delta: 1024
+  max_generation_delta: 512
   label_smoothing: 0.0
   shared_tokenizer: False # train tokenizer model across src and tgt train data
   preproc_out_dir: preprocessed_data # path to store data preprocessing outputs
