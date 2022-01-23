@@ -15,14 +15,14 @@ model:
   use_decoder_tips: false
   sum_replacement_with_original_embeddings: true
   detach_decoder_tips: false
-  tgt_character_vocabulary: /media/apeganov/DATA/wiki_wmt_92_128_29.11.2021/for_upload/autoregressive_char_vocabulary.txt
+  tgt_character_vocabulary: /media/apeganov/DATA/punctuation_and_capitalization/all_punc_no_u/3_128/wiki_wmt_18.01.2022/for_upload/autoregressive_char_vocabulary.txt
 
   train_ds:
     src_file_name: null
     tgt_file_name: null
     tokens_in_batch: 18000
     use_tarred_dataset: true
-    metadata_file: /media/apeganov/DATA/wiki_wmt_92_128_29.11.2021/for_upload/train_autoregressive_tarred_25000/metadata.tokens.25000.json
+    metadata_file: /media/apeganov/DATA/punctuation_and_capitalization/all_punc_no_u/3_128/wiki_wmt_18.01.2022/for_upload/train_autoregressive_tarred_25000/metadata.tokens.25000.json
     clean: false
     max_seq_length: 4096
     shuffle: true
@@ -31,8 +31,8 @@ model:
     num_workers: 8
 
   validation_ds:
-    src_file_name: /media/apeganov/DATA/wiki_wmt_92_128_29.11.2021/for_upload/IWSLT_tst2019/input.txt
-    tgt_file_name: /media/apeganov/DATA/wiki_wmt_92_128_29.11.2021/for_upload/IWSLT_tst2019/autoregressive_labels.txt
+    src_file_name: /media/apeganov/DATA/punctuation_and_capitalization/all_punc_no_u/3_128/wiki_wmt_18.01.2022/for_upload/IWSLT_tst2019/input.txt
+    tgt_file_name: /media/apeganov/DATA/punctuation_and_capitalization/all_punc_no_u/3_128/wiki_wmt_18.01.2022/for_upload/IWSLT_tst2019/autoregressive_labels.txt
     tokens_in_batch: 2048
     clean: false
     max_seq_length: 4096
@@ -44,8 +44,8 @@ model:
     add_src_num_words_to_batch: true
 
   test_ds:
-    src_file_name: /media/apeganov/DATA/wiki_wmt_92_128_29.11.2021/for_upload/IWSLT_tst2019/input.txt
-    tgt_file_name: /media/apeganov/DATA/wiki_wmt_92_128_29.11.2021/for_upload/IWSLT_tst2019/autoregressive_labels.txt
+    src_file_name: /media/apeganov/DATA/punctuation_and_capitalization/all_punc_no_u/3_128/wiki_wmt_18.01.2022/for_upload/IWSLT_tst2019/input.txt
+    tgt_file_name: /media/apeganov/DATA/punctuation_and_capitalization/all_punc_no_u/3_128/wiki_wmt_18.01.2022/for_upload/IWSLT_tst2019/autoregressive_labels.txt
     tokens_in_batch: 2048
     clean: false
     max_seq_length: 4096
@@ -71,13 +71,13 @@ model:
 
   encoder_tokenizer:
     library: yttm
-    tokenizer_model: /media/apeganov/DATA/wiki_wmt_92_128_29.11.2021/for_upload/input.BPE.25000.model
+    tokenizer_model: /media/apeganov/DATA/punctuation_and_capitalization/all_punc_no_u/3_128/wiki_wmt_18.01.2022/for_upload/input.BPE.25000.model
     bpe_dropout: 0.0
     r2l: false
 
   decoder_tokenizer:
     library: yttm
-    tokenizer_model: /media/apeganov/DATA/wiki_wmt_92_128_29.11.2021/for_upload/autoregressive_labels.BPE.10.model
+    tokenizer_model: /media/apeganov/DATA/punctuation_and_capitalization/all_punc_no_u/3_128/wiki_wmt_18.01.2022/for_upload/autoregressive_labels.BPE.10.model
     bpe_dropout: 0.0
     r2l: false
     word_tokens:
