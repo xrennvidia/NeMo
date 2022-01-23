@@ -58,7 +58,7 @@ model:
 
   optim:
     name: adam
-    lr: 0.0001
+    lr: 0.0004
     betas:
       - 0.9
       - 0.98
@@ -149,7 +149,7 @@ exp_manager:
   create_checkpoint_callback: true  # Whether you want exp_manager to create a model checkpoint callback
   create_wandb_logger: true
   wandb_logger_kwargs:
-    name: local_nmt_wiki_wmt_large6x6_bs50000_steps400000_wprefix_tips
+    name: local_nmt_wiki_wmt_large6x6_bs50000_steps400000_wprefix_tips_embeddings
     project: autoregressive_punctuation_capitalization
     entity: anton_peganov
   checkpoint_callback_params:
