@@ -12,7 +12,7 @@
 #SBATCH --ntasks-per-node=16     # n tasks per machine (one task per gpu) <required>
 set -x
 USERID='apeganov'
-CONTAINER="gitlab-master.nvidia.com/apeganov/speechtranslation_tips:latest"
+CONTAINER="gitlab-master.nvidia.com/apeganov/speechtranslation:tips"
 WANDB="${wandb}" # replace with your own WandB API key
 
 # Training - we want to train for 300B tokens with a global batch size of at least 1M tokens
@@ -33,7 +33,7 @@ USERID='apeganov'
 LUSTRE_ACCOUNT_PREFIX=/gpfs/fs1/projects/${SLURM_ACCOUNT}
 DATA="${LUSTRE_ACCOUNT_PREFIX}/datasets/data/punctuation_capitalization/wiki_wmt_all_punc_no_u_3_128_18.01.2022"
 RESULTS=${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/results/$PROJECT/$EXPNAME
-CODE="${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/code/NeMo"
+CODE="${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/code/NeMo-tips"
 
 mkdir -p ${RESULTS}
 
