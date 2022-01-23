@@ -5,11 +5,17 @@ else
   model="$2"
 fi
 for f in $(find "${work_dir}" -name "*.numbers"); do
+  echo "Restoring punctuation and capitalization in file ${f}"
   base_name="${f::-8}"
   pickled_features="${base_name}.pickle"
+  output_file="${base_name}.restored"
+  if [ -f "${output_file}" ]; then
+    echo "Skipping because ${output_file} already exists"
+    continue
+  fi
   python punctuate_capitalize_infer.py \
     --input_text "${f}" \
-    --output_text "${base_name}.restored" \
+    --output_text "${output_file}" \
     --model_path "${model}" \
     --max_seq_length 128 \
     --step 32 \
