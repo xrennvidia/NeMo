@@ -16,6 +16,8 @@ python punctuation_capitalization_train_evaluate.py --config-path=conf/wiki_wmt 
     --config-name local_base_intact_sentences_bs20k_lr1e-4_steps500k_from_pretrained \
     exp_manager.wandb_logger_kwargs.name=${exp_name} \
     +exp_manager.explicit_log_dir="${result_dir}" \
+    +exp_manager.resume_if_exists=True \
+    +exp_manager.resume_ignore_no_checkpoint=True \
     trainer.gpus=${gpus} \
     model.train_ds.ds_item=/data/train_bert_tarred_10000 \
     model.validation_ds.ds_item=[/data/IWSLT_tst2019,/data/europarl_dev,/data/news_commentary_dev,/data/news_crawl_dev,/data/rapid_dev]

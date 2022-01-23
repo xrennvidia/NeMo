@@ -59,7 +59,6 @@ echo "*******STARTING********" \
 	model.train_ds.tar_metadata_file="metadata.punctuation_capitalization.tokens10000.max_seq_length512.-home-apeganov-pretrained_tokenizers-bert_large_uncased.json" \
 	model.validation_ds.ds_item=[/data/europarl_dev,/data/news_commentary_dev,/data/rapid_dev,/data/news_crawl,/data/IWSLT_tst2019] \
 	model.validation_ds.tokens_in_batch=4092 \
-	~model.test_ds \
 	+trainer.num_nodes=${SLURM_JOB_NUM_NODES} \
 	trainer.gpus=${SLURM_NTASKS_PER_NODE} \
 	trainer.max_steps=${MAX_STEPS} \
