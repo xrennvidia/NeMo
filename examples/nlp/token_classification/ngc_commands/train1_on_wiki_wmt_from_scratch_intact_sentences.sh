@@ -8,10 +8,12 @@ set -e -x
 mkdir -p /result/nemo_experiments
 cd NeMo
 git checkout feat/punc_tarred
+git pull
+bash reinstall.sh
 cd examples/nlp/token_classification
 wandb login ${WANDB_API_KEY}
 python -c "from transformers import AutoTokenizer; tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased'); tokenizer.save_pretrained('pretrained_tokenizer')"
-python punctuation_capitalization_train.py --config-path=conf/wiki_wmt \
+python punctuation_capitalization_train_evaluate.py --config-path=conf/wiki_wmt \
     --config-name local_base_intact_sentences_bs20k_lr1e-4_steps500k \
     exp_manager.wandb_logger_kwargs.name=${exp_name} \
     trainer.gpus=${gpus} \

@@ -12,7 +12,7 @@ bash reinstall.sh
 cd examples/nlp/token_classification
 wandb login ${WANDB_API_KEY}
 python punctuation_capitalization_train_evaluate.py --config-path=conf/wiki_wmt \
-    --config-name local_base_intact_sentences_bs20k_lr1e-4_steps500k \
+    --config-name local_base_intact_sentences_bs20k_lr1e-4_steps500k_from_pretrained \
     exp_manager.wandb_logger_kwargs.name=${exp_name} \
     trainer.gpus=${gpus} \
     model.train_ds.ds_item=/data/train_bert_tarred_10000 \
