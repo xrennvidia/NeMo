@@ -248,6 +248,8 @@ class TransformerDecoderNM(DecoderModule, Exportable):
         replacement = self._embedding.layer_norm(replacement)
         replacement = self._embedding.dropout(replacement)
         decoder_embeddings[replacement_mask] = replacement
+        print("replacement_norm:", torch.norm(replacement, dim=1).mean())
+        print("other_norm:", torch.norm(decoder_embeddings[~replacement_mask], dim=-1).mean())
         return decoder_embeddings
 
     #@typecheck()
