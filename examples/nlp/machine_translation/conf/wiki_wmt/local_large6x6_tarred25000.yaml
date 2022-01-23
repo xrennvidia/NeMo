@@ -77,7 +77,7 @@ model:
 
   decoder_tokenizer:
     library: yttm
-    tokenizer_model: /media/apeganov/DATA/punctuation_and_capitalization/all_punc_no_u/3_128/wiki_wmt_18.01.2022/for_upload/autoregressive_labels.BPE.10.model
+    tokenizer_model: /media/apeganov/DATA/punctuation_and_capitalization/all_punc_no_u/3_128/wiki_wmt_18.01.2022/for_upload/autoregressive_labels.BPE.17.model
     bpe_dropout: 0.0
     r2l: false
     word_tokens:
