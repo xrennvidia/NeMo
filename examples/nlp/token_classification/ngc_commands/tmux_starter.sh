@@ -27,5 +27,5 @@ ngc batch run \
   --name "ml-model.bert ${exp_name}" \
   --image "nvcr.io/nvidian/ac-aiapps/speech_translation:latest" \
   --result /result \
-  --datasetid 94283:/data \
+  --datasetid ${dataset_id}:/data \
   --commandline "${command}"
