@@ -546,7 +546,7 @@ class BeamSearchSequenceGenerator(GreedySequenceGenerator):
             # if all hypotheses end with <eos> or <pad>, interrupt search
             if pad_profile.sum() == batch_size * self.beam_size:
                 break
-
+        print("generation stop:", i)
         # select best performing hypotheses in each element of the batch
         len_penalties = self.compute_len_penalty(prefixes_len, self.len_pen)
         scores = scores / len_penalties
