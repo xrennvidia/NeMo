@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH -A ent_aiapps_asr
-#SBATCH -p batch_dgx2h_m2                 # luna / backfill / interactive
+#SBATCH -p batch_dgx1_m2                 # luna / backfill / interactive
 #SBATCH -N 4                    # number of nodes
 #SBATCH -t 8:00:00              # wall time  (4 for luna, 8 for backfill, 2 for interactive)
 #SBATCH --exclusive
 #SBATCH --mem=0
 #SBATCH --gpus-per-node=16
-#SBATCH -J "ent_aiapps_asr:punctuation_capitalization_all_punc_no_u_using_NMT_large6x6_bs400000"  # job name (<< CHANGE ! >>)
+#SBATCH -J "ent_aiapps_asr:wprefix_tips_embeddings_all_punc_no_u_nmt_wiki_wmt_news_crawl_large6x6_bs400000_steps400000_lr2e-4"  # job name (<< CHANGE ! >>)
 #SBATCH --mail-type=FAIL        # only send email on failure
 #SBATCH --overcommit
 #SBATCH --ntasks-per-node=16     # n tasks per machine (one task per gpu) <required>
