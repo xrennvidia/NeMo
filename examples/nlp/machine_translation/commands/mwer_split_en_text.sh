@@ -24,7 +24,7 @@ cd ~/mwerSegmenter/
   "${result_dir}/punc_transcripts_not_segmented_input/stt_en_citrinet_1024.txt" \
   stt_en_citrinet_1024 \
   English \
-  "${result_dir}/punc_transcripts_not_segmented_input/stt_en_citrinet_1024_mwer_segmented.xml" \
+  "${mwer_xml}" \
   no \
   1
   conda deactivate
