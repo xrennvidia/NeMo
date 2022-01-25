@@ -13,6 +13,7 @@ model:
   src_language: 'en'
   tgt_language: 'en'
   use_decoder_tips: true
+  hidden_states_as_tips: false
   sum_replacement_with_original_embeddings: true
   detach_decoder_tips: false
   tgt_character_vocabulary: /media/apeganov/DATA/punctuation_and_capitalization/all_punc_no_u/3_128/wiki_wmt_18.01.2022/for_upload/autoregressive_wprefix_char_vocabulary.txt
