@@ -23,7 +23,7 @@ def main() -> None:
         segs = in_text.split('<seg id=')[1:]
         for i, seg in enumerate(segs):
             seg = seg.split('</seg>')[0]
-            seg = SPACE_DUP.sub(' ', seg[seg.index('>'):].replace('\n', ' '))
+            seg = SPACE_DUP.sub(' ', seg[seg.index('>') + 1:].replace('\n', ' '))
             out_f.write(seg + '\n')
 
 
