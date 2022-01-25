@@ -1,5 +1,5 @@
 dataset_dir=/home/apeganov/data/iwslt/IWSLT-SLT/eval/en-de/IWSLT.tst2019
-result_dir=/home/apeganov/iwslt_2019_test_result/AAYNLarge6x6_all_punc_no_u_kenlm
+result_dir=/home/apeganov/iwslt_2019_test_result/evelina_T5_min_punc_kenlm
 mwer_xml="${result_dir}/punc_transcripts_not_segmented_input/stt_en_citrinet_1024_mwer_segmented.xml"
 mwer_txt="${result_dir}/punc_transcripts_not_segmented_input/stt_en_citrinet_1024_mwer_segmented.txt"
 old_dir="$(pwd)"
@@ -21,10 +21,10 @@ cd ~/mwerSegmenter/
 ./segmentBasedOnMWER.sh \
   "${dataset_dir}/src.de" \
   "${dataset_dir}/ref.en" \
-  /home/apeganov/iwslt_2019_test_result/AAYNLarge6x6_all_punc_no_u_kenlm/punc_transcripts_not_segmented_input/stt_en_citrinet_1024.txt \
+  "${result_dir}/punc_transcripts_not_segmented_input/stt_en_citrinet_1024.txt" \
   stt_en_citrinet_1024 \
   English \
-  /home/apeganov/iwslt_2019_test_result/AAYNLarge6x6_all_punc_no_u_kenlm/punc_transcripts_not_segmented_input/stt_en_citrinet_1024_mwer_segmented.xml \
+  "${result_dir}/punc_transcripts_not_segmented_input/stt_en_citrinet_1024_mwer_segmented.xml" \
   no \
   1
   conda deactivate
