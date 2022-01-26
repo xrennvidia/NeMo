@@ -5,6 +5,6 @@ python test_seq_len_step_margin.py \
   --output_dir ~/data/iwslt/IWSLT-SLT/eval/en-de/IWSLT.tst2019/for_testing_punctuation_model/evelina_t5_plotting/margin \
   --max_seq_length 128 \
   --margin 0 1 2 4 8 12 16 24 32  \
-  --step 8 \
+  --step 126 124 122 118 110 102 94 78 62 \
   --cuda_device 0 \
   --no_cls_and_sep_tokens
