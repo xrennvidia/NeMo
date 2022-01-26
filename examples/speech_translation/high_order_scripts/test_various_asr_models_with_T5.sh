@@ -15,7 +15,7 @@ for asr_model in "${asr_models[@]}"; do
     "${asr_model}" \
     ~/NWInf_results/autoregressive_punctuation_capitalization/evelina_wiki_wmt_t5_large_lr5e-6_steps300000/checkpoints/Punctuation_and_Capitalization.nemo \
     ~/checkpoints/wmt21_en_de_backtranslated_24x6_averaged.nemo \
-    ~/iwslt_2019_test_result/varying_asr_for_evelina_T5_min_punc_kenlm/${asr_model} \
+    ~/iwslt_2019_test_result/varying_asr_for_evelina_T5_min_punc_kenlm/${asr_model_name} \
     0 \
     1 \
     0 \
@@ -28,7 +28,7 @@ for asr_model in "${asr_models[@]}"; do
     "${asr_model}" \
     ~/NWInf_results/autoregressive_punctuation_capitalization/evelina_wiki_wmt_t5_large_lr5e-6_steps300000/checkpoints/Punctuation_and_Capitalization.nemo \
     ~/checkpoints/wmt21_en_de_backtranslated_24x6_averaged.nemo \
-    ~/iwslt_2019_test_result/varying_asr_for_evelina_T5_min_punc/${asr_model} \
+    ~/iwslt_2019_test_result/varying_asr_for_evelina_T5_min_punc/${asr_model_name} \
     0 \
     1 \
     0 \
