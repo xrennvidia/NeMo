@@ -1067,7 +1067,7 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
         src_mask = torch.FloatTensor((src_ids_ != tokenizer.pad_id)).to(self.device)
         src = torch.LongTensor(src_ids_).to(self.device)
         if self.use_decoder_tips:
-            src_word_first_token_mask = torch.LongTensor(np.stack(get_first_token_mask(src, self.encoder_tokenizer)))
+            src_word_first_token_mask = torch.LongTensor(np.stack(get_first_token_mask(src.cpu().numpy(), self.encoder_tokenizer)))
         else:
             src_word_first_token_mask = None
         return src, src_mask, torch.IntTensor(num_src_words) if add_src_num_words_to_batch else None, src_word_first_token_mask
