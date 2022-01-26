@@ -1,10 +1,10 @@
 asr_models=(
-  stt_en_citrinet_1024
   ~/checkpoints/CitriNet-1024-8x-Stride-Gamma-0.25.nemo
   ~/checkpoints/Citrinet-1024-SPE-Unigram-1024-Jarvis-ASRSet-2.0_no_weight_decay_e250-averaged.nemo
   QuartzNet15x5Base-En
   stt_en_citrinet_256
   stt_en_citrinet_512
+  stt_en_citrinet_1024
   stt_en_jasper10x5dr
 )
 
