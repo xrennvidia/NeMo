@@ -1133,7 +1133,12 @@ class MTEncDecModel(EncDecNLPModel, Exportable):
                 return_val = all_translations, scores, best_translations
             else:
                 _, best_translations = self.batch_translate(
-                    src, src_mask, return_beam_scores=False, cache=cache, num_tgt_words=num_src_words
+                    src,
+                    src_mask,
+                    return_beam_scores=False,
+                    cache=cache,
+                    num_tgt_words=num_src_words,
+                    src_word_first_token_mask=src_word_first_token_mask,
                 )
                 return_val = best_translations
         finally:
