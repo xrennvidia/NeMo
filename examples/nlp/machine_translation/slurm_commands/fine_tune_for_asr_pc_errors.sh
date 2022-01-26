@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A ent_aiapps_asr
 #SBATCH -p batch_dgx2h_m2                 # luna / backfill / interactive
-#SBATCH -N 1                    # number of nodes
+#SBATCH -N 2                    # number of nodes
 #SBATCH -t 8:00:00              # wall time  (4 for luna, 8 for backfill, 2 for interactive)
 #SBATCH --exclusive
 #SBATCH --mem=0
@@ -60,7 +60,7 @@ echo "*******STARTING********" \
 	--config-name=aayn_finetuning_for_asr_2_val_sets_big_data \
 	model.train_ds.use_tarred_dataset=true \
 	nemo_file=/pretrained_checkpoints/wmt21_en_de_backtranslated_24x6_averaged.nemo \
-	model.train_ds.metadata_file="/data/train_tarred_10000/metadata.tokens.10000.json" \
+	model.train_ds.metadata_file="/data/train_tarred_6000/metadata.tokens.6000.json" \
 	model.validation_ds.src_file_name=[/data/IWSLT_tst2019_T5_evelina_mwer/en,/data/IWSLT_tst2019_TTS_ASR_augmented/en] \
 	model.validation_ds.tgt_file_name=[/data/IWSLT_tst2019_T5_evelina_mwer/de,/data/IWSLT_tst2019_TTS_ASR_augmented/de] \
 	model.test_ds.src_file_name=[/data/IWSLT_tst2019_T5_evelina_mwer/en,/data/IWSLT_tst2019_TTS_ASR_augmented/en] \
