@@ -30,6 +30,7 @@ Parameters of the script are
     pretrained model which do not use [CLS] and [SEP] tokens, e.g. HuggingFace mbart-large-50, t5-large.
   kenlm_model: If provided, it should be path to kenlm model used for CTC rescoring. If it is not provided, then no
     rescoring is performed.
+  nemo_root: If provided, it is a path to the NeMo repo root directory. By default, ~/NeMo is used
 Usage example:
 bash test_iwslt.sh ~/data/IWSLT.tst2019 \
   stt_en_citrinet_1024 \
@@ -59,6 +60,11 @@ no_all_upper_label="$9"  # 1 or 0
 use_inverse_text_normalization="${10}"
 no_cls_and_sep_tokens_in_punctuation_bert_model="${11}"
 kenlm_model="${12}"
+if [ -z "${13}" ]; then
+  nemo_root=~/NeMo
+else
+  nemo_root="${13}"
+fi
 
 if [[ "${segmented}" != 1 && "${segmented}" != 0 ]]; then
   echo "6th ('segmented') parameter of the 'test_iwslt.sh' script has to be equal 1 or 0, whereas its value is '${segmented}'" 1>&2
@@ -135,7 +141,7 @@ if [ "${segmented}" -eq 1 ]; then
       if [[ ! -z "${kenlm_model}" ]]; then
         echo "WARNING: KenLM model ${kenlm_model} is provided to the script whereas KenLM is supported only for not segmented inputs. Inference without rescoring is used."
       fi
-      python ~/NeMo/examples/asr/transcribe_speech.py "${asr_model_argument_name}"="${asr_model}" \
+      python ${nemo_root}/examples/asr/transcribe_speech.py "${asr_model_argument_name}"="${asr_model}" \
         audio_dir="${f}" \
         output_filename="${split_transcripts}/${talk_id}.manifest" \
         cuda=0 \
@@ -153,7 +159,7 @@ else
   transcript_no_numbers="${output_dir}/transcripts_not_segmented_input_no_numbers/${asr_model_name}.manifest"
   mkdir -p "$(dirname "${transcript_no_numbers}")"
   if [ -z "${kenlm_model}" ]; then
-    python ~/NeMo/examples/asr/transcribe_speech.py "${asr_model_argument_name}"="${asr_model}" \
+    python ${nemo_root}/examples/asr/transcribe_speech.py "${asr_model_argument_name}"="${asr_model}" \
       audio_dir="${audio_dir}" \
       output_filename="${transcript_no_numbers}" \
       cuda=0 \
@@ -161,7 +167,7 @@ else
   else
     kenlm_outputs="${output_dir}/transcripts_not_segmented_input_no_numbers/${asr_model_name}_kenlm"
     set -x
-    python ~/NeMo/scripts/asr_language_modeling/ngram_lm/eval_beamsearch_ngram.py \
+    python ${nemo_root}/scripts/asr_language_modeling/ngram_lm/eval_beamsearch_ngram.py \
       --nemo_model_file "${asr_model}" \
       --input_manifest "${en_ground_truth_manifest}" \
       --kenlm_model_file "${kenlm_model}" \
