@@ -31,6 +31,7 @@ try:
     from nemo.collections.tts.models.uniglow import UniGlowModel
     from nemo.collections.tts.models.waveglow import WaveGlowModel
     from nemo.collections.tts.models.mixer_tts import MixerTTSModel
+    from nemo.collections.tts.models.g2p_ctc import CTCG2PModel
 except ModuleNotFoundError:
     pass
 

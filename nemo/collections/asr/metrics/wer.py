@@ -143,6 +143,7 @@ class WER(Metric):
             Either a list of str which represent the CTC decoded strings per sample,
             or a list of Hypothesis objects containing additional information.
         """
+
         hypotheses = []
         # Drop predictions to CPU
         predictions = move_dimension_to_the_front(predictions, self.batch_dim_index)
@@ -159,7 +160,9 @@ class WER(Metric):
                 if (p != previous or previous == self.blank_id) and p != self.blank_id:
                     decoded_prediction.append(p)
                 previous = p
+            import pdb
 
+            pdb.set_trace()
             text = self.decode_tokens_to_str(decoded_prediction)
 
             if not return_hypotheses:

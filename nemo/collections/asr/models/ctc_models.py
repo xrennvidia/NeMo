@@ -152,6 +152,7 @@ class EncDecCTCModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         return results
 
     def __init__(self, cfg: DictConfig, trainer: Trainer = None):
+        print("---->INIT")
         # Get global rank and total number of GPU workers for IterableDataset partitioning, if applicable
         # Global_rank and local_rank is set by LightningModule in Lightning 1.2.0
         self.world_size = 1
@@ -566,6 +567,9 @@ class EncDecCTCModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         if self.spec_augmentation is not None and self.training:
             processed_signal = self.spec_augmentation(input_spec=processed_signal, length=processed_signal_length)
 
+        # print('HERE in ctc_model')
+        # import pdb;
+        # pdb.set_trace()
         encoded, encoded_len = self.encoder(audio_signal=processed_signal, length=processed_signal_length)
         log_probs = self.decoder(encoder_output=encoded)
         greedy_predictions = log_probs.argmax(dim=-1, keepdim=False)
@@ -581,7 +585,6 @@ class EncDecCTCModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
             )
         else:
             log_probs, encoded_len, predictions = self.forward(input_signal=signal, input_signal_length=signal_len)
-
         loss_value = self.loss(
             log_probs=log_probs, targets=transcript, input_lengths=encoded_len, target_lengths=transcript_len
         )
@@ -634,6 +637,9 @@ class EncDecCTCModel(ASRModel, ExportableEncDecModel, ASRModuleMixin):
         loss_value = self.loss(
             log_probs=log_probs, targets=transcript, input_lengths=encoded_len, target_lengths=transcript_len
         )
+        import pdb
+
+        pdb.set_trace()
         self._wer.update(
             predictions=predictions, targets=transcript, target_lengths=transcript_len, predictions_lengths=encoded_len
         )

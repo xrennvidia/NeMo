@@ -1,0 +1,76 @@
+name: G2PCTC
+
+# Dataset info
+train_dataset: ???
+validation_dataset: ???
+
+model:
+  model_name: "google/byt5-small"
+  max_source_len: 512
+#  max_target_len: 730
+
+  decoder:
+    _target_: nemo.collections.asr.modules.ConvASRDecoder
+    feat_in: none # will be filled during training based on encoder model dim
+    num_classes: 69
+    vocabulary: ["AA0", "AA1", "AA2", "AE0", "AE1", "AE2", "AH0", "AH1", "AH2", "AO0", "AO1", "AO2", "AW0", "AW1",
+                 "AW2", "AY0", "AY1", "AY2", "B", "CH", "D", "DH", "EH0", "EH1", "EH2", "ER0", "ER1", "ER2", "EY0",
+                 "EY1", "EY2", "F", "G", "HH", "IH0", "IH1", "IH2", "IY0", "IY1", "IY2", "JH", "K", "L", "M", "N",
+                 "NG", "OW0", "OW1", "OW2", "OY0", "OY1", "OY2", "P", "R", "S", "SH", "T", "TH", "UH0", "UH1", "UH2",
+                 "UW0", "UW1", "UW2", "V", "W", "Y", "Z", "ZH"]
+
+  train_ds:
+    dataset:
+      #_target_: "nemo.collections.tts.data.datalayers.T5G2PDataset"
+      manifest_filepath: ${train_dataset}
+    dataloader_params:
+      drop_last: false
+      shuffle: true
+      batch_size: 32 #32
+      num_workers: 0
+
+  validation_ds:
+    dataset:
+      #_target_: "nemo.collections.tts.data.datalayers.T5G2PDataset"
+      manifest_filepath: ${validation_dataset}
+    dataloader_params:
+      drop_last: false
+      shuffle: false
+      batch_size: 32 #64
+      num_workers: 0
+
+  optim:
+    name: adamw
+    lr: 2e-4
+    weight_decay: 0.01
+    # scheduler setup
+    sched:
+      name: WarmupAnnealing
+
+      # pytorch lightning args
+      monitor: val_token_precision
+      reduce_on_plateau: false
+
+      # scheduler config override
+      warmup_steps: null
+      warmup_ratio: 0.1
+      last_epoch: -1
+
+trainer:
+  gpus: 1 # number of gpus
+  max_epochs: ???
+  num_nodes: 1
+  accelerator: ddp
+  accumulate_grad_batches: 1
+  checkpoint_callback: False  # Provided by exp_manager
+  logger: False  # Provided by exp_manager
+  flush_logs_every_n_steps: 1000
+  log_every_n_steps: 200
+  check_val_every_n_epoch: 1
+
+exp_manager:
+  exp_dir: null
+  name: ${name}
+  create_tensorboard_logger: True
+  create_checkpoint_callback: True
+

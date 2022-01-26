@@ -46,7 +46,7 @@ import shutil
 import sys
 from os.path import expanduser
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import librosa
 import numpy as np
@@ -851,3 +851,97 @@ class T5G2PDataset(Dataset):
         labels = torch.tensor(labels)
 
         return (input_ids, attention_mask, labels)  # grapheme IDs, attention mask, phoneme IDs
+
+
+class CTCG2PDataset(Dataset):
+    """
+    Creates a dataset to train a T5G2P model.
+    """
+
+    # @property
+    # def output_types(self) -> Optional[Dict[str, NeuralType]]:
+    #     """Returns definitions of module output ports."""
+    #     return {
+    #         "input_ids": NeuralType(('B', 'T'), TokenIndex()),
+    #         "attention_mask": NeuralType(('B', 'T'), MaskType(), optional=True),
+    #         "labels": NeuralType(('B', 'T'), LabelsType()),
+    #     }
+
+    def __init__(
+        self,
+        manifest_filepath: str,
+        tokenizer: PreTrainedTokenizerBase,
+        labels: List[str],
+        max_source_len: int = 512,
+        max_target_len: int = 512,
+    ):
+        # TODO: docstring
+        super().__init__()
+
+        self.tokenizer = tokenizer
+        self.max_source_len = max_source_len
+        self.max_target_len = max_target_len
+        self.labels = labels
+        self.labels_tkn2id = {l: i for i, l in enumerate(labels)}
+        self.data = []
+        self.pad_token = 0
+
+        num_filtered = 0
+
+        # Load grapheme/phoneme sequence pairs into self.data
+        with open(manifest_filepath, 'r') as f_in:
+            logging.info(f"Loading dataset from: {manifest_filepath}")
+            for i, line in enumerate(tqdm(f_in)):
+                # TODO: better filtering of max source/target length? tokenize first??
+                item = json.loads(line)
+                """
+                if len(item["text"]) > max_source_len:
+                    num_filtered += 1
+                    continue
+                if len(item["pred_text"]) > max_target_len:
+                    num_filtered += 1
+                    continue
+                """
+                # TODO: change pred_text to something more sensible in manifest
+                target = self.map(item["pred_text"])
+                target_len = len(target)
+                self.data.append({"graphemes": item["text"], "target": target, "target_len": target_len})
+
+        # print(f"=======> Filtered {num_filtered} entries.")
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        return self.data[index]
+
+    def map(self, text: str) -> List[int]:
+        """ Creates a mapping from target labels to ids."""
+        tokens = []
+        for word_id, word in enumerate(text.split()):
+            tokens.append(self.labels_tkn2id[word])
+        return tokens
+
+    def _collate_fn(self, batch):
+        graphemes_batch = [entry["graphemes"] for entry in batch]
+        # Encode inputs (graphemes)
+        input_encoding = self.tokenizer(
+            graphemes_batch, padding='longest', max_length=self.max_source_len, truncation=True, return_tensors="pt"
+        )
+        input_ids, attention_mask = input_encoding.input_ids, input_encoding.attention_mask
+        input_len = torch.sum(attention_mask, 1)
+
+        # Encode targets (phonemes)
+        targets = [torch.tensor(entry["target"]) for entry in batch]
+        target_lengths = [torch.tensor(entry["target_len"]) for entry in batch]
+        max_target_len = max(target_lengths)
+
+        padded_targets = []
+        for target, target_len in zip(targets, target_lengths):
+            pad = (0, max_target_len - target_len)
+            target_pad = torch.nn.functional.pad(target, pad, value=len(self.labels))
+            padded_targets.append(target_pad)
+
+        padded_targets = torch.stack(padded_targets)
+        target_lengths = torch.stack(target_lengths)
+        return (input_ids, attention_mask, input_len, padded_targets, target_lengths)

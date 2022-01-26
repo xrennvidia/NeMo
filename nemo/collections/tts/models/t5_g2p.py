@@ -61,7 +61,7 @@ class T5G2PModel(ModelPT):  # TODO: Check parent class
             self.world_size = trainer.num_nodes * trainer.num_gpus
 
         # Load appropriate tokenizer from HuggingFace
-        self.model_name = cfg.get("model_name", "t5-small")     # One of: t5-small, t5-base, t5-large, t5-3b, t5-11b
+        self.model_name = cfg.get("model_name", "t5-small")  # One of: t5-small, t5-base, t5-large, t5-3b, t5-11b
         print(f"----------> Using model: {self.model_name}")
         self._tokenizer = T5Tokenizer.from_pretrained(self.model_name)
 
@@ -113,7 +113,6 @@ class T5G2PModel(ModelPT):  # TODO: Check parent class
         )
         generated_str, _, _ = self._generate_predictions(input_ids=input_ids, model_max_target_len=self.max_target_len)
         per = word_error_rate(hypotheses=generated_str, references=labels_str)
-
         return {'val_loss': val_loss, 'per': per}
 
     def validation_epoch_end(self, outputs):
