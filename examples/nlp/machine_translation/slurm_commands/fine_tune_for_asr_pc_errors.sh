@@ -34,12 +34,13 @@ SLURM_ACCOUNT='ent_aiapps'
 USERID='apeganov'
 LUSTRE_ACCOUNT_PREFIX=/gpfs/fs1/projects/${SLURM_ACCOUNT}
 DATA="${LUSTRE_ACCOUNT_PREFIX}/datasets/data/punctuation_capitalization/ASR_PC_augmentation_of_en_WMT_src"
+PRETRAINED_CHECKPOINTS="${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/pretrained_checkpoints"
 RESULTS=${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/results/$PROJECT/$EXPNAME
 CODE="${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/code/NeMo"
 
 mkdir -p ${RESULTS}
 
-MOUNTS="--container-mounts=$CODE:/code,$RESULTS:/results,$DATA:/data"
+MOUNTS="--container-mounts=$CODE:/code,$RESULTS:/results,$DATA:/data,$PRETRAINED_CHECKPOINTS:/pretrained_checkpoints"
 
 # Necessary Exports
 export HYDRA_FULL_ERROR=1
@@ -58,7 +59,7 @@ echo "*******STARTING********" \
 	--config-path=/code/examples/nlp/machine_translation/conf \
 	--config-name=aayn_finetuning_for_asr_2_val_sets_big_data \
 	model.train_ds.use_tarred_dataset=true \
-	nemo_file=/gpfs/fs1/projects/ent_aiapps/users/apeganov/pretrained_checkpoints/wmt21_en_de_backtranslated_24x6_averaged.nemo \
+	nemo_file=/pretrained_checkpoints/wmt21_en_de_backtranslated_24x6_averaged.nemo \
 	model.train_ds.metadata_file="/data/train_tarred_10000/metadata.tokens.10000.json" \
 	model.validation_ds.src_file_name=[/data/IWSLT_tst2019_T5_evelina_mwer/en,/data/IWSLT_tst2019_TTS_ASR_augmented/en] \
 	model.validation_ds.tgt_file_name=[/data/IWSLT_tst2019_T5_evelina_mwer/de,/data/IWSLT_tst2019_TTS_ASR_augmented/de] \
