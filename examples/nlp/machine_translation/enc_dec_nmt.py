@@ -136,7 +136,8 @@ def main(cfg: MTEncDecConfig) -> None:
     if cfg.nemo_file is None:
         mt_model = MTEncDecModel(cfg.model, trainer=trainer)
     else:
-        mt_model = MTEncDecModel.restore_from(cfg.nemo_file, trainer=trainer)
+        cpu_device = torch.device('cpu')
+        mt_model = MTEncDecModel.restore_from(cfg.nemo_file, trainer=trainer, map_location=cpu_device)
         mt_model.pre_super(cfg.model, trainer, create_tokenizers=False)
         if cfg.do_testing:
             mt_model.setup_test_data(cfg.model.test_ds)
