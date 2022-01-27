@@ -1,6 +1,6 @@
 set -e
 model=all_punc_no_u_nmt_wiki_wmt_news_crawl_large6x6_bs400000_steps400000_lr2e-4
-work_dir="~/data/iwslt/IWSLT-SLT/eval/en-de/IWSLT.tst2019/for_testing_punctuation_model2"
+work_dir=~/data/iwslt/IWSLT-SLT/eval/en-de/IWSLT.tst2019/for_testing_punctuation_model2
 output_dir="${work_dir}/nmt/demonstrate/${model}/margin"
 mkdir -p "${output_dir}"
 max_seq_length=128
