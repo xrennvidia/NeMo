@@ -244,18 +244,18 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
     def setup_validation_data(self, cfg):
         if not cfg or not os.path.exists(cfg.dataset.manifest_filepath):
             logging.info(
-                f"Dataloader config or file_path for the train is missing, so no data loader for validation is created!"
+                f"Dataloader config or file_path for the validation is missing, so no data loader for validation is created!"
             )
-            self._train_dl = None
+            self._validation_dl = None
             return
         self._validation_dl = self._setup_dataloader_from_config(cfg, name="validation")
 
     def setup_test_data(self, cfg):
         if not cfg or not os.path.exists(cfg.dataset.manifest_filepath):
             logging.info(
-                f"Dataloader config or file_path for the train is missing, so no data loader for test is created!"
+                f"Dataloader config or file_path for the test is missing, so no data loader for test is created!"
             )
-            self._train_dl = None
+            self._test_dl = None
             return
         self._test_dl = self._setup_dataloader_from_config(cfg, name="test")
 
