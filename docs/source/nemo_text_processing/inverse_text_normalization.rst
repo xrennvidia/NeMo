@@ -12,6 +12,9 @@ and `"it costs one hundred and twenty three dollars"` -> `"it costs $123"`.
 Test
 :cite:`itn-kurzinger2022ctc`
 
+Not working
+:cite:`itn-ebden2015kestrel`
+
 
 References
 ----------
