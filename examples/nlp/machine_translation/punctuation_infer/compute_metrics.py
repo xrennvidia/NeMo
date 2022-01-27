@@ -112,8 +112,8 @@ def read_lines(
             capitalization.append(capitalization_re.findall(line))
             punctuation.append(
                 [
-                    (x[0] + ' ' if x[0] != ' ' else ' ') if only_first_punctuation_character_after_word else x
-                    for x in filter(lambda x: x, capitalization_re.split(line))
+                    (x[0] + ' ' if x and x[0] != ' ' else ' ') if only_first_punctuation_character_after_word else x
+                    for x in capitalization_re.split(line)
                 ]
             )
             if not include_leading_punctuation_in_metrics:
