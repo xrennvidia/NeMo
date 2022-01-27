@@ -7,7 +7,7 @@ max_seq_length=128
 margins=( 0 1 2 4 8 12 16 24 36 48 )
 declare -a steps
 for margin in "${margins[@]}"; do
-  steps+=( $(expr ${max_seq_length} - 2 * ${margin}) )
+  steps+=( $(expr ${max_seq_length} - 2 \* ${margin}) )
 done
 
 for i in "${!margins[@]}"; do
