@@ -10,4 +10,5 @@ python punctuate_capitalize_nmt.py \
   --model_path "~/NWInf_results/autoregressive_punctuation_capitalization/${model_name}/checkpoints/AAYNLarge6x6.nemo" \
   --max_seq_length 128 \
   --step 126 \
+  --margin 0 \
   --add_source_num_words_to_batch
