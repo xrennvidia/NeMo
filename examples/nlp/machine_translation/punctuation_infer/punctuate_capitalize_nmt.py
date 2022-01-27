@@ -264,11 +264,13 @@ def adjust_predicted_labels_length(
         num_words = len(segment.split())
         num_word_labels = len(capitalization_pattern.findall(labels))
         if num_words > num_word_labels:
+            print("not enough")
             new_labels = labels
             new_labels += (
                 '' if labels[-1] == ' ' else ' '
             ) + (capitalization_labels[0] + ' ') * (num_words - num_word_labels)
         elif num_words < num_word_labels:
+            print("too much")
             i = num_word_labels
             pos = len(labels) - 1
             while i > num_words:
