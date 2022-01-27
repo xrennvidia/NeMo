@@ -27,13 +27,13 @@ WARMUP_STEPS=2000
 
 # Logging
 PROJECT="autoregressive_punctuation_capitalization"
-EXPNAME="fine_tune_NMT_for_ASR_PC_errors"
+EXPNAME="fine_tune_NMT_for_ASR_PC_errors_small_lr"
 
 # Mounts
 SLURM_ACCOUNT='ent_aiapps'
 USERID='apeganov'
 LUSTRE_ACCOUNT_PREFIX=/gpfs/fs1/projects/${SLURM_ACCOUNT}
-DATA="${LUSTRE_ACCOUNT_PREFIX}/datasets/data/punctuation_capitalization/ASR_PC_augmentation_of_en_WMT_src_small_lr"
+DATA="${LUSTRE_ACCOUNT_PREFIX}/datasets/data/punctuation_capitalization/ASR_PC_augmentation_of_en_WMT_src"
 PRETRAINED_CHECKPOINTS="${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/pretrained_checkpoints"
 RESULTS=${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/results/$PROJECT/$EXPNAME
 CODE="${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/code/NeMo"
