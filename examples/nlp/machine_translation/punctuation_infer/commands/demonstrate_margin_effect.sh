@@ -13,6 +13,7 @@ done
 for i in "${!margins[@]}"; do
   margin="${margins["${i}"]}"
   step="${steps["${i}"]}"
+  echo "margin=${margin} step=${step}"
   pred_labels="${output_dir}/labels${margin}.txt"
   python punctuate_capitalize_nmt.py \
       --input_text "${work_dir}/text_iwslt_en_text.txt" \
