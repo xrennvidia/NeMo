@@ -14,6 +14,7 @@
 
 # Punctuation and capitalization model with pretrained BERT-like models
 do_testing: true
+do_training: false
 pretrained_model: null # pretrained Punctuation and Capitalization model from list_available_models(), for example:
 # punctuation_en_bert or punctuation_en_distilbert
 # or your_model.nemo
