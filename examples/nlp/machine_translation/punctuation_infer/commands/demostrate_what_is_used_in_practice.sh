@@ -5,6 +5,7 @@ output_dir="${work_dir}/nmt/demonstrate/${model}/in_practice"
 mkdir -p "${output_dir}"
 margin=16
 step=8
+max_seq_length=128
 pred_labels="${output_dir}/labels_margin${margin}_step${step}.txt"
 python punctuate_capitalize_nmt.py \
     --input_text "${work_dir}/text_iwslt_en_text.txt" \
