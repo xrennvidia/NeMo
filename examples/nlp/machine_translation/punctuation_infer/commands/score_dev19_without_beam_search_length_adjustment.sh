@@ -4,5 +4,4 @@ model_name=all_punc_no_u_nmt_wiki_wmt_news_crawl_large6x6_bs400000_steps400000_l
 python compute_metrics.py \
   --hyp "${output_dir}/${model_name}_without_adjustment_labels.txt" \
   --ref "${work_dir}/for_upload/IWSLT_tst2019/autoregressive_labels.txt" \
-  --output "${output_dir}/${model_name}_without_adjustment_scores.json" \
-  --include_leading_punctuation_in_metrics
+  --output "${output_dir}/${model_name}_without_adjustment_scores.json"
