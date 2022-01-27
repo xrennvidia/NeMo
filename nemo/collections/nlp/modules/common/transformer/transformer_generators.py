@@ -325,7 +325,6 @@ class BeamSearchSequenceGenerator(GreedySequenceGenerator):
         if num_generated_words is None:
             scores, prefixes = torch.topk(log_probs, self.beam_size, dim=-1)
             return scores, prefixes, None
-        print("Adjustment is performed")
         pad_mask = pad_mask[:, 0].gt(0)
         n = log_probs.shape[0]
         # 2 is for pad and eos tokens which may be removed
@@ -421,7 +420,6 @@ class BeamSearchSequenceGenerator(GreedySequenceGenerator):
         # generate initial buffer of beam_size prefixes-hypotheses
         log_probs, decoder_mems_list = self._one_step_forward(tgt, encoder_hidden_states, encoder_input_mask, None, 0)
         # scores, prefixes = torch.topk(log_probs.permute(0, 2, 1), self.beam_size, dim=1)
-        print("self.decoder_word_ids, num_tgt_words:", self.decoder_word_ids, num_tgt_words)
         if self.decoder_word_ids is not None and num_tgt_words is not None:
             # num_generated_words = is_in(prefixes, self.decoder_word_ids).int().sum(dim=1)
             num_generated_words = torch.zeros(log_probs.shape[0], device=device, dtype=torch.int32)
