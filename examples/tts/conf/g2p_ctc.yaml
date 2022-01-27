@@ -3,6 +3,8 @@ name: G2PCTC
 # Dataset info
 train_dataset: ???
 validation_dataset: ???
+do_testing: False
+pretrained_model: null # .nemo
 
 model:
   model_name: "google/byt5-small"
@@ -27,7 +29,7 @@ model:
       drop_last: false
       shuffle: true
       batch_size: 32 #32
-      num_workers: 0
+      num_workers: 4
 
   validation_ds:
     dataset:
@@ -37,7 +39,17 @@ model:
       drop_last: false
       shuffle: false
       batch_size: 32 #64
-      num_workers: 0
+      num_workers: 4
+
+  test_ds:
+    dataset:
+      #_target_: "nemo.collections.tts.data.datalayers.T5G2PDataset"
+      manifest_filepath: ${test_dataset}
+    dataloader_params:
+      drop_last: false
+      shuffle: false
+      batch_size: 32 #64
+      num_workers: 4
 
   optim:
     name: adamw
