@@ -59,7 +59,7 @@ echo "*******STARTING********" \
 	do_testing=false \
 	model.train_ds.ds_item="/tar_data" \
 	model.train_ds.tar_metadata_file="metadata.punctuation_capitalization.tokens10000.max_seq_length512.-home-apeganov-pretrained_tokenizers-bert_large_uncased.json" \
-	model.validation_ds.ds_item=[/data/europarl_dev,/data/news_commentary_dev,/data/rapid_dev,/data/wiki_dev,/data/news_crawl_dev,/data/IWSLT_tst2019] \
+	model.validation_ds.ds_item=[/data/europarl_dev,/data/news_commentary_dev,/data/rapid_dev,/data/wiki_dev,/data/IWSLT_tst2019] \
 	model.validation_ds.tokens_in_batch=4092 \
 	~model.test_ds \
 	model.language_model.pretrained_model_name="bert-base-uncased" \
