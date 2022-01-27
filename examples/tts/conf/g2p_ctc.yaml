@@ -44,7 +44,7 @@ model:
   test_ds:
     dataset:
       #_target_: "nemo.collections.tts.data.datalayers.T5G2PDataset"
-      manifest_filepath: ${test_dataset}
+      manifest_filepath: none
     dataloader_params:
       drop_last: false
       shuffle: false

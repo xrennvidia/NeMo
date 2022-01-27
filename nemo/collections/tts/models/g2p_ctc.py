@@ -233,7 +233,7 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
         return torch.utils.data.DataLoader(dataset, collate_fn=dataset.collate_fn, **cfg.dataloader_params)
 
     def setup_training_data(self, cfg):
-        if not cfg or not os.path.exists(cfg.manifest_filepath):
+        if not cfg or not os.path.exists(cfg.dataset.manifest_filepath):
             logging.info(
                 f"Dataloader config or file_path for the train is missing, so no data loader for train is created!"
             )
@@ -242,7 +242,7 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
         self._train_dl = self._setup_dataloader_from_config(cfg, name="train")
 
     def setup_validation_data(self, cfg):
-        if not cfg or not os.path.exists(cfg.manifest_filepath):
+        if not cfg or not os.path.exists(cfg.dataset.manifest_filepath):
             logging.info(
                 f"Dataloader config or file_path for the train is missing, so no data loader for validation is created!"
             )
@@ -251,7 +251,7 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
         self._validation_dl = self._setup_dataloader_from_config(cfg, name="validation")
 
     def setup_test_data(self, cfg):
-        if not cfg or not os.path.exists(cfg.manifest_filepath):
+        if not cfg or not os.path.exists(cfg.dataset.manifest_filepath):
             logging.info(
                 f"Dataloader config or file_path for the train is missing, so no data loader for test is created!"
             )
