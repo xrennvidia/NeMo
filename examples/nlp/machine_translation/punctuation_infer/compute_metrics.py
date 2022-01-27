@@ -117,7 +117,7 @@ def read_lines(
                 ]
             )
             if not include_leading_punctuation_in_metrics:
-                punctuation = punctuation[1:]
+                punctuation[-1] = punctuation[-1][1:]
     return punctuation, capitalization, lines
 
 
