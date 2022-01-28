@@ -52,6 +52,7 @@ model:
   common_dataset_parameters:
     ignore_extra_tokens: false
     ignore_start_end: true  # TODO: try false
+    add_cls_and_sep_tokens: false
     pad_label: 'O'
 
   train_ds:
