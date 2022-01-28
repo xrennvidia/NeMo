@@ -136,13 +136,15 @@ def main(cfg: MTEncDecConfig) -> None:
     if cfg.nemo_file is None:
         mt_model = MTEncDecModel(cfg.model, trainer=trainer)
     else:
-        mt_model = MTEncDecModel.restore_from(cfg.nemo_file, trainer=trainer)
+        cpu_device = torch.device('cpu')
+        mt_model = MTEncDecModel.restore_from(cfg.nemo_file, trainer=trainer, map_location=cpu_device)
         mt_model.pre_super(cfg.model, trainer, create_tokenizers=False)
         if cfg.do_testing:
             mt_model.setup_test_data(cfg.model.test_ds)
         if cfg.do_training:
             mt_model.setup_training_data(cfg.model.train_ds)
             mt_model.setup_validation_data(cfg.model.validation_ds)
+            mt_model.setup_optimization(cfg.model.optim)
 
     logging.info("\n\n************** Model parameters and their sizes ***********")
     for name, param in mt_model.named_parameters():

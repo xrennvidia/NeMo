@@ -100,7 +100,9 @@ def get_tokenizer(
 
     if 'megatron' in tokenizer_name:
         if not HAVE_APEX:
-            raise RuntimeError("Apex required to use megatron.")
+            logging.warning(
+                "Apex was not found. Please see the NeMo README for installation instructions: https://github.com/NVIDIA/NeMo#megatron-gpt."
+            )
         if vocab_file is None:
             vocab_file = nemo.collections.nlp.modules.common.megatron.megatron_utils.get_megatron_vocab_file(
                 tokenizer_name
@@ -144,7 +146,8 @@ def get_nmt_tokenizer(
     use_fast: Optional[bool] = False,
     bpe_dropout: Optional[float] = 0.0,
     r2l: Optional[bool] = False,
-    word_tokens: Optional[List[str]] = None
+    word_tokens: Optional[List[str]] = None,
+    legacy: Optional[bool] = False,
 ):
     """
     Args:
@@ -183,7 +186,7 @@ def get_nmt_tokenizer(
     elif library == 'sentencepiece':
         logging.info(f'Getting SentencePiece with model: {tokenizer_model}')
         return nemo.collections.common.tokenizers.sentencepiece_tokenizer.SentencePieceTokenizer(
-            model_path=tokenizer_model
+            model_path=tokenizer_model, legacy=legacy
         )
     elif library == 'byte-level':
         logging.info(f'Using byte-level tokenization')

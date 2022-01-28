@@ -71,14 +71,12 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--tmp_wav_dir",
         type=Path,
-        required=True,
         help="Path to a directory where temporary .wav files will be saved.",
         default=Path("_tmp_wav_files"),
     )
     parser.add_argument(
         "--tmp_txt_dir",
         type=Path,
-        required=True,
         help="Path to a directory where temporary .txt files will be saved.",
         default=Path("_tmp_txt_files"),
     )

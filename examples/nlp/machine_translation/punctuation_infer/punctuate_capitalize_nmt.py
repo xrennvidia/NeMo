@@ -268,7 +268,7 @@ def adjust_predicted_labels_length(
                 pos -= 1
             new_labels = labels[: pos + 1]
         else:
-            new_labels = labels
+            new_labels = labels + (' ' if labels[-1] != ' ' else ' ')
         result.append(new_labels)
         assert num_words == len(
             capitalization_pattern.findall(new_labels)

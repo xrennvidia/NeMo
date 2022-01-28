@@ -62,6 +62,7 @@ def get_args():
         "after space is inserted replace it with space.",
         action="store_true",
     )
+    parser.add_argument("--only_first_punctuation_character_after_word", action="store_true")
     args = parser.parse_args()
     args.hyp = args.hyp.expanduser()
     args.ref = args.ref.expanduser()
@@ -85,7 +86,11 @@ def transform_to_autoregressive_format(line, line_i):
 
 
 def read_lines(
-    path, capitalization_labels, include_leading_punctuation_in_metrics, evelina_data_format, normalize_punctuation_
+    path,
+    capitalization_labels,
+    include_leading_punctuation_in_metrics,
+    evelina_data_format,
+    only_first_punctuation_character_after_word,
 ):
     lstrip_re = re.compile(f"^[^{capitalization_labels}]+")
     rstrip_re = re.compile(f"[^{capitalization_labels}]*$")
@@ -106,8 +111,13 @@ def read_lines(
             lines.append(line)
             capitalization.append(capitalization_re.findall(line))
             punctuation.append(
-                [x[0] + ' ' if x[0] != ' ' else ' ' for x in filter(lambda x: x, capitalization_re.split(line))]
+                [
+                    (x[0] + ' ' if x and x[0] != ' ' else ' ') if only_first_punctuation_character_after_word else x
+                    for x in capitalization_re.split(line)
+                ]
             )
+            if not include_leading_punctuation_in_metrics:
+                punctuation[-1] = punctuation[-1][1:]
     return punctuation, capitalization, lines
 
 
@@ -130,14 +140,14 @@ def main():
         args.capitalization_labels,
         args.include_leading_punctuation_in_metrics,
         args.evelina_data_format or args.hypothesis_evelina_data_format,
-        args.normalize_punctuation_in_hyp,
+        args.only_first_punctuation_character_after_word,
     )
     ref_punctuation, ref_capitalization, ref_lines = read_lines(
         args.ref,
         args.capitalization_labels,
         args.include_leading_punctuation_in_metrics,
         args.evelina_data_format or args.reference_evelina_data_format,
-        False,
+        args.only_first_punctuation_character_after_word,
     )
     with open('debug_cer_hyp.txt', 'w') as hf, open('debug_cer_ref.txt', 'w') as rf:
         for line in hyp_lines:
