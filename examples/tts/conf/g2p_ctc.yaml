@@ -70,7 +70,7 @@ model:
 
 trainer:
   gpus: 1 # number of gpus
-  max_epochs: ???
+  max_epochs: 5
   num_nodes: 1
   accelerator: ddp
   accumulate_grad_batches: 1
@@ -85,4 +85,9 @@ exp_manager:
   name: ${name}
   create_tensorboard_logger: True
   create_checkpoint_callback: True
-
+  checkpoint_callback_params:
+    save_top_k: 3
+    monitor: "val_loss"
+    mode: "max"
+    save_best_model: true
+    always_save_nemo: true

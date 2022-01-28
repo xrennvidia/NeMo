@@ -189,21 +189,22 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
             hypotheses.append(text)
         return hypotheses
 
-    def validation_epoch_end(self, outputs):
+    def validation_epoch_end(self, outputs, split="val"):
         """
         Called at the end of validation to aggregate outputs (reduces across batches, not workers).
         """
         # TODO: Add support for multi GPU
-        avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        self.log('val_loss', avg_loss, sync_dist=True)
+        avg_loss = torch.stack([x[f"{split}_loss"] for x in outputs]).mean()
+        self.log(f"{split}_loss", avg_loss, prog_bar=True)
 
         # TODO: Add better PER calculation and logging.
-        avg_per = sum([x['per'] for x in outputs]) / len(outputs)
-        self.log('val_per', avg_per)
-        print(f"---------------> PER: {round(avg_per*100, 2)}%")
+        avg_per = sum([x["per"] for x in outputs]) / len(outputs)
+        self.log(f"{split}_per", avg_per)
+        logging.info(f"---------------> PER: {round(avg_per*100, 2)}%")
 
-        self.log('val_loss', avg_loss, sync_dist=True)
-        return {'loss': avg_loss}
+
+    def test_epoch_end(self, outputs):
+        self.validation_epoch_end(outputs, split="test")
 
     @torch.no_grad()
     def _generate_predictions(self, input_ids: torch.Tensor, model_max_target_len: int = 512):

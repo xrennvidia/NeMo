@@ -18,7 +18,7 @@ To do testing:
 python g2p_ctc.py \
     do_testing=True \
     model.test_ds.dataset.manifest_filepath=/mnt/sdb_4/g2p/v2/phoneme_dev_clean.json \
-    pretrained_model=/mnt/sdb_4/g2p/chpts
+    pretrained_model=/mnt/sdb_4/g2p/chpts/2552576/g2p/G2PCTC/2022-01-28_01-00-25/checkpoints
 """
 
 import os
@@ -40,7 +40,7 @@ def main(cfg):
         if cfg.pretrained_model and not os.path.exists(cfg.pretrained_model):
             raise ValueError("Pretrained model wasn't found.")
         model = CTCG2PModel.restore_from(cfg.pretrained_model)
-        model.setup_test_data()
+        model.setup_test_data(cfg.model.test_ds)
         trainer.test(model)
     else:
         model = CTCG2PModel(cfg=cfg.model, trainer=trainer)
