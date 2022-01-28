@@ -146,7 +146,8 @@ def get_nmt_tokenizer(
     use_fast: Optional[bool] = False,
     bpe_dropout: Optional[float] = 0.0,
     r2l: Optional[bool] = False,
-    word_tokens: Optional[List[str]] = None
+    word_tokens: Optional[List[str]] = None,
+    legacy: Optional[bool] = False,
 ):
     """
     Args:
@@ -185,7 +186,7 @@ def get_nmt_tokenizer(
     elif library == 'sentencepiece':
         logging.info(f'Getting SentencePiece with model: {tokenizer_model}')
         return nemo.collections.common.tokenizers.sentencepiece_tokenizer.SentencePieceTokenizer(
-            model_path=tokenizer_model
+            model_path=tokenizer_model, legacy=legacy
         )
     elif library == 'byte-level':
         logging.info(f'Using byte-level tokenization')
