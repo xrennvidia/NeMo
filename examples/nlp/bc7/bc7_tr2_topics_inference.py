@@ -32,7 +32,22 @@ from nemo.utils.app_state import AppState
 assert torch.cuda.is_available()
 
 
-def parse_inferred_entities(inferred_entities: List[str]) -> List[str]:
+"""
+Usage: 
+python bc7_tr2_topics_inference.py \
+    --model_file <path/to/trained/NeMo model> \
+    --path_to_file <path/to/JSON/containing/data/for/inference/> \
+    --output_file <path/to/desired/output/location> \
+    --path_to_entities <path/to/corresponding/inferred/entities> 
+    
+If the ending prompt for entities data, starting and endng prompts for topics data are different than default, use the
+appropriate (see argparse parsing below) flags to provide them. 
+
+To incorporate the abstract into the prompt for inference, use --with_abstract
+"""
+
+
+def parse_inferred_entities(inferred_entities: List[str], prompt_end: str) -> List[str]:
     """
     Parse the inferred entities originally stored for comparisons between the prompt, inferred entities and expected
     entities to extract only the inferred entities.
@@ -44,7 +59,7 @@ def parse_inferred_entities(inferred_entities: List[str]) -> List[str]:
     for line in inferred_entities:
         if line.startswith("Completed prompt"):
             line = line.strip()
-            entities_start = line.find("answers: ") + len("answers: ")
+            entities_start = line.find(prompt_end) + len(prompt_end)
             entities = line[entities_start:]
 
             parsed_entities.append(entities)
@@ -63,6 +78,21 @@ def main():
     )
     parser.add_argument(
         "--tokens_to_generate", type=int, default="64", required=False, help="How many tokens to add to prompt"
+    )
+    parser.add_argument(
+        "--entities_prompt_end", type=str, default="answers:", required=False,
+        help="The ending prompt used to infer entities that signals where the model should start generating text."
+    )
+    parser.add_argument(
+        "--topics_prompt_start", type=str, default="find topics:", required=False,
+        help="The starting prompt set up for topics inference signalling the model to look for topics."
+    )
+    parser.add_argument(
+        "--topics_prompt_end", type=str, default="answers:", required=False,
+        help="The ending prompt set up for topics inference that signals where the model should start generating text."
+    )
+    parser.add_argument(
+        "--with_abstract", action="store_true", help="Whether or not to incorporate abstract into the prompt."
     )
     parser.add_argument(
         "--stop_after_sentence",
@@ -107,7 +137,7 @@ def main():
     with open(args.path_to_entities) as f:
         inferred_entities = f.readlines()
 
-    parsed_entities = parse_inferred_entities(inferred_entities)
+    parsed_entities = parse_inferred_entities(inferred_entities, args.entities_prompt_end)
 
     original_prompts = []
     prompts = []
@@ -116,15 +146,20 @@ def main():
     for line, entities in zip(data, parsed_entities):
         line = json.loads(line)
         text = line["text"]
-        prompt_end = text.find("Answers:") + 8
+        prompt_end = text.find(args.topics_prompt_end) + len(args.topics_prompt_end)
 
-        if prompt_end < 8:
-            raise ValueError("\"answers\" not found in text.")
+        if prompt_end < len(args.topics_prompt_end):
+            raise ValueError(f"{args.topics_prompt_end} not found in text.")
 
-        prompts.append(f"<|endoftext|> Find topics: {entities}. Answers:")
+        if args.with_abstract:
+            prompt = f"<|endoftext|> {args.topics_prompt_start} {line['abstract_text']} entities: {entities}. {args.topics_prompt_end}"
+        else:
+            prompt = f"<|endoftext|> {args.topics_prompt_start} {entities}. {args.topics_prompt_end}"
+
+        prompts.append(prompt)
         expected_entities.append(line["expected_entities"])
         original_prompts.append(line["abstract_text"])
-        labels.append(text[prompt_end + 1: text.rfind("<|endoftext|>")])
+        labels.append(text[prompt_end + 1:])
 
     all_data = []
     for prompt in prompts:
@@ -157,5 +192,3 @@ def main():
 
 if __name__ == '__main__':
     main()  # noqa pylint: disable=no-value-for-parameter
-
-

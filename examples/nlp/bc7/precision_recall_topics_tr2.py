@@ -24,12 +24,12 @@ from utils.metrics_computation import compute_metrics
 """
 Usage:
 
-python precision_recall_entities_tr2.py \
-    --source <path/to/entities/inference/file> \
+python precision_recall_topics_tr2.py \
+    --source <path/to/topics/inference/file> \
     --out <path/to/csv/output/location> \
     --model_label <label for recorded results> \
-    --separator <separator used (if any) between the predicted entities> 
-
+    --separator <separator used (if any) between the predicted topics> 
+    
 If the ending prompt is different from the default one used in the argument parsing here, provide it using the 
 --prompt_end flag.
 """
@@ -47,13 +47,12 @@ def parse_file(path: str, prompt_end: str) -> Tuple[List[str], List[str]]:
     labels = []
 
     for i, line in enumerate(lines):
-        if line.startswith("Completed"):
+        if line.startswith("Pred topics"):
             prediction_line = line
             label_line = lines[i + 2]
 
             prediction = prediction_line[prediction_line.find(prompt_end) + len(prompt_end):].strip()
-            label = label_line[
-                         label_line.find(prompt_end) + len(prompt_end): label_line.rfind("<|endoftext|>")].strip()    #  label_line.rfind("<|endoftext|>")
+            label = label_line[label_line.find(": ") + len(": "): label_line.rfind("<|endoftext|>")].strip()
 
             predictions.append(prediction)
             labels.append(label)
@@ -64,7 +63,8 @@ def parse_file(path: str, prompt_end: str) -> Tuple[List[str], List[str]]:
     return predictions, labels
 
 
-def main(source: str, separator: str, out: str, model_label: str, tokens_to_generate: str, overwrite: bool, verbose: bool, prompt_end: str) -> None:
+def main(source: str, separator: str, out: str, model_label: str, tokens_to_generate: str, overwrite: bool,
+         verbose: bool=False, prompt_end: str="answers:") -> None:
     """
     Parse the prediction data from <source> and write the results to <out>.
     """
@@ -76,7 +76,7 @@ def main(source: str, separator: str, out: str, model_label: str, tokens_to_gene
     with open(out, mode) as out_f:
         writer = csv.writer(out_f, delimiter=",", quotechar="|", quoting=csv.QUOTE_MINIMAL)
         if mode == "w":
-            writer.writerow(["model", "TOKENS_TO_GENERATE", "prec", "rec", "f1"])
+            writer.writerow(["label", "TOKENS_TO_GENERATE", "prec", "rec", "f1"])
 
         print("Label:", model_label)
         print("Number of tokens to generate:", tokens_to_generate)
@@ -88,7 +88,7 @@ def main(source: str, separator: str, out: str, model_label: str, tokens_to_gene
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser(description="Compute the precision, recall and F1 score for the named entity recognition"
+    parser = ArgumentParser(description="Compute the precision, recall and F1 score for the topics inedxing"
                                         "task done on the BC7 Track 2 data.")
 
     parser.add_argument(
@@ -121,7 +121,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--prompt_end", type=str, default="answers:", required=False,
-        help="The ending prompt set up for NER inference that signals where the model should start generating text."
+        help="The ending prompt set up for topics inference that signals where the model should start generating text."
     )
 
     parser.add_argument(

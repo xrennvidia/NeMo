@@ -30,6 +30,19 @@ from nemo.utils.app_state import AppState
 
 assert torch.cuda.is_available()
 
+"""
+Usage: 
+python bc7_tr2_entities_inference.py \
+    --model_file <path/to/trained/NeMo model> \
+    --path_to_file <path/to/JSON/containing/data/for/inference/> \
+    --output_file <path/to/desired/output/location> \
+
+If the starting or ending prompts are different than the default ones use the appropriate (see argparse parsing below) 
+flags to provide them. 
+
+To incorporate the abstract into the prompt for inference, use --with_abstract
+"""
+
 
 def main():
     parser = ArgumentParser()
@@ -39,6 +52,14 @@ def main():
     )
     parser.add_argument(
         "--tokens_to_generate", type=int, default="64", required=False, help="How many tokens to add to prompt"
+    )
+    parser.add_argument(
+        "--prompt_start", type=str, default="find topics:", required=False,
+        help="The starting prompt set up for NER inference signalling the model to look for topics."
+    )
+    parser.add_argument(
+        "--prompt_end", type=str, default="answers:", required=False,
+        help="The ending prompt set up for NER inference that signals where the model should start generating text."
     )
     parser.add_argument(
         "--stop_after_sentence",
@@ -84,10 +105,10 @@ def main():
     labels = []
     for line in data:
         text = json.loads(line)["text"]
-        prompt_end = text.find("answers:") + 8
+        prompt_end = text.find(args.prompt_end) + len(args.prompt_end)
 
-        if prompt_end < 8:
-            raise ValueError("\"answers\" not found in text.")
+        if prompt_end < len(args.prompt_end):
+            raise ValueError(f"{args.prompt_end} not found in text.")
 
         prompts.append(text[: prompt_end])
         labels.append(text)
@@ -117,5 +138,3 @@ def main():
 
 if __name__ == '__main__':
     main()  # noqa pylint: disable=no-value-for-parameter
-
-
