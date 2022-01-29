@@ -904,7 +904,7 @@ class CTCG2PDataset(Dataset):
                     continue
                 """
                 # TODO: change pred_text to something more sensible in manifest
-                if len(line["text"]) < len(line["pred_text"].split()):
+                if len(item["text"]) < len(item["pred_text"].split()):
                     num_removed += 1
                     continue
                 target = self.map(item["pred_text"])
