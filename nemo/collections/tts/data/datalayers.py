@@ -888,6 +888,7 @@ class CTCG2PDataset(Dataset):
 
         num_filtered = 0
 
+        num_removed = 0
         # Load grapheme/phoneme sequence pairs into self.data
         with open(manifest_filepath, 'r') as f_in:
             logging.info(f"Loading dataset from: {manifest_filepath}")
@@ -903,11 +904,15 @@ class CTCG2PDataset(Dataset):
                     continue
                 """
                 # TODO: change pred_text to something more sensible in manifest
+                if len(line["text"]) < len(line["pred_text"].split()):
+                    num_removed += 1
+                    continue
                 target = self.map(item["pred_text"])
                 target_len = len(target)
                 self.data.append({"graphemes": item["text"], "target": target, "target_len": target_len})
 
         # print(f"=======> Filtered {num_filtered} entries.")
+        logging.info(f"Removed {num_removed} examples from {manifest_filepath}")
 
     def __len__(self):
         return len(self.data)
