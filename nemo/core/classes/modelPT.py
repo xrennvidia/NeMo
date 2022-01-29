@@ -91,6 +91,11 @@ class ModelPT(LightningModule, Model):
         # Convert config to support Hydra 1.0+ instantiation
         cfg = model_utils.maybe_update_config_version(cfg)
 
+        if 'model' in cfg:
+            raise ValueError(
+                "Creating model config node is forbidden due to collision problem when loading from checkpoint."
+            )
+
         if 'target' not in cfg:
             # This is for Jarvis service.
             OmegaConf.set_struct(cfg, False)
@@ -892,7 +897,9 @@ class ModelPT(LightningModule, Model):
             with open_dict(cfg):
                 # Restore model
                 model_path = cfg.pop('init_from_nemo_model')
-                restored_model = self.restore_from(model_path, map_location=map_location, strict=True)
+                restored_model = self.restore_from(
+                    model_path, map_location=map_location, strict=cfg.get("init_strict", True)
+                )
 
                 # Restore checkpoint into current model
                 self.load_state_dict(restored_model.state_dict(), strict=False)
@@ -918,7 +925,9 @@ class ModelPT(LightningModule, Model):
                         )
                         return
 
-                restored_model = self.from_pretrained(model_name, map_location=map_location, strict=True)
+                restored_model = self.from_pretrained(
+                    model_name, map_location=map_location, strict=cfg.get("init_strict", True)
+                )
 
                 # Restore checkpoint into current model
                 self.load_state_dict(restored_model.state_dict(), strict=False)
@@ -1142,7 +1151,11 @@ class ModelPT(LightningModule, Model):
             Please create a new model using an updated config to properly update the model.
         """
         self._cfg = cfg
-        self._set_hparams({'cfg': self._cfg})
+        self._set_hparams(OmegaConf.create({'cfg': self._cfg}))
+
+        # TODO: Remove in NeMo 1.7 (or when PTL fixes this on their end)
+        if hasattr(self, '_hparams_initial') and 'cfg' in self._hparams_initial:
+            self._hparams_initial['cfg'] = OmegaConf.to_object(self._cfg)
 
     @staticmethod
     def _is_model_being_restored() -> bool:

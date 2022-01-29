@@ -29,15 +29,17 @@ from nemo.collections.asr.data import audio_to_text_dataset
 from nemo.collections.asr.data.audio_to_text_dali import DALIOutputs
 from nemo.collections.asr.losses.rnnt import RNNTLoss, resolve_rnnt_default_loss_name
 from nemo.collections.asr.metrics.rnnt_wer import RNNTWER, RNNTDecoding
-from nemo.collections.asr.models.asr_model import ASRModel, ExportableEncDecJointModel
+from nemo.collections.asr.models.asr_model import ASRModel
+from nemo.collections.asr.modules.rnnt import RNNTDecoderJoint
 from nemo.collections.asr.parts.mixins import ASRModuleMixin
 from nemo.collections.asr.parts.preprocessing.perturb import process_augmentations
+from nemo.core.classes import Exportable
 from nemo.core.classes.common import PretrainedModelInfo, typecheck
 from nemo.core.neural_types import AcousticEncodedRepresentation, AudioSignal, LengthsType, NeuralType, SpectrogramType
 from nemo.utils import logging
 
 
-class EncDecRNNTModel(ASRModel, ASRModuleMixin, ExportableEncDecJointModel):
+class EncDecRNNTModel(ASRModel, ASRModuleMixin, Exportable):
     """Base class for encoder decoder RNNT-based models."""
 
     @classmethod
@@ -56,7 +58,7 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, ExportableEncDecJointModel):
         # Global_rank and local_rank is set by LightningModule in Lightning 1.2.0
         self.world_size = 1
         if trainer is not None:
-            self.world_size = trainer.num_nodes * trainer.num_gpus
+            self.world_size = trainer.world_size
 
         super().__init__(cfg=cfg, trainer=trainer)
 
@@ -206,7 +208,12 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, ExportableEncDecJointModel):
 
     @torch.no_grad()
     def transcribe(
-        self, paths2audio_files: List[str], batch_size: int = 4, return_hypotheses: bool = False
+        self,
+        paths2audio_files: List[str],
+        batch_size: int = 4,
+        return_hypotheses: bool = False,
+        partial_hypothesis: Optional[List['Hypothesis']] = None,
+        num_workers: int = 0,
     ) -> (List[str], Optional[List['Hypothesis']]):
         """
         Uses greedy decoding to transcribe audio files. Use this method for debugging and prototyping.
@@ -220,6 +227,7 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, ExportableEncDecJointModel):
         Bigger will result in better throughput performance but would use more memory.
             return_hypotheses: (bool) Either return hypotheses or text
         With hypotheses can do some postprocessing like getting timestamp or rescoring
+            num_workers: (int) number of workers for DataLoader
 
         Returns:
             A list of transcriptions in the same order as paths2audio_files. Will also return
@@ -235,6 +243,9 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, ExportableEncDecJointModel):
         dither_value = self.preprocessor.featurizer.dither
         pad_to_value = self.preprocessor.featurizer.pad_to
 
+        if num_workers is None:
+            num_workers = min(batch_size, os.cpu_count() - 1)
+
         try:
             self.preprocessor.featurizer.dither = 0.0
             self.preprocessor.featurizer.pad_to = 0
@@ -249,12 +260,17 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, ExportableEncDecJointModel):
             logging.set_verbosity(logging.WARNING)
             # Work in tmp directory - will store manifest file there
             with tempfile.TemporaryDirectory() as tmpdir:
-                with open(os.path.join(tmpdir, 'manifest.json'), 'w') as fp:
+                with open(os.path.join(tmpdir, 'manifest.json'), 'w', encoding='utf-8') as fp:
                     for audio_file in paths2audio_files:
                         entry = {'audio_filepath': audio_file, 'duration': 100000, 'text': 'nothing'}
                         fp.write(json.dumps(entry) + '\n')
 
-                config = {'paths2audio_files': paths2audio_files, 'batch_size': batch_size, 'temp_dir': tmpdir}
+                config = {
+                    'paths2audio_files': paths2audio_files,
+                    'batch_size': batch_size,
+                    'temp_dir': tmpdir,
+                    'num_workers': num_workers,
+                }
 
                 temporary_datalayer = self._setup_transcribe_dataloader(config)
                 for test_batch in tqdm(temporary_datalayer, desc="Transcribing"):
@@ -262,7 +278,10 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, ExportableEncDecJointModel):
                         input_signal=test_batch[0].to(device), input_signal_length=test_batch[1].to(device)
                     )
                     best_hyp, all_hyp = self.decoding.rnnt_decoder_predictions_tensor(
-                        encoded, encoded_len, return_hypotheses=return_hypotheses
+                        encoded,
+                        encoded_len,
+                        return_hypotheses=return_hypotheses,
+                        partial_hypotheses=partial_hypothesis,
                     )
 
                     hypotheses += best_hyp
@@ -640,7 +659,6 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, ExportableEncDecJointModel):
         if hasattr(self, '_trainer') and self._trainer is not None:
             log_every_n_steps = self._trainer.log_every_n_steps
             sample_id = self._trainer.global_step
-
         else:
             log_every_n_steps = 1
             sample_id = batch_nb
@@ -691,6 +709,23 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, ExportableEncDecJointModel):
             self._optim_normalize_txu = [encoded_len.max(), transcript_len.max()]
 
         return {'loss': loss_value}
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        signal, signal_len, transcript, transcript_len, sample_id = batch
+
+        # forward() only performs encoder forward
+        if isinstance(batch, DALIOutputs) and batch.has_processed_signal:
+            encoded, encoded_len = self.forward(processed_signal=signal, processed_signal_length=signal_len)
+        else:
+            encoded, encoded_len = self.forward(input_signal=signal, input_signal_length=signal_len)
+        del signal
+
+        best_hyp_text, all_hyp_text = self.decoding.rnnt_decoder_predictions_tensor(
+            encoder_output=encoded, encoded_lengths=encoded_len, return_hypotheses=False
+        )
+
+        sample_id = sample_id.cpu().detach().numpy()
+        return list(zip(sample_id, best_hyp_text))
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         signal, signal_len, transcript, transcript_len = batch
@@ -810,7 +845,7 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, ExportableEncDecJointModel):
             'batch_size': batch_size,
             'trim_silence': False,
             'shuffle': False,
-            'num_workers': min(batch_size, os.cpu_count() - 1),
+            'num_workers': config.get('num_workers', min(batch_size, os.cpu_count() - 1)),
             'pin_memory': True,
         }
 
@@ -859,3 +894,16 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, ExportableEncDecJointModel):
                 if param.grad is not None:
                     norm = param.grad.norm()
                     param.grad.data.div_(norm)
+
+    def export(self, output: str, input_example=None, **kwargs):
+        encoder_exp, encoder_descr = self.encoder.export(
+            self._augment_output_filename(output, 'Encoder'), input_example=input_example, **kwargs,
+        )
+        decoder_joint = RNNTDecoderJoint(self.decoder, self.joint)
+        decoder_exp, decoder_descr = decoder_joint.export(
+            self._augment_output_filename(output, 'Decoder-Joint'),
+            # TODO: propagate from export()
+            input_example=None,
+            **kwargs,
+        )
+        return encoder_exp + decoder_exp, encoder_descr + decoder_descr
