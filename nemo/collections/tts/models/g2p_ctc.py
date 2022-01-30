@@ -89,8 +89,9 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
 
         # Load pretrained T5 model from HuggingFace
         config = AutoConfig.from_pretrained(self.model_name)
-        config.dropout_rate = 0.4
-        print("---> DROPOUT: 0.4")
+        if self._cfg.dropout is not None:
+            config.dropout_rate = self._cfg.dropout
+        print(f"\nDROPOUT: {config.dropout_rate}")
         self.encoder = AutoModel.from_pretrained(self.model_name,  config=config).encoder
         # add encoder hidden dim size to the config
         self._cfg.decoder.feat_in = self.encoder.config.d_model
