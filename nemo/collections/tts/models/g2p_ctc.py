@@ -22,7 +22,7 @@ import torch
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import Trainer
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer, AutoConfig
 
 from nemo.collections.asr.losses.ctc import CTCLoss
 from nemo.collections.asr.metrics.wer import word_error_rate
@@ -88,7 +88,10 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
         super().__init__(cfg, trainer)
 
         # Load pretrained T5 model from HuggingFace
-        self.encoder = AutoModel.from_pretrained(self.model_name).encoder
+        config = AutoConfig.from_pretrained(self.model_name)
+        config.dropout_rate = 0.4
+        print("---> DROPOUT: 0.4")
+        self.encoder = AutoModel.from_pretrained(self.model_name,  config=config).encoder
         # add encoder hidden dim size to the config
         self._cfg.decoder.feat_in = self.encoder.config.d_model
         self.decoder = EncDecCTCModel.from_config_dict(self._cfg.decoder)
