@@ -89,6 +89,7 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
 
         # Load pretrained T5 model from HuggingFace
         config = AutoConfig.from_pretrained(self.model_name)
+
         if self._cfg.dropout is not None:
             config.dropout_rate = self._cfg.dropout
         print(f"\nDROPOUT: {config.dropout_rate}")
