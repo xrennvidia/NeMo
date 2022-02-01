@@ -30,6 +30,11 @@ def run(model, num_samples, tokens_to_generate, temperature):
             val_json_dri = val_json[dri_val]
             for vali in val_json_dri:
 
+                if vali['drug'] == '{none}':
+                    none_counter += 1
+                    if none_counter > 100:
+                        continue
+
                 prompts = []
                 prop_none_prompts = 0.2
                 num_none_prompts = int(round(num_samples * prop_none_prompts))

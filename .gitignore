@@ -174,3 +174,6 @@ examples/neural_graphs/*.yml
 .hydra/
 nemo_experiments/
 
+lightning_logs/
+*.csv
+tutorials/nlp/TMP_DATA_DIR/
