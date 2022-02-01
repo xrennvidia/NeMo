@@ -16,6 +16,8 @@ import math
 import os
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Union
+import librosa
+import soundfile as sf
 
 import braceexpand
 import librosa
@@ -1088,7 +1090,11 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
                 trim=self.trim,
                 orig_sr=sample.orig_sr,
             )
+            
+            sf.write(f"/home/yangzhang/code/NeMo/examples/asr/asr_ctc/mixed_gen/{i}.wav", features, 16000)
+            sf.write(f"/home/yangzhang/code/NeMo/examples/asr/asr_ctc/pure_gen/{i}.wav", speaker_features, 16000)
             speaker_embedding = speaker_features
+
         else:
             features = self.featurizer.process(
                 sample.audio_file, offset=offset, duration=sample.duration, trim=self.trim, orig_sr=sample.orig_sr

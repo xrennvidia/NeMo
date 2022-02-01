@@ -43,10 +43,10 @@ model:
     speaker_embedding_manifest: None
     augmentor:
       rir_noise_speaker:
-        prob: 0.8
+        prob: 1.0
         rir_manifest_path: ???
         rir_tar_filepaths: None
-        rir_prob: 0.8
+        rir_prob: 0
         noise_manifest_paths: ???
         min_snr_db: [0]
         max_snr_db: [50]
