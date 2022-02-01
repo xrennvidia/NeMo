@@ -190,14 +190,15 @@ def main():
     response = trainer.predict(model, request_dl)
     with open('gpt_prompt_tuning-' + os.path.basename(args.model_file )[:-5] +\
         '-' + str(args.tokens_to_generate) +\
-        '-calc_loss_on_answer_False_indvs.csv', 'w') as csvfw:
+        '-calc_loss_on_answer_False_indvs.csv', 'w', encoding='utf-8') as csvfw:
         csvw = csv.writer(csvfw, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
         counter = 0
         for bi, response_bi in enumerate(response):
             for i, response_i in enumerate(response_bi):
                 response_str = response_i[0]
                 prompts_pred.append(response_str)
-                predict = response_str[response_str.find('[answer]: ')+10:response_str.rfind('}')+1]
+                predict = response_str[response_str.find('[answer]:')+9:response_str.rfind('}')+1]
+                predict = predict.lstrip().rstrip()
                 predicts.append(predict)
                 if answers[counter] != '{none}':
                     csvw.writerow([prompts_org[counter], response_str])
