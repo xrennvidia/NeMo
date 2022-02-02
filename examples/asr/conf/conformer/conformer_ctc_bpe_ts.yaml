@@ -58,6 +58,7 @@ model:
         bg_max_snr_db: [50]
         bg_noise_manifest_paths: ???
         bg_noise_tar_filepaths: None
+        apply_foreground_noise: False
     manifest_filepath: ???
     sample_rate: ${model.sample_rate}
     batch_size: 16 # you may increase batch_size if your memory allows

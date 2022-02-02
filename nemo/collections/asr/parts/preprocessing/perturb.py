@@ -677,11 +677,10 @@ class RirNoiseSpeakerPerturbation(Perturbation):
         bg_max_snr_db=50,
         bg_noise_tar_filepaths=None,
         bg_orig_sample_rate=None,
-        max_gain_db=300.0,
+        apply_foreground_noise=False,
     ):
 
         logging.info("Called Rir aug init")
-        self._max_gain_db = max_gain_db
         self._rir_prob = rir_prob
         self._rng = random.Random()
         self._rir_perturber = ImpulsePerturbation(
@@ -722,6 +721,7 @@ class RirNoiseSpeakerPerturbation(Perturbation):
                 )
 
         self._apply_noise_rir = apply_noise_rir
+        self._apply_foreground_noise = apply_foreground_noise
 
     def perturb(self, data, other_utterance, other_speaker):
         prob = self._rng.uniform(0.0, 1.0)
@@ -744,40 +744,40 @@ class RirNoiseSpeakerPerturbation(Perturbation):
         if prob < self._rir_prob:
             self._rir_perturber.perturb(data)
             self._rir_perturber.perturb(other_utterance)
-        if self._apply_noise_rir:
-            self._rir_perturber.perturb(noise)
-        fg_perturber.perturb_with_foreground_noise(
-            data, noise, data_rms=data.rms_db, max_noise_dur=self._max_duration, max_additions=self._max_additions
-        )
-        fg_perturber.perturb_with_foreground_noise(
-            other_utterance,
-            noise,
-            data_rms=other_utterance.rms_db,
-            max_noise_dur=self._max_duration,
-            max_additions=self._max_additions,
-        )
+            if self._apply_noise_rir:
+                self._rir_perturber.perturb(noise)
+
+        if self._apply_foreground_noise:
+            fg_perturber.perturb_with_foreground_noise(
+                data, noise, data_rms=data.rms_db, max_noise_dur=self._max_duration, max_additions=self._max_additions
+            )
+            fg_perturber.perturb_with_foreground_noise(
+                other_utterance,
+                noise,
+                data_rms=other_utterance.rms_db,
+                max_noise_dur=self._max_duration,
+                max_additions=self._max_additions,
+            )
         bg_perturber.perturb_with_input_noise(data, noise, data_rms=data.rms_db)
         bg_perturber.perturb_with_input_noise(other_utterance, noise, data_rms=other_utterance.rms_db)
 
-    def perturb_with_other_input(self, data, noise):
+    def perturb_with_other_input(self, data, noise, min_gain_ratio=0.3, max_gain_ratio=0.6):
         data_rms = data.rms_db
-        noise_gain_db = min(data_rms - noise.rms_db-10, self._max_gain_db)
-        # logging.debug("noise: %s %s %s", snr_db, noise_gain_db, noise_record.audio_file)
+        gain_ratio = self._rng.uniform(min_gain_ratio, max_gain_ratio)
+        noise_gain_db = gain_ratio * data_rms
+        noise_dur = self._rng.uniform(0.0, noise.duration)
+        start_time = self._rng.uniform(0.0, noise.duration)
+        start_sample = int(round(start_time * noise.sample_rate))
+        end_sample = int(round(min(noise.duration, (start_time + noise_dur)) * noise.sample_rate))
+        noise_samples = np.copy(noise._samples[start_sample:end_sample])
+            # adjust gain for snr purposes and superimpose
+        noise_samples *= 10.0 ** (noise_gain_db / 20.0)
 
-        # calculate noise segment to use
-        start_time = self._rng.uniform(0.0, noise.duration - data.duration)
-        if noise.duration > (start_time + data.duration):
-            noise.subsegment(start_time=start_time, end_time=start_time + data.duration)
+        if noise_samples.shape[0] > data._samples.shape[0]:
+            noise_samples = noise_samples[0 : data._samples.shape[0]]
 
-        # adjust gain for snr purposes and superimpose
-        noise.gain_db(noise_gain_db)
-
-        if noise._samples.shape[0] < data._samples.shape[0]:
-            noise_idx = self._rng.randint(0, data._samples.shape[0] - noise._samples.shape[0])
-            data._samples[noise_idx : noise_idx + noise._samples.shape[0]] += noise._samples
-
-        else:
-            data._samples += noise._samples
+        noise_idx = self._rng.randint(0, data._samples.shape[0] - noise_samples.shape[0])
+        data._samples[noise_idx : noise_idx + noise_samples.shape[0]] += noise_samples
 
 class TranscodePerturbation(Perturbation):
     """
