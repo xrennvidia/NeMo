@@ -247,7 +247,17 @@ class SentencePieceTokenizer(TokenizerSpec):
 
     @property
     def vocab(self):
-        main_vocab = [self.tokenizer.id_to_piece(id) for id in range(self.tokenizer.get_piece_size())]
+        import pickle
+        import pathlib
+        cache_file = '/tmp/vocab.pickle'
+        if pathlib.Path(cache_file).exists():
+            with open(cache_file, 'rb') as f:
+                main_vocab = pickle.load(f)
+        else:
+            main_vocab = [self.tokenizer.id_to_piece(id) for id in range(self.tokenizer.get_piece_size())]
+            with open(cache_file, 'wb') as f:
+                pickle.dump(main_vocab, f)
+        # main_vocab = [self.tokenizer.id_to_piece(id) for id in range(self.tokenizer.get_piece_size())]
         special_tokens = [
             self.id_to_special_token[self.original_vocab_size + i]
             for i in range(self.vocab_size - self.original_vocab_size)

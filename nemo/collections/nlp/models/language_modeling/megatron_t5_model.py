@@ -118,6 +118,7 @@ class MegatronT5Model(NLPModel):
         lm_labels=None,
         enc_hidden_states=None,
         output_enc_hidden_only=False,
+        encoder_input=None,
     ):
         result = self.model(
             encoder_input_ids=encoder_input_ids,
@@ -129,6 +130,7 @@ class MegatronT5Model(NLPModel):
             lm_labels=lm_labels,
             enc_hidden_states=enc_hidden_states,
             output_enc_hidden_only=output_enc_hidden_only,
+            encoder_input=encoder_input,
         )
         if not output_enc_hidden_only:
             return result[0], result[1]
@@ -359,7 +361,7 @@ class MegatronT5Model(NLPModel):
         history_mask = history_mask.expand(batch, length, length)
         return history_mask
 
-    def decode(self, tokens_enc, enc_mask, num_tokens_to_generate):
+    def decode(self, tokens_enc, enc_mask, num_tokens_to_generate, encoder_input=None):
         encoder_hidden_states = self(
             encoder_input_ids=tokens_enc,
             decoder_input_ids=None,
@@ -370,6 +372,7 @@ class MegatronT5Model(NLPModel):
             lm_labels=None,
             enc_hidden_states=None,
             output_enc_hidden_only=True,
+            encoder_input=encoder_input,
         )
         predicted_tokens_dec = torch.LongTensor([self.tokenizer.bos_id] * tokens_enc.size(0)).unsqueeze(1).to(tokens_enc.device)
 
@@ -396,6 +399,7 @@ class MegatronT5Model(NLPModel):
                 lm_labels=None,
                 enc_hidden_states=encoder_hidden_states,
                 output_enc_hidden_only=False,
+                encoder_input=encoder_input,
             )
             output_tensor = tensor_parallel.gather_from_tensor_model_parallel_region(output_tensor)
             log_probs, token_ids = torch.max(nn.functional.log_softmax(output_tensor, dim=-1), dim=-1)

@@ -164,6 +164,7 @@ class T5Model(MegatronModule):
         lm_labels=None,
         enc_hidden_states=None,
         output_enc_hidden_only=False,
+        encoder_input=None,
     ):
 
         # Converting the attention masks to proper parameter settings
@@ -187,6 +188,7 @@ class T5Model(MegatronModule):
             tokentype_ids=tokentype_ids,
             enc_hidden_states=enc_hidden_states,
             output_enc_hidden_only=output_enc_hidden_only,
+            encoder_input=encoder_input
         )
 
         if output_enc_hidden_only:
