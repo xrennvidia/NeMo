@@ -78,6 +78,24 @@ model:
     bucketing_batch_size: null
 
   validation_ds:
+    augmentor:
+      rir_noise_speaker:
+        prob: 1.0
+        rir_manifest_path: ???
+        rir_tar_filepaths: None
+        rir_prob: 0
+        noise_manifest_paths: ???
+        min_snr_db: [0]
+        max_snr_db: [50]
+        noise_tar_filepaths: None
+        apply_noise_rir: True
+        max_additions: 1
+        max_duration: 2.0
+        bg_min_snr_db: [10]
+        bg_max_snr_db: [50]
+        bg_noise_manifest_paths: ???
+        bg_noise_tar_filepaths: None
+        apply_foreground_noise: False
     speaker_embeddings: ${model.speaker_embeddings}
     speaker_embedding_manifest: None
     manifest_filepath: ???

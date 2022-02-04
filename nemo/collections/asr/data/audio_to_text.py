@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from genericpath import exists
 import io
 import math
 import os
@@ -28,6 +29,7 @@ import webdataset as wd
 from scipy.stats import betabinom
 from torch.nn import functional as F
 from torch.utils.data import ChainDataset
+import json
 
 from nemo.collections.asr.parts.preprocessing.features import WaveformFeaturizer, WaveformFeaturizerAndEmbedding
 from nemo.collections.common.parts.preprocessing import collections, parsers
@@ -1040,6 +1042,18 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
         else:
             # load spaker embeddings from manifest
             self.speaker_embeddings = None
+        
+        self.eval_dir= '/home/yangzhang/code/ts_asr/data/ls_dev_clean_mixed'
+        self.eval_individual_dir= '/home/yangzhang/code/ts_asr/data/ls_dev_clean_aux_utterance'
+        self.manifest_eval= self.eval_dir + '/manifest.json'
+        self.manifest_eval_aux_utterance= self.eval_individual_dir + '/manifest.json'
+        os.makedirs(self.eval_dir, exist_ok=True)
+        os.makedirs(self.eval_individual_dir, exist_ok=True)
+        with open(self.manifest_eval, 'w') as fp:
+            pass
+        with open(self.manifest_eval_aux_utterance, 'w') as fp:
+            pass
+        self.manifest_filepath = manifest_filepath
 
     def __getitem__(self, index):
         sample = self.manifest_processor.collection[index]
@@ -1059,9 +1073,9 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
                 if index == self.manifest_processor.collection.speaker_mapping[target_speaker][i]:
                     i += 1
                 other_utterance_index = self.manifest_processor.collection.speaker_mapping[target_speaker][i]
-                other_utterance_file = self.manifest_processor.collection[other_utterance_index]
-                other_utterance_duration = other_utterance_file.duration
-                other_utterance_file = other_utterance_file.audio_file
+                other_utterance = self.manifest_processor.collection[other_utterance_index]
+                other_utterance_duration = other_utterance.duration
+                other_utterance_file = other_utterance.audio_file
 
             if len(self.manifest_processor.collection.speaker_mapping) - 1 == 0:
                 other_speaker_file = None
@@ -1090,9 +1104,18 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
                 trim=self.trim,
                 orig_sr=sample.orig_sr,
             )
-            
-            sf.write(f"/home/yangzhang/code/NeMo/examples/asr/asr_ctc/mixed_gen/{i}.wav", features, 16000)
-            sf.write(f"/home/yangzhang/code/NeMo/examples/asr/asr_ctc/pure_gen/{i}.wav", speaker_features, 16000)
+            # for generating eval data
+            # if "dev" in self.manifest_filepath:
+            #     f = f"{self.eval_dir}/{index}.wav"
+            #     sf.write(f, features, 16000)
+            #     with open(self.manifest_eval, 'a') as fp:
+            #         tmp = {"audio_filepath": f, "individual_audio_file": sample.audio_file, "speaker": target_speaker, "duration": sample.duration, "text": sample.text_raw}
+            #         fp.write(json.dumps(tmp) + "\n")
+            #     f = f"{self.eval_individual_dir}/{index}.wav"
+            #     sf.write(f, speaker_features, 16000)
+            #     with open(self.manifest_eval_aux_utterance, 'a') as fp:
+            #         tmp = {"audio_filepath": f, "individual_audio_file": other_utterance.audio_file, "speaker": target_speaker, "duration": other_utterance.duration, "text": other_utterance.text_raw}
+            #         fp.write(json.dumps(tmp) + "\n")
             speaker_embedding = speaker_features
 
         else:

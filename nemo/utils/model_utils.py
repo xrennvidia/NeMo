@@ -174,9 +174,10 @@ def parse_dataset_as_name(name: str) -> str:
 
     if 'dataset' in name:
         name = name.replace('dataset', '')
-
+  
     if '_' != name[-1]:
         name = name + '_'
+
 
     return name
 

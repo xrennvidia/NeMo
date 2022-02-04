@@ -41,7 +41,7 @@ from nemo.utils import logging, model_utils
 
 __all__ = ['TSEncDecCTCModelBPE']
 
-
+all_embs = []
 class TSEncDecCTCModelBPE(EncDecCTCModelBPE):
     """Encoder decoder CTC-based models with Byte Pair Encoding."""
 
@@ -126,6 +126,9 @@ class TSEncDecCTCModelBPE(EncDecCTCModelBPE):
                     input_signal=speaker_embedding, input_signal_length=embedding_lengths
                 )
                 speaker_embedding = speaker_embedding.detach()
+                emb_shape = speaker_embedding.shape[-1]
+                embs = speaker_embedding.view(-1, emb_shape)
+                all_embs.extend(embs.cpu().detach().numpy())
         speaker_embedding = self.f1(speaker_embedding).unsqueeze(-1).repeat(1, 1, encoded.shape[2])
         encoded += speaker_embedding
         log_probs = self.decoder(encoder_output=encoded)
