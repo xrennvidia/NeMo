@@ -94,7 +94,7 @@ class MegatronT5PTuneModel(NLPModel):
         queries_for_embedding = queries.clone()
 
         queries_for_embedding[(queries == self.pseudo_token_id)] = self.pad_token_id
-        raw_embeds = self.embeddings(queries_for_embedding)
+        raw_embeds = self.embeddings(queries_for_embedding).clone()
 
         blocked_indices = (
             (queries == self.pseudo_token_id).nonzero().reshape((bz, self.spell_length, 2))[:, :, 1]
