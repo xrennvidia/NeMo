@@ -22,10 +22,10 @@ exp_manager:
   explicit_log_dir: null
   exp_dir: null
   name: megatron_gpt
-  create_wandb_logger: False
+  create_wandb_logger: True
   wandb_logger_kwargs:
-    project: null
-    name: null
+    project: prompt_tuing
+    name: pr-tuning_bc7tr3-loss_on_answers_only-plen100_5b-01
   resume_if_exists: True
   resume_ignore_no_checkpoint: True
   create_checkpoint_callback: True
@@ -41,17 +41,17 @@ exp_manager:
 
 model:
   # model parallelism 
-  micro_batch_size: 4
-  tensor_model_parallel_size: 1
+  micro_batch_size: 2
+  tensor_model_parallel_size: 2
 
   # model architecture
-  encoder_seq_length: 512
+  encoder_seq_length: 2048
   max_position_embeddings: ${.encoder_seq_length}
-  num_layers: 12
-  hidden_size: 768
-  ffn_hidden_size: 3072 # Transformer FFN hidden size. Usually 4 * hidden_size.
-  num_attention_heads: 12
-  init_method_std: 0.02 # Standard deviation of the zero mean normal distribution used for weight initialization.')
+  num_layers: 24
+  hidden_size: 4096
+  ffn_hidden_size: 16384 # Transformer FFN hidden size. Usually 4 * hidden_size.
+  num_attention_heads: 32
+  init_method_std: 0.01 # Standard deviation of the zero mean normal distribution used for weight initialization.')
   hidden_dropout: 0.1 # Dropout probability for hidden state transformer.
   kv_channels: null # Projection weights dimension in multi-head attention. Set to hidden_size // num_attention_heads if null
   apply_query_key_layer_scaling: True # scale Q * K^T by 1 / layer-number.

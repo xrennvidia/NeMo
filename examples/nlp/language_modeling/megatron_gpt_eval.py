@@ -164,6 +164,10 @@ def main():
 
             prompt_ = prompt[:prompt.find('[answer]:')+9] + '"}'
             answer = prompt[prompt.find('[answer]: ')+10:prompt.rfind('"')]
+            if answer == '{none}':
+                none_counter += 1
+                if none_counter > 100:
+                    continue
             prompts_org.append(prompt)
             answers.append(answer)
             if args.use_soft_prompts and model.use_soft_prompts:

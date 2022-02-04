@@ -1,6 +1,12 @@
-import os, json, unittest
+import os, json, unittest, re, random
 import pandas as pd
 
+from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
+from nemo.collections.nlp.data.text_classification.ptune_text_classification_dataset import (
+    token_wrapper,
+)
+
+random.seed(1234)
 
 bc7_tr3_datadir = '/datasets/bc7/Track-3_Med-Tweets'
 
@@ -93,6 +99,47 @@ def load_tsv_convert_to_json(part: str = 'train', method: str = 'few-shot', calc
             'w', encoding='utf-8') as f:
             for jsoni in prompt_tuning_dict:
                 f.write(json.dumps(jsoni) + '\n')
+    elif method == 'p-tuning':
+        tokenizer = get_nmt_tokenizer(
+            library='megatron',
+            model_name='GPT2BPETokenizer',
+            tokenizer_model=None,
+            vocab_file='/datasets/data/gpt2-vocab.json',
+            merges_file='/datasets/data/gpt2-merges.txt',
+        )
+        vocab = tokenizer.tokenizer.get_vocab()
+        df2['drug'] = df2['drug'].str.replace('{', '').str.replace('}','')
+        drug_list = df2['drug'].unique()
+        drug_list_1word = []
+        for dri in drug_list:
+            for drii in re.findall(r'[^-\s]+', dri):
+                if drii not in drug_list_1word and token_wrapper(drii) in vocab:
+                    drug_list_1word.append(drii)
+        with open(os.path.join(bc7_tr3_datadir, 'bc7_tr3-p_tuning_' +\
+            part + '-drug_labels.txt'), 
+            'w', encoding='utf-8') as f:
+            f.write('"' + str(drug_list_1word) + '"')
+
+        drug_list_1word_set = set(drug_list_1word)
+        p_tuning_dict_list = []
+        for idx, row in df2[df2['drug'] != 'none'].iterrows():
+            drug_set = re.findall(r'[^-\s]+', row['drug'])
+            drug_mention_overlap = drug_list_1word_set.intersection(set(drug_set))
+            if drug_mention_overlap:        
+                p_tuning_dict_list.append({'sentence': row['text'],
+                                            'label': list(drug_mention_overlap)[-1]})
+
+        df2['sentence'] = df2['text'] + ' Drug '
+        df2['label'] = df2['drug']
+        df3 = df2[['sentence', 'label']]
+        p_tuning_dict_none = json.loads(df3[df3['label']=='none'].to_json(orient='records'))
+        p_tuning_dict_list += p_tuning_dict_none
+        random.shuffle(p_tuning_dict_list)
+        with open(os.path.join(bc7_tr3_datadir, 'bc7_tr3-p_tuning_' +\
+            part + '.json'), 
+            'w', encoding='utf-8') as f:
+            for jsoni in p_tuning_dict_list:
+                f.write(json.dumps(jsoni) + '\n')
     else:
         raise('unknown method')
 
@@ -101,7 +148,7 @@ def load_tsv_convert_to_json(part: str = 'train', method: str = 'few-shot', calc
     
 if __name__ == "__main__":
     results = []
-    methods = ['prompt-tuning']#'few-shot', 'prompt-tuning']
+    methods = ['p-tuning']#'prompt-tuning', 'few-shot', 'prompt-tuning']
     calc_loss_on_answer = True
     for methodi in methods:
         results.append(load_tsv_convert_to_json('train', methodi, calc_loss_on_answer))
