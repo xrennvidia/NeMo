@@ -58,7 +58,6 @@ from nemo.core.connectors.save_restore_connector import SaveRestoreConnector
 from nemo.core.optim import MainParamsOptimizerWrapper
 from nemo.utils import AppState, logging
 
-
 class NLPDDPPlugin(DDPPlugin):
     """ DDP plugin for Pytorch Lightning. Needed to customize DDP for model parallel models.
 
@@ -219,9 +218,13 @@ class NLPDDPPlugin(DDPPlugin):
 class NLPSaveRestoreConnector(SaveRestoreConnector):
     def __init__(self) -> None:
         if not HAVE_APEX:
-            raise ImportError(
-                "Apex was not found. Please see the NeMo README for installation instructions: https://github.com/NVIDIA/NeMo#megatron-gpt."
+            logging.warning(
+                "Apex was not found. Please see the NeMo README for installation instructions: https://github.com/NVIDIA/apex\n"
+                "Megatron-based models require Apex to function correctly."
             )
+            # raise ImportError(
+            #    "Apex was not found. Please see the NeMo README for installation instructions: https://github.com/NVIDIA/NeMo#megatron-gpt."
+            # )
         super().__init__()
 
     def save_to(self, model, save_path: str):
