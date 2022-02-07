@@ -21,7 +21,7 @@ from pytorch_lightning.plugins.environments.torchelastic_environment import Torc
 from pytorch_lightning.plugins.precision.native_amp import NativeMixedPrecisionPlugin
 from pytorch_lightning.trainer.connectors.checkpoint_connector import CheckpointConnector
 
-from nemo.collections.nlp.models.t0.megatron_t0_model import MegatronT0Model
+from nemo.collections.nlp.models.language_modeling.megatron_t0_model import MegatronT0Model
 from nemo.collections.nlp.modules.common.megatron.megatron_utils import compute_model_parallel_rank
 from nemo.collections.nlp.parts.nlp_overrides import GradScaler, NLPDDPPlugin
 from nemo.core.config import hydra_runner
@@ -29,7 +29,7 @@ from nemo.utils import logging
 from nemo.utils.exp_manager import StatelessTimer, exp_manager
 
 
-@hydra_runner(config_path="conf", config_name="megatron_t0_config")
+@hydra_runner(config_path="../t0/conf", config_name="megatron_t0_config")
 def main(cfg) -> None:
     logging.info("\n\n************** Experiment configuration ***********")
     logging.info(f'\n{OmegaConf.to_yaml(cfg)}')

@@ -20,19 +20,19 @@
 import os
 import json
 import pickle
-from typing import Dict, List, Optional, Union
+from typing import Dict, Optional
 
 import numpy as np
 import torch
 
 from nemo.collections.common.tokenizers.tokenizer_spec import TokenizerSpec
-from nemo.collections.nlp.data.t0.multitask_data_manager import get_guid
+from nemo.collections.nlp.data.language_modeling.t0_task_manager import get_guid
 from nemo.collections.nlp.data.language_modeling.megatron.t5_dataset import (
     make_attention_mask_3d,
     make_history_mask_3d,
 )
 from nemo.core.classes import Dataset
-from nemo.core.neural_types import CategoricalValuesType, ChannelType, MaskType, NeuralType, RegressionValuesType
+from nemo.core.neural_types import NeuralType
 from nemo.utils import logging
 
 

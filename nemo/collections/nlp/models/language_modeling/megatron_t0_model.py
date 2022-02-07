@@ -13,15 +13,14 @@
 # limitations under the License.
 
 import re
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 import numpy as np
 import torch
-from apex.transformer import parallel_state, tensor_parallel
 from omegaconf.dictconfig import DictConfig
 from pytorch_lightning.trainer.trainer import Trainer
 
-from nemo.collections.nlp.data.t0.multitask_data_manager import (
+from nemo.collections.nlp.data.language_modeling.t0_task_manager import (
     DATA_ORG, t0_all_evaldt_names_subset,
     get_data_paths_and_splits
 )
@@ -29,20 +28,8 @@ from nemo.collections.nlp.data.t0.t0_dataset import T0Dataset
 from nemo.collections.common.data.dataset import ConcatDataset
 from nemo.collections.nlp.models.language_modeling.megatron_glue_model import MegatronT5FineTuneModel
 
-from nemo.collections.nlp.data.language_modeling.megatron.data_samplers import (
-    MegatronPretrainingRandomSampler,
-    MegatronPretrainingSampler,
-)
-from nemo.collections.nlp.data.language_modeling.megatron.dataset_utils import build_train_valid_test_datasets
-from nemo.collections.nlp.models.language_modeling.megatron_t5_model import MegatronT5Model
-from nemo.collections.nlp.models.nlp_model import NLPModel
-from nemo.collections.nlp.modules.common.megatron.megatron_init import (
-    initialize_model_parallel_for_nemo,
-    set_jit_fusion_options,
-)
 from nemo.collections.nlp.modules.common.megatron.utils import average_losses_across_data_parallel_group
-from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
-from nemo.utils import AppState, logging
+from nemo.utils import logging
 
 
 class MegatronT0Model(MegatronT5FineTuneModel):

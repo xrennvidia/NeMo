@@ -4,7 +4,7 @@ import json
 from datasets import load_dataset
 from argparse import ArgumentParser
 from promptsource.templates import DatasetTemplates
-from nemo.collections.nlp.data.t0.multitask_data_manager import (
+from nemo.collections.nlp.data.language_modeling.t0_task_manager import (
     get_data_paths_and_splits,
     t0pp_traindt_names_subset,
     t0_all_evaldt_names_subset
