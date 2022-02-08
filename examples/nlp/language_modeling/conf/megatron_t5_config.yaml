@@ -5,7 +5,7 @@ trainer:
   gpus: 1
   num_nodes: 1
   accelerator: ddp
-  precision: 16
+  precision: bf16
   logger: False # logger provided by exp_manager
   checkpoint_callback: False
   replace_sampler_ddp: False
@@ -84,7 +84,7 @@ model:
 
   # Megatron O2-style half-precision
   megatron_amp_O2: True # Enable O2-level automatic mixed precision using master parameters
-  fp32_grad_accum: False # Execute gradient accumulation and  all-reduce in fp32
+  fp32_grad_accum: True # Execute gradient accumulation and  all-reduce in fp32
   contiguous_grad_bucket: True # Allocate master gradients in the contiguous memory space
   async_grad_allreduce: False # Asynchronous master gradient all-reduce with a training step
 
