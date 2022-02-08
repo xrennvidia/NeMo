@@ -97,7 +97,7 @@ class T0Dataset(Dataset):
         self.tokenizer = tokenizer
         self.use_cache = use_cache
         self.extension = extension
-        self.prompt_type_id = {}
+        self.prompt_id = {}
         evaluate = False if 'train' in file_path else True  # TODO: needed?
 
         self.max_seq_length = max_seq_length
@@ -128,7 +128,7 @@ class T0Dataset(Dataset):
             if master_device:
                 logging.info(f'Saving train features into {cached_features_file}')
                 with open(cached_features_file, "wb") as writer:
-                    pickle.dump(self.features, writer)
+                    pickle.dump(features, writer)
         return features
 
     def get_prompted_examples(self, file_path, task_name, subset):
@@ -142,7 +142,7 @@ class T0Dataset(Dataset):
                         guid=get_guid(task_name, subset),
                         text=data['input'],
                         prompt_id=self.prompt_id[prompt_type],
-                        label=data['label']
+                        label=data['output']
                     ))
         return examples
 
@@ -167,8 +167,10 @@ class T0Dataset(Dataset):
 
             dec_input = dec_query[:-1]
             labels = dec_query[1:]
+            guid = [example.guid]
+            prompt_id = [example.prompt_id]
 
-            features.append([enc_query, dec_input, labels, example.guid, example.prompt_id])
+            features.append([enc_query, dec_input, labels, guid, prompt_id])
 
         return features
 
@@ -176,6 +178,7 @@ class T0Dataset(Dataset):
         return len(self.examples)
 
     def __getitem__(self, idx):
+        #TODO: SanDL advises to add code here for on the fly noise injection on the prompts
         enc_query, dec_input, labels, guid, prompt_id = self.features[idx]
         return {
             'text_enc': enc_query,
@@ -186,6 +189,7 @@ class T0Dataset(Dataset):
         }
 
     def collate_fn(self, batch):
+        #TODO: integrate choosing neg and pos examples
         enc_query = [item['text_enc'] for item in batch]
         dec_input = [item['text_dec'] for item in batch]
         labels = [item['labels'] for item in batch]

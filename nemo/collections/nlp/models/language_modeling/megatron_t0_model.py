@@ -17,6 +17,7 @@ from typing import Dict, Optional
 
 import numpy as np
 import torch
+from torch.utils.data import DataLoader
 from omegaconf.dictconfig import DictConfig
 from pytorch_lightning.trainer.trainer import Trainer
 
@@ -24,7 +25,7 @@ from nemo.collections.nlp.data.language_modeling.t0_task_manager import (
     DATA_ORG, t0_all_evaldt_names_subset,
     get_data_paths_and_splits
 )
-from nemo.collections.nlp.data.t0.t0_dataset import T0Dataset
+from nemo.collections.nlp.data.language_modeling.t0_dataset import T0Dataset
 from nemo.collections.common.data.dataset import ConcatDataset
 from nemo.collections.nlp.models.language_modeling.megatron_glue_model import MegatronT5FineTuneModel
 
@@ -91,7 +92,6 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             lr = self._optimizer.param_groups[0]['lr']
             self.log('lr', lr)
             self.log('global_step', self.trainer.global_step, prog_bar=True)
-            # TODO: what is compute_consumed_samples?
             self.log('consumed_samples', self.compute_consumed_samples(self.trainer.global_step), prog_bar=True)
             self._reduced_loss_buffer = []
 
@@ -137,9 +137,9 @@ class MegatronT0Model(MegatronT5FineTuneModel):
     def validation_step(self, batch, batch_idx):
         return self.inference_step(batch, batch_idx)
 
-    def validation_epoch_end(self, outputs_dict):
+    def validation_epoch_end(self, outputs_list):
         self.log('consumed_samples', self.compute_consumed_samples(self.trainer.global_step))
-        for task_name, outputs in outputs_dict.items:
+        for task_name, outputs in zip(self.validation_task_names, outputs_list):
             val_loss, val_acc = self.inference_epoch_end(outputs)
             self.log('val_loss_%s' % task_name, val_loss, prog_bar=True)
             self.log('val_acc_%s' % task_name, val_acc, prog_bar=True)
@@ -149,8 +149,8 @@ class MegatronT0Model(MegatronT5FineTuneModel):
     def test_step(self, batch, batch_idx):
         return self.inference_step(batch, batch_idx)
 
-    def test_epoch_end(self, outputs_dict):
-        for task_name, outputs in outputs_dict.items:
+    def test_epoch_end(self, outputs_list):
+        for task_name, outputs in zip(self.test_task_names ,outputs_list):
             test_loss, test_acc = self.inference_epoch_end(outputs)
             self.log('test_loss_%s' % task_name, test_loss, prog_bar=True)
             self.log('test_acc_%s' % task_name, test_acc, prog_bar=True)
@@ -171,7 +171,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             for subset in subsets:
                 logging.info('Subset name %s.' % subset)
                 file_name = "_%s_%s.jsonl" % (dt_name, "" if subset is None else subset)
-                _, data_paths = get_data_paths_and_splits(split, self.cfg.data.file_path, file_name, dt_name)
+                _, data_paths = get_data_paths_and_splits(split, self.cfg.data.dir_path, file_name, dt_name)
                 for file_path in data_paths:
                     dataset = T0Dataset(
                         file_path,
@@ -184,9 +184,9 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                     dataset_list["%s_%s" % (dt_name, "" if subset is None else subset)] = dataset
         return dataset_list
 
-    def get_sampling_probs(self, dataset_list):
+    def get_sampling_probs(self, dataset_dict):
         data_sizes = []
-        for dataset in dataset_list:
+        for dataset in dataset_dict:
             data_sizes.append(min(len(dataset), self.cfg.data.max_data_size))
         data_sizes = np.array(data_sizes)
         sampling_probs = data_sizes / np.sum(data_sizes)
@@ -195,9 +195,10 @@ class MegatronT0Model(MegatronT5FineTuneModel):
     def build_train_valid_test_datasets(self):
         # TODO: add cfg.data.t0_type to command args and only allow [t0_train, t0p_train, t0pp_train]:
         logging.info('Building train %s datasets.' % self.cfg.data.t0_type)
-        train_data_list = self.get_dataset_list('train', self.cfg.data.train_ds.max_seq_length)
+        train_data_dict = self.get_dataset_list('train', self.cfg.data.train_ds.max_seq_length)
+        train_data_list = list(train_data_dict.values())
         self._train_ds = ConcatDataset(
-            datasets=train_data_list.values(),
+            datasets=train_data_list,
             shuffle=True,
             sampling_probabilities=self.get_sampling_probs(train_data_list)
         )
@@ -218,10 +219,15 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         if dataset is None:
             return None
 
+        if hasattr(dataset, "collate_fn"):
+            collate_fn = dataset.collate_fn
+        else:
+            collate_fn = dataset.datasets[0].collate_fn
+
         # Torch dataloader.
-        return torch.utils.data.DataLoader(
+        return DataLoader(
             dataset,
-            collate_fn=dataset.collate_fn,
+            collate_fn=collate_fn,
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers,
@@ -253,7 +259,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             self._train_dl = self.build_data_loader(
                 self._train_ds,
                 self.cfg.data.train_ds.batch_size,
-                shuffle=True,
+                shuffle=False,
                 num_workers=self.cfg.data.train_ds.num_workers,
                 pin_memory=True,
             )
@@ -261,24 +267,26 @@ class MegatronT0Model(MegatronT5FineTuneModel):
     def setup_validation_data(self, cfg):
         if hasattr(self, '_validation_ds'):
             consumed_samples = 0
-            self._validation_dl = {task_name: self.build_data_loader(
+            self.validation_task_names = list(self._validation_ds.keys())
+            self._validation_dl = [self.build_data_loader(
                 dataset,
                 self.cfg.data.validation_ds.batch_size,
                 shuffle=False,
                 num_workers=self.cfg.data.validation_ds.num_workers,
                 pin_memory=True,
-            ) for task_name, dataset in self._validation_ds.items()}
+            ) for task_name, dataset in self._validation_ds.values()]
 
     def setup_test_data(self, cfg):
         if hasattr(self, '_test_ds'):
             consumed_samples = 0
-            self._test_dl = {task_name: self.build_data_loader(
+            self.test_task_names = list(self._test_ds.keys())
+            self._test_dl = [self.build_data_loader(
                 dataset,
                 self.cfg.data.test_ds.batch_size,
                 shuffle=False,
                 num_workers=self.cfg.data.test_ds.num_workers,
                 pin_memory=True,
-            ) for task_name, dataset in self._test_ds.items()}
+            ) for task_name, dataset in self._test_ds.values()]
 
 
     def complete(self, request: Dict):

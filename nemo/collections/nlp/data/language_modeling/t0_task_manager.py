@@ -10,6 +10,10 @@ special_splits = {
     }
 }
 
+t0_debug = {
+    'cos_e': 'v1.11', 'cosmos_qa': None,
+}
+
 t0_traindt_names_subset = {
     # Multiple-Choice QA
     'cos_e': 'v1.11', 'cosmos_qa': None, 'commonsense_qa': None, 'dream': None,
@@ -31,7 +35,7 @@ t0_traindt_names_subset = {
     # Topic Classification
     'ag_news': None, 'dbpedia_14': None, 'trec': None,
     # Paraphrase Identification
-    'glue': 'mrpc', 'glue': 'qqp', 'paws': 'labeled_final'
+    'glue': ['mrpc', 'qqp'], 'paws': 'labeled_final'
 }
 t0p_traindt_names_subset = {
     # Multiple-Choice QA
@@ -58,22 +62,25 @@ t0_all_evaldt_names_subset = {
 
 
 DATA_ORG = {
+    "t0_debug": t0_debug,
     "t0_train": t0_traindt_names_subset,
     "t0p_train": t0p_traindt_names_subset,
     "t0pp_train": t0pp_traindt_names_subset,
 }
 
-t0_all_names_subset = t0pp_traindt_names_subset.update(t0_all_evaldt_names_subset)
 
 task_ids_dict = {}
 id = 0
-for task_name, subsets in t0_all_names_subset.items():
-    if not isinstance(subsets, list):
-        subsets = [subsets]
-    for subset in subsets:
-        subset = '' if subset is None else subset
-        task_ids_dict["%s-%s" % (task_name, subset)] = id
-        id += 1
+for task_dict in [t0pp_traindt_names_subset, t0_all_evaldt_names_subset]:
+    for data_name, subsets in task_dict.items():
+        if not isinstance(subsets, list):
+            subsets = [subsets]
+        for subset in subsets:
+            subset = '' if subset is None else subset
+            task_name = "%s-%s" % (data_name, subset)
+            if task_name not in task_ids_dict:
+                task_ids_dict[task_name] = id
+                id += 1
 
 
 def get_data_paths_and_splits(main_splits, data_dir, file_name, dt_name):
