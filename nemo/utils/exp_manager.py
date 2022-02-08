@@ -37,7 +37,6 @@ from pytorch_lightning.trainer.states import RunningStage
 from pytorch_lightning.utilities.distributed import rank_zero_info
 from pytorch_lightning.utilities.types import _METRIC
 
-from nemo.collections.nlp.parts.utils_funcs import uninject_model_parallel_rank
 from nemo.constants import NEMO_ENV_VARNAME_TESTING, NEMO_ENV_VARNAME_VERSION
 from nemo.utils import logging, timers
 from nemo.utils.app_state import AppState
@@ -45,6 +44,7 @@ from nemo.utils.env_var_parsing import get_envbool
 from nemo.utils.exceptions import NeMoBaseException
 from nemo.utils.get_rank import is_global_rank_zero
 from nemo.utils.lightning_logger_patch import add_filehandlers_to_pl_logger
+from nemo.utils.model_utils import uninject_model_parallel_rank
 
 
 class NotFoundError(NeMoBaseException):
@@ -435,7 +435,7 @@ def check_resume(
         else:
             raise NotFoundError(f"There were no checkpoints found in {checkpoint_dir}. Cannot resume.")
     elif len(last_checkpoints) > 1:
-        if 'mp_rank' or 'tp_rank' in str(last_checkpoints[0]):
+        if 'mp_rank' in str(last_checkpoints[0]) or 'tp_rank' in str(last_checkpoints[0]):
             checkpoint = last_checkpoints[0]
             checkpoint = uninject_model_parallel_rank(checkpoint)
         else:
