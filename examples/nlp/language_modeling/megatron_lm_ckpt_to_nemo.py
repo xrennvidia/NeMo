@@ -38,6 +38,7 @@ from nemo.collections.nlp.models.language_modeling.megatron_bert_model import Me
 from nemo.collections.nlp.models.language_modeling.megatron_gpt_model import MegatronGPTModel
 from nemo.collections.nlp.parts.nlp_overrides import NLPSaveRestoreConnector
 from nemo.utils import AppState, logging
+import pathlib
 
 
 def get_args():
@@ -64,7 +65,9 @@ def get_args():
         required=False,
         help="Path config for restoring. It's created during training and may need to be modified during restore if restore environment is different than training. Ex: /raid/nemo_experiments/megatron_gpt/hparams.yaml",
     )
-    parser.add_argument("--nemo_file_path", type=str, default=None, required=True, help="Path to output .nemo file.")
+    parser.add_argument("--nemo_file_path", type=str, default=None, required=False, help="Path to output .nemo file.")
+
+    parser.add_argument("--output_ckpt_file_path", type=str, default=None, required=False, help="Path to output .ckpt file.")
 
     parser.add_argument("--tensor_model_parallel_size", type=int, required=True, default=None)
 
@@ -91,6 +94,40 @@ def parse_weights(weight_dict: OrderedDict, parent_key: str, total: list, conver
             total[0] += num_parameters
             final_key = 'model' + parent_key + '.' + new_key
             converted[final_key] = weight_dict[key]
+
+
+def add_optimizer_state(lm_checkpoint, new_checkpoint):
+    # this method is to convert lm_checkpoint optimizer states for nemo checkpoint
+    OPTIMIZER_KEY = 'optimizer'
+    NEW_OPTIMIZER_KEY = 'optimizer_states'
+    STEP_KEY = 'iteration'
+    NEW_STEP_KEY = 'global_step'
+    LR_SCHEDULER = 'lr_scheduler'
+    NEW_LR_SCHEDULER = 'lr_schedulers'
+    if OPTIMIZER_KEY in lm_checkpoint and OPTIMIZER_KEY in lm_checkpoint[OPTIMIZER_KEY]:
+        opt_state = lm_checkpoint[OPTIMIZER_KEY][OPTIMIZER_KEY]
+        # need to fix the parameters groups
+        if len(opt_state['param_groups'][0]) > 1:
+            opt_state['param_groups'][0]['params'] = opt_state['param_groups'][0]['params'] + opt_state['param_groups'][1]['params']
+            del opt_state['param_groups'][1]
+        new_checkpoint[NEW_OPTIMIZER_KEY] = [opt_state]
+    if STEP_KEY in lm_checkpoint:
+        new_checkpoint[NEW_STEP_KEY] = lm_checkpoint[STEP_KEY]
+        new_checkpoint['epoch'] = 1  # always one epoch
+    if LR_SCHEDULER in lm_checkpoint:
+        sched = lm_checkpoint[LR_SCHEDULER]
+        content = OrderedDict()
+        content['max_steps'] = sched['num_steps']
+        content['warmup_steps'] = sched['warmup_steps']
+        content['constant_steps'] = 0 # no such conf in lm checkpoint
+        content['decay_steps'] = sched['decay_steps']
+        content['min_lr'] = sched['min_lr']
+        content['base_lrs'] = [sched['min_lr']] # no such conf in lm checkpoint
+        content['last_epoch'] = 0 # no such conf
+        content['_step_count'] = 0 # no such conf
+        content['verbose'] = False
+        content['_get_lr_called_within_step'] = False
+        new_checkpoint[NEW_LR_SCHEDULER] = [content]
 
 
 def load_from_checkpoint(
@@ -190,6 +227,10 @@ def load_from_checkpoint(
         if 'trainer' in config_kwargs:
             config_kwargs.pop('trainer')
         checkpoint[cls.CHECKPOINT_HYPER_PARAMS_KEY].update(config_kwargs)
+        add_optimizer_state(old_checkpoint, checkpoint)
+        consumed = None
+        if 'args' in old_checkpoint and hasattr(old_checkpoint['args'], 'consumed_train_samples'):
+            consumed = getattr(old_checkpoint['args'], 'consumed_train_samples')
 
         if 'cfg' in kwargs:
             model = cls._load_model_state(checkpoint, strict=strict, **kwargs)
@@ -205,11 +246,9 @@ def load_from_checkpoint(
                 model.register_artifact("tokenizer.vocab_file", cfg.tokenizer.vocab_file)
             if cfg.tokenizer.merge_file is not None:
                 model.register_artifact("tokenizer.merge_file", cfg.tokenizer.merge_file)
-        checkpoint = model
-
     finally:
         cls._set_model_restore_state(is_being_restored=False)
-    return checkpoint
+    return model, checkpoint, consumed
 
 
 def convert(rank, world_size, args):
@@ -231,7 +270,7 @@ def convert(rank, world_size, args):
         name_translate = {}
         name_translate['transformer'] = 'encoder'
         name_translate['.attention.'] = '.self_attention.'
-        model = load_from_checkpoint(
+        model, checkpoint, consumed = load_from_checkpoint(
             MegatronGPTModel,
             checkpoint_path,
             hparams_file=args.hparams_file,
@@ -244,7 +283,7 @@ def convert(rank, world_size, args):
         name_translate = {}
         name_translate['transformer'] = 'encoder'
         name_translate['.attention.'] = '.self_attention.'
-        model = load_from_checkpoint(
+        model, checkpoint, consumed = load_from_checkpoint(
             MegatronBertModel,
             checkpoint_path,
             hparams_file=args.hparams_file,
@@ -260,9 +299,28 @@ def convert(rank, world_size, args):
     if torch.distributed.is_initialized():
         torch.distributed.barrier()
 
-    model.save_to(args.nemo_file_path)
+    if args.output_ckpt_file_path:
+        filepath = args.output_ckpt_file_path
+        base_dir = pathlib.Path(filepath).parent
+        filename_stem = pathlib.Path(filepath).stem
+        filename_suffix = pathlib.Path(filepath).suffix
+        if consumed is not None:
+            filename = f'{filename_stem}-consumed_samples={consumed}.0{filename_suffix}' 
+        else:
+            filename = f'{filename_stem}{filename_suffix}' 
+        # inserts mp_rank_XX for model parallel checkpoints
+        if args.tensor_model_parallel_size is not None and args.tensor_model_parallel_size > 1:
+            # inject model parallel rank
+            checkpoint_path = os.path.join(base_dir, f'mp_rank_{rank:02d}', filename)
+        else:
+            checkpoint_path = os.path.join(base_dir, filename)
 
-    logging.info(f'NeMo model saved to: {args.nemo_file_path}')
+        trainer.accelerator.training_type_plugin.checkpoint_io.save_checkpoint(checkpoint, checkpoint_path)
+        logging.info(f'NeMo model checkpoint files saved to: {args.output_ckpt_file_path}')
+
+    if args.nemo_file_path:
+        model.save_to(args.nemo_file_path)
+        logging.info(f'NeMo model saved to: {args.nemo_file_path}')
 
 
 if __name__ == '__main__':
