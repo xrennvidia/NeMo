@@ -19,6 +19,7 @@ from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
+from apex.transformer.enums import ModelType
 from omegaconf.dictconfig import DictConfig
 from pytorch_lightning.trainer.trainer import Trainer
 
@@ -92,6 +93,40 @@ class MegatronLMEncoderDecoderModule(MegatronBaseModel):
             bias_gelu_fusion=True,
             onnx_safe=cfg.get('onnx_safe', False),
         )
+
+        self.model.model_type = ModelType.encoder_and_decoder
+
+    def model_provider_func(self, pre_process, post_process):
+        """Model depends on pipeline paralellism."""
+        model = TokensEncoderDecoderModule(
+            encoder_arch=self.cfg.encoder_arch,
+            decoder_arch=self.cfg.decoder_arch,
+            vocab_size=self.padded_vocab_size,
+            hidden_size=self.cfg.hidden_size,
+            max_position_embeddings=self.cfg.max_position_embeddings,
+            num_layers=self.cfg.num_layers,
+            num_attention_heads=self.cfg.num_attention_heads,
+            apply_query_key_layer_scaling=self.cfg.get('apply_query_key_layer_scaling', True),
+            kv_channels=self.cfg.get('kv_channels', None),
+            ffn_hidden_size=self.cfg.ffn_hidden_size,
+            num_tokentypes=0,
+            parallel_output=True,
+            pre_process=pre_process,
+            post_process=post_process,
+            init_method_std=self.cfg.get('init_method_std', 0.02),
+            fp16_lm_cross_entropy=self.cfg.get('fp16_lm_cross_entropy', False),
+            use_cpu_initialization=self.cfg.get('use_cpu_initialization', False),
+            hidden_dropout=self.cfg.get('hidden_dropout', 0.1),
+            precision=self.cfg.get('precision', 16),
+            fp32_residual_connection=self.cfg.get('fp32_residual_connection', False),
+            activations_checkpoint_method=self.cfg.get('activations_checkpoint_method', None),
+            activations_checkpoint_num_layers=self.cfg.get('activations_checkpoint_num_layers', 1),
+            layernorm_epsilon=self.cfg.get('layernorm_epsilon', 1e-5),
+            persist_layer_norm=self.cfg.get('persist_layer_norm', False),
+            bias_gelu_fusion=True,
+            onnx_safe=self.cfg.get('onnx_safe', False),
+        )
+        return model
 
     def _build_vocab(self):
         # TODO: add config to allow to disable it?
