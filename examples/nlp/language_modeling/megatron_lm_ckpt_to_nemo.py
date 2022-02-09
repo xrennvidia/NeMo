@@ -23,7 +23,10 @@ Conversion script to convert Megatron_LM checkpoints into nemo checkpoint.
      --tensor_model_parallel_size <tensor_model_parallel_size>
 """
 
+import importlib
 import os
+import pathlib
+import sys
 from argparse import ArgumentParser
 from collections import OrderedDict
 from typing import Any, Optional
@@ -38,7 +41,59 @@ from nemo.collections.nlp.models.language_modeling.megatron_bert_model import Me
 from nemo.collections.nlp.models.language_modeling.megatron_gpt_model import MegatronGPTModel
 from nemo.collections.nlp.parts.nlp_overrides import NLPSaveRestoreConnector
 from nemo.utils import AppState, logging
-import pathlib
+
+# this enums code is copied from Megatron_LM
+enum_code = '''
+import enum
+
+class ModelType(enum.Enum):
+    encoder_or_decoder = 1
+    encoder_and_decoder = 2
+
+
+class LayerType(enum.Enum):
+    encoder = 1
+    decoder = 2
+
+
+class AttnType(enum.Enum):
+    self_attn = 1
+    cross_attn = 2
+
+
+class AttnMaskType(enum.Enum):
+    padding = 1
+    causal = 2
+'''
+
+
+def install_megatron_dependence():
+    # this is a hack to install required modules for MegatronLM checkpoints
+    # run the following so we don't have to install Megatron_LM code
+    megatron_name = 'megatron'
+    megatron_spec = importlib.util.spec_from_loader(megatron_name, loader=None, is_package=True)
+
+    megatron_module = importlib.util.module_from_spec(megatron_spec)
+    sys.modules[megatron_name] = megatron_module
+
+    model_name = 'model'
+    model_spec = importlib.util.spec_from_loader(model_name, loader=None, is_package=True)
+
+    model_module = importlib.util.module_from_spec(model_spec)
+
+    megatron_module.__dict__['model'] = model_module
+
+    sys.modules[megatron_name + '.' + model_name] = model_module
+
+    enums_name = 'enums'
+    enums_spec = importlib.util.spec_from_loader(enums_name, loader=None, is_package=True)
+    enums_module = importlib.util.module_from_spec(enums_spec)
+
+    model_module.__dict__['enums'] = enums_module
+
+    sys.modules[megatron_name + '.' + model_name + '.' + enums_name] = enums_module
+
+    exec(enum_code, enums_module.__dict__)
 
 
 def get_args():
@@ -67,7 +122,9 @@ def get_args():
     )
     parser.add_argument("--nemo_file_path", type=str, default=None, required=False, help="Path to output .nemo file.")
 
-    parser.add_argument("--output_ckpt_file_path", type=str, default=None, required=False, help="Path to output .ckpt file.")
+    parser.add_argument(
+        "--output_ckpt_file_path", type=str, default=None, required=False, help="Path to output .ckpt file."
+    )
 
     parser.add_argument("--tensor_model_parallel_size", type=int, required=True, default=None)
 
@@ -106,10 +163,6 @@ def add_optimizer_state(lm_checkpoint, new_checkpoint):
     NEW_LR_SCHEDULER = 'lr_schedulers'
     if OPTIMIZER_KEY in lm_checkpoint and OPTIMIZER_KEY in lm_checkpoint[OPTIMIZER_KEY]:
         opt_state = lm_checkpoint[OPTIMIZER_KEY][OPTIMIZER_KEY]
-        # need to fix the parameters groups
-        if len(opt_state['param_groups'][0]) > 1:
-            opt_state['param_groups'][0]['params'] = opt_state['param_groups'][0]['params'] + opt_state['param_groups'][1]['params']
-            del opt_state['param_groups'][1]
         new_checkpoint[NEW_OPTIMIZER_KEY] = [opt_state]
     if STEP_KEY in lm_checkpoint:
         new_checkpoint[NEW_STEP_KEY] = lm_checkpoint[STEP_KEY]
@@ -119,12 +172,12 @@ def add_optimizer_state(lm_checkpoint, new_checkpoint):
         content = OrderedDict()
         content['max_steps'] = sched['num_steps']
         content['warmup_steps'] = sched['warmup_steps']
-        content['constant_steps'] = 0 # no such conf in lm checkpoint
+        content['constant_steps'] = 0  # no such conf in lm checkpoint
         content['decay_steps'] = sched['decay_steps']
         content['min_lr'] = sched['min_lr']
-        content['base_lrs'] = [sched['min_lr']] # no such conf in lm checkpoint
-        content['last_epoch'] = 0 # no such conf
-        content['_step_count'] = 0 # no such conf
+        content['base_lrs'] = [sched['min_lr']]  # no such conf in lm checkpoint
+        content['last_epoch'] = 0  # no such conf
+        content['_step_count'] = 0  # no such conf
         content['verbose'] = False
         content['_get_lr_called_within_step'] = False
         new_checkpoint[NEW_LR_SCHEDULER] = [content]
@@ -305,9 +358,9 @@ def convert(rank, world_size, args):
         filename_stem = pathlib.Path(filepath).stem
         filename_suffix = pathlib.Path(filepath).suffix
         if consumed is not None:
-            filename = f'{filename_stem}-consumed_samples={consumed}.0{filename_suffix}' 
+            filename = f'{filename_stem}-consumed_samples={consumed}.0{filename_suffix}'
         else:
-            filename = f'{filename_stem}{filename_suffix}' 
+            filename = f'{filename_stem}{filename_suffix}'
         # inserts mp_rank_XX for model parallel checkpoints
         if args.tensor_model_parallel_size is not None and args.tensor_model_parallel_size > 1:
             # inject model parallel rank
@@ -324,6 +377,7 @@ def convert(rank, world_size, args):
 
 
 if __name__ == '__main__':
+    install_megatron_dependence()
     args = get_args()
     world_size = args.tensor_model_parallel_size
 
