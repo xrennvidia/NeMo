@@ -80,7 +80,10 @@ class MegatronLMEncoderDecoderModule(MegatronBaseModel):
 
         # TODO: Not sure how to use lists of modules with PTL.
         # This means we can only use pipeline parallelism without the interleaved schedule.
-        self.model = build_model(model_provider_func=self.model_provider_func, wrap_with_ddp=False)[0]
+        self.model = build_model(
+            model_provider_func=self.model_provider_func,
+            wrap_with_ddp=False
+        )[0]
 
         self.setup_optimizer_param_groups()
 
