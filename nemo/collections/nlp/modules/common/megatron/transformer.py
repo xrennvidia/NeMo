@@ -643,6 +643,14 @@ class ParallelTransformer(MegatronModule):
         self.input_tensor = None
         self.self_attn_mask_type = self_attn_mask_type
         self.model_type = model_type
+        if precision == 32:
+            self.dtype = torch.float32
+        elif precision == 16:
+            self.dtype = torch.float16
+        elif precision == 'bf16':
+            self.dtype = torch.bfloat16
+        else:
+            raise ValueError
 
         # Store activation checkpointing flag.
         self.activations_checkpoint_method = activations_checkpoint_method
@@ -863,7 +871,8 @@ class ParallelTransformer(MegatronModule):
         if self.post_process:
             # Reverting data format change [s b h] --> [b s h].
             hidden_states = hidden_states.transpose(0, 1).contiguous()
-            output = self.final_layernorm(hidden_states)
+            with torch.autocast(device_type="cuda", dtype=self.dtype):
+                output = self.final_layernorm(hidden_states)
         else:
             output = hidden_states
         if get_key_value:
