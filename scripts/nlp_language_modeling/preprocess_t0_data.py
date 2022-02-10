@@ -1,22 +1,80 @@
 # coding=utf-8
-import os
+import os, sys
 import json
 from datasets import load_dataset
 from argparse import ArgumentParser
 from promptsource.templates import DatasetTemplates
+sys.path.append("../../")
 from nemo.collections.nlp.data.language_modeling.t0_task_manager import (
     get_data_paths_and_splits,
     t0pp_traindt_names_subset,
-    t0_all_evaldt_names_subset
+    t0_all_evaldt_names_subset,
+    t0_debug, TEMPLATE_CHUNK_NAME, ORIG_TXT_CHUNK_NAME
 )
 
 special_dt_dir ={
     "story_cloze": "/home/jpilault/datasets/downloads/story_cloze_2016/"
 }
 
+def get_text_template_idx(example, templated_text):
+    elements = []
+    for el in example.values():
+        if isinstance(el, dict) and 'table' in el:
+            # for wiki_bio
+            el = el['table']['column_header'] + [e.strip() for e in el['table']['content']]
+        elif not isinstance(el, str):
+            continue
+        elif el.find('@highlight') != -1:
+            # for super_glue/record
+            el = el.split('@highlight')
+        else:
+            el = [el]
+        elements.extend(el)
+
+    original_text_idx = []
+    for el in elements:
+        el = el.replace("\'", r"'")
+        idx = templated_text.find(el)
+        if idx != -1:
+            idx_range = [idx, idx + len(el)]
+            if idx_range not in original_text_idx:
+                original_text_idx.append(idx_range)
+    original_text_idx.sort()
+
+    pointer = 0
+    original_text_chunk_idx = 0
+    template_idx = []
+    while pointer < len(templated_text):
+        txt_start, txt_end = original_text_idx[original_text_chunk_idx]
+        if txt_start > pointer:
+            template_idx.append([pointer, txt_start])
+            pointer = txt_end
+        original_text_chunk_idx += 1
+        if original_text_chunk_idx > len(original_text_idx) - 1:
+            pointer = txt_end
+            if pointer < len(templated_text):
+                template_idx.append([pointer, len(templated_text)])
+                pointer = len(templated_text)
+    template_idx.sort()
+    return original_text_idx, template_idx
+
+def organize_chunk_idx(original_text_idx, template_idx):
+    tuple_list = []
+    while len(template_idx) > 0 or len(original_text_idx) > 0:
+        if not original_text_idx:
+            tuple_list.append((TEMPLATE_CHUNK_NAME, template_idx.pop(0)))
+        elif not template_idx:
+            tuple_list.append((ORIG_TXT_CHUNK_NAME, original_text_idx.pop(0)))
+        elif template_idx[0] < original_text_idx[0]:
+            tuple_list.append((TEMPLATE_CHUNK_NAME, template_idx.pop(0)))
+        else:
+            tuple_list.append((ORIG_TXT_CHUNK_NAME, original_text_idx.pop(0)))
+    return tuple_list
+
 def apply_prompts(dataset, prompts, splits, save_paths):
     for split, save_path in zip(splits, save_paths):
         counter = 0
+        printed = False
         with open(save_path, 'w') as f:
             for example in dataset[split]:
                 row = {}
@@ -25,11 +83,23 @@ def apply_prompts(dataset, prompts, splits, save_paths):
                     if not prompt.metadata.original_task:
                         continue
                     result = prompt.apply(example)
+                    if not result[0]:
+                        continue
                     try:
-                        row[template_name] = {'input': result[0], 'output': result[1]}
+                        templated_text = result[0]
+                        output = result[1]
+                        original_text_idx, template_idx = get_text_template_idx(example, templated_text)
+                        chunked_idx = organize_chunk_idx(original_text_idx, template_idx)
+                        assert chunked_idx[0][1][0] == 0
+                        assert any(c[1][1] == len(templated_text) for c in chunked_idx)
+                        row[template_name] = {
+                            'input': templated_text, 'output': output, 'chunked_idx': chunked_idx
+                        }
                     except IndexError:
-                        print(save_path)
-                        print(template_name)
+                        if not printed:
+                            print(save_path)
+                            print(template_name)
+                        printed = True
                         continue
 
                 f.write(json.dumps(row))
@@ -37,6 +107,7 @@ def apply_prompts(dataset, prompts, splits, save_paths):
                 counter += 1
                 if counter % 100000 == 0:
                     print("{counter} applied...".format(counter=counter))
+        print(f"Saved {counter} examples...")
 
 def save_raw_jsonl(dataset, prompts, splits, save_paths):
     for split, save_path in zip(splits, save_paths):
@@ -70,7 +141,7 @@ def preprocess_data(data_dict, main_splits, data_dir, save_raw):
 def main():
     parser = ArgumentParser()
     parser.add_argument(
-        "--dataset_split", type=str, choices=['train', 'test'], help="Dataset split you want to prepare ['train', 'test']."
+        "--dataset_split", type=str, choices=['train', 'test', 'debug'], help="Dataset split you want to prepare ['train', 'test']."
     )
     parser.add_argument(
         "--data_dir", type=str, default="/home/jpilault/datasets/T0_prompted", help="Parent t0 directory."
@@ -85,6 +156,9 @@ def main():
 
     if args.dataset_split == "train":
         data_dict = t0pp_traindt_names_subset
+        main_splits = ['train']
+    elif args.dataset_split == "debug":
+        data_dict = t0_debug
         main_splits = ['train']
     else:
         data_dict = t0_all_evaldt_names_subset

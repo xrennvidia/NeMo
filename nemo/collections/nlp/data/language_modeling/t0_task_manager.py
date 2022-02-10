@@ -2,6 +2,9 @@
 
 import os
 
+TEMPLATE_CHUNK_NAME = 'template'
+ORIG_TXT_CHUNK_NAME = 'original_text'
+
 special_splits = {
     'anli': {
         'train' : ['train_r1', 'train_r2', 'train_r3'],
@@ -11,7 +14,8 @@ special_splits = {
 }
 
 t0_debug = {
-    'cos_e': 'v1.11', 'cosmos_qa': None,
+    'wiki_bio': None,
+    'super_glue': ['record', 'boolq']
 }
 
 t0_traindt_names_subset = {

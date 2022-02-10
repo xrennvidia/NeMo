@@ -30,33 +30,36 @@ class PromptEncoder(NeuralModule, Exportable):
     """
 
     @property
-    def output_types(self) -> Optional[Dict[str, NeuralType]]:
-        return {"output_embeds": NeuralType(('T', 'C'), ChannelType())}
+    def input_types(self) -> Optional[Dict[str, NeuralType]]:
+        return {
+            "enc_taskname": NeuralType(('B', 'T', 'C'), ChannelType(), optional=True),
+        }
 
-    def __init__(self, template: List[int], hidden_size: int, lstm_dropout: float, num_layers: int):
+    @property
+    def output_types(self) -> Optional[Dict[str, NeuralType]]:
+        return {"output_embeds": NeuralType(('B', 'T', 'C'), ChannelType())}
+
+    def __init__(self, prompt_seq_len: int, hidden_size: int, lstm_dropout: float, num_layers: int, reparametrize: True):
         """
         Initializes the PromptEncoder module.
         Args:
-            template: the template sizes of the vitural tokens for different clozes
+            prompt_seq_len: number of prompt embeddings to produce
             hidden_size: hidden dimension
             lstm_dropout: the dropout used for the LSTM
             num_layers: number of layers used in the LSTM
         """
         super().__init__()
-        self.spell_length = sum(template)
+        self.prompt_seq_len = prompt_seq_len
         self.hidden_size = hidden_size
+        self.reparametrize = reparametrize
         # ent embedding
-        self.cloze_length = template
-        self.cloze_mask = [
-            [1] * self.cloze_length[0]  # first cloze
-            + [1] * self.cloze_length[1]  # second cloze
-            + [1] * self.cloze_length[2]  # third cloze
-        ]
+        self.cloze_mask = [1] * prompt_seq_len
         self.cloze_mask = torch.LongTensor(self.cloze_mask).bool()
-        self.register_buffer('seq_indices', torch.LongTensor(list(range(len(self.cloze_mask[0])))))
+        self.register_buffer('seq_indices', torch.LongTensor(list(range(len(self.cloze_mask)))))
 
         # embedding
-        self.embedding = torch.nn.Embedding(len(self.cloze_mask[0]), self.hidden_size)
+        self.embedding = torch.nn.Embedding(len(self.cloze_mask), self.hidden_size)
+        #TODO: add MLP reparametrize here
         # LSTM
         self.lstm_head = torch.nn.LSTM(
             input_size=self.hidden_size,
@@ -71,7 +74,14 @@ class PromptEncoder(NeuralModule, Exportable):
         )
 
     @typecheck()
-    def forward(self) -> torch.Tensor:
-        input_embeds = self.embedding(self.seq_indices).unsqueeze(0)
-        output_embeds = self.mlp_head(self.lstm_head(input_embeds)[0]).squeeze()
-        return output_embeds
+    def forward(self, template_embeddings=None) -> torch.Tensor:
+        prompt_embeds = self.embedding(self.seq_indices).unsqueeze(0)
+        if self.reparametrize:
+            if template_embeddings is not None:
+                bz, task_seq, _ = template_embeddings.shape
+                _, seq, emb = prompt_embeds.shape
+                input_embeds = prompt_embeds.expand(bz, seq, emb).clone()
+                length = min(task_seq, seq)
+                input_embeds[:, 0:length, :] = template_embeddings[:, 0:length, :]
+            prompt_embeds = self.mlp_head(self.lstm_head(input_embeds)[0])
+        return prompt_embeds
