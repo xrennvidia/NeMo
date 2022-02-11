@@ -36,6 +36,7 @@ from pytorch_lightning.core.saving import load_hparams_from_tags_csv, load_hpara
 from pytorch_lightning.trainer.trainer import Trainer
 from pytorch_lightning.utilities.cloud_io import load as pl_load
 from pytorch_lightning.utilities.migration import pl_legacy_patch
+from sympy import tensorcontraction
 
 from nemo.collections.nlp.models.language_modeling.megatron_bert_model import MegatronBertModel
 from nemo.collections.nlp.models.language_modeling.megatron_gpt_model import MegatronGPTModel
@@ -309,25 +310,20 @@ def convert(local_rank, rank, world_size, args):
 
     app_state = AppState()
     app_state.data_parallel_rank = 0
-    app_state.world_size = world_size
-    app_state.tensor_model_parallel_size = args.tensor_model_parallel_size
-    app_state.pipeline_model_parallel_size = world_size // args.tensor_model_parallel_size
+    tensor_model_parallel_size = args.tensor_model_parallel_size
+    pipeline_model_parallel_size = world_size // args.tensor_model_parallel_size
     num_nodes = world_size // torch.cuda.device_count()
-    trainer = Trainer(gpus=args.tensor_model_parallel_size, num_nodes=num_nodes)
+    trainer = Trainer(gpus=tensor_model_parallel_size, num_nodes=num_nodes)
     # TODO: reach out to PTL For an API-safe local rank override
     trainer.accelerator.training_type_plugin._local_rank = local_rank
 
-    pipeline_id = rank // app_state.tensor_model_parallel_size
-    if (
-        args.tensor_model_parallel_size is not None
-        and args.tensor_model_parallel_size > 1
-        and app_state.pipeline_model_parallel_size == 1
-    ):
+    pipeline_rank = rank // tensor_model_parallel_size
+    if tensor_model_parallel_size is not None and tensor_model_parallel_size > 1 and pipeline_model_parallel_size == 1:
         # inject model parallel rank
         checkpoint_path = os.path.join(args.checkpoint_folder, f'mp_rank_{local_rank:02d}', args.checkpoint_name)
-    elif args.tensor_model_parallel_size is not None and args.tensor_model_parallel_size > 1:
+    elif tensor_model_parallel_size is not None and tensor_model_parallel_size > 1:
         checkpoint_path = os.path.join(
-            args.checkpoint_folder, f'mp_rank_{local_rank:02d}_{pipeline_id:03d}', args.checkpoint_name
+            args.checkpoint_folder, f'mp_rank_{local_rank:02d}_{pipeline_rank:03d}', args.checkpoint_name
         )
     else:
         checkpoint_path = os.path.join(args.checkpoint_folder, args.checkpoint_name)
@@ -361,7 +357,12 @@ def convert(local_rank, rank, world_size, args):
         )
     else:
         raise NotImplemented("{} is not supported".format(args.model_type))
-
+    # verify tensor parallel rank id and pipeline parallel rank id matches
+    assert app_state.data_parallel_size == 1
+    assert app_state.tensor_model_parallel_size == tensor_model_parallel_size
+    assert app_state.pipeline_model_parallel_size == pipeline_model_parallel_size
+    assert app_state.pipeline_model_parallel_rank == pipeline_rank
+    assert app_state.tensor_model_parallel_rank == local_rank
     model._save_restore_connector = NLPSaveRestoreConnector()
 
     if torch.distributed.is_initialized():
@@ -424,6 +425,9 @@ if __name__ == '__main__':
         world_size = 1
     else:
         local_rank, rank, world_size = initialize_distributed(args)
+
+    # make sure the world size is divisible by tensor model parallel_size
+    assert world_size % args.tensor_model_parallel_size == 0
 
     torch.distributed.barrier()
     convert(local_rank, rank, world_size, args)
