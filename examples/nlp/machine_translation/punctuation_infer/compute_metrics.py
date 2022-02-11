@@ -35,7 +35,8 @@ def get_args():
         '--punctuation_file',
         '-p',
         help="Path to a JSON file with punctuation. The file should contain all punctuation marks counts. Create the "
-        "file using 'examples/nlp/machine_translation/punctuation_infer/create_punctuation_file.py' script.",
+        "file using 'examples/nlp/machine_translation/punctuation_infer/create_punctuation_file.py' script. "
+        "Useful only for autoregressive data format if you wish check metrics for labels from some other text.",
         type=Path,
     )
     parser.add_argument(
