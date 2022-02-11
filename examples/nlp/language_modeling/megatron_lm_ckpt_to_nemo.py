@@ -41,6 +41,7 @@ from nemo.collections.nlp.models.language_modeling.megatron_bert_model import Me
 from nemo.collections.nlp.models.language_modeling.megatron_gpt_model import MegatronGPTModel
 from nemo.collections.nlp.parts.nlp_overrides import NLPSaveRestoreConnector
 from nemo.utils import AppState, logging
+from nemo.utils.model_utils import inject_model_parallel_rank
 
 # this enums code is copied from Megatron_LM
 enum_code = '''
@@ -304,19 +305,33 @@ def load_from_checkpoint(
     return model, checkpoint, consumed
 
 
-def convert(rank, world_size, args):
+def convert(local_rank, rank, world_size, args):
 
     app_state = AppState()
     app_state.data_parallel_rank = 0
-    trainer = Trainer(gpus=args.tensor_model_parallel_size)
+    app_state.world_size = world_size
+    app_state.tensor_model_parallel_size = args.tensor_model_parallel_size
+    app_state.pipeline_model_parallel_size = world_size // args.tensor_model_parallel_size
+    num_nodes = world_size // torch.cuda.device_count()
+    trainer = Trainer(gpus=args.tensor_model_parallel_size, num_nodes=num_nodes)
     # TODO: reach out to PTL For an API-safe local rank override
-    trainer.accelerator.training_type_plugin._local_rank = rank
+    trainer.accelerator.training_type_plugin._local_rank = local_rank
 
-    if args.tensor_model_parallel_size is not None and args.tensor_model_parallel_size > 1:
+    pipeline_id = rank // app_state.tensor_model_parallel_size
+    if (
+        args.tensor_model_parallel_size is not None
+        and args.tensor_model_parallel_size > 1
+        and app_state.pipeline_model_parallel_size == 1
+    ):
         # inject model parallel rank
-        checkpoint_path = os.path.join(args.checkpoint_folder, f'mp_rank_{rank:02d}', args.checkpoint_name)
+        checkpoint_path = os.path.join(args.checkpoint_folder, f'mp_rank_{local_rank:02d}', args.checkpoint_name)
+    elif args.tensor_model_parallel_size is not None and args.tensor_model_parallel_size > 1:
+        checkpoint_path = os.path.join(
+            args.checkpoint_folder, f'mp_rank_{local_rank:02d}_{pipeline_id:03d}', args.checkpoint_name
+        )
     else:
         checkpoint_path = os.path.join(args.checkpoint_folder, args.checkpoint_name)
+    logging.info(f"loading checkpoint {checkpoint_path}")
 
     if args.model_type == 'gpt':
         ## this dictionary is used to rename the model parameters
@@ -361,13 +376,7 @@ def convert(rank, world_size, args):
             filename = f'{filename_stem}-consumed_samples={consumed}.0{filename_suffix}'
         else:
             filename = f'{filename_stem}{filename_suffix}'
-        # inserts mp_rank_XX for model parallel checkpoints
-        if args.tensor_model_parallel_size is not None and args.tensor_model_parallel_size > 1:
-            # inject model parallel rank
-            checkpoint_path = os.path.join(base_dir, f'mp_rank_{rank:02d}', filename)
-        else:
-            checkpoint_path = os.path.join(base_dir, filename)
-
+        checkpoint_path = inject_model_parallel_rank(os.path.join(base_dir, filename))
         trainer.accelerator.training_type_plugin.checkpoint_io.save_checkpoint(checkpoint, checkpoint_path)
         logging.info(f'NeMo model checkpoint files saved to: {args.output_ckpt_file_path}')
 
@@ -376,19 +385,45 @@ def convert(rank, world_size, args):
         logging.info(f'NeMo model saved to: {args.nemo_file_path}')
 
 
+def initialize_distributed(args, backend='nccl'):
+    """Initialize torch.distributed."""
+    # Get local rank in case it is provided.
+    local_rank = args.local_rank
+
+    # Get rank and world size.
+    rank = int(os.getenv('RANK', '0'))
+    world_size = int(os.getenv("WORLD_SIZE", '1'))
+
+    print(
+        '> initializing torch.distributed with local rank: {}, '
+        'rank: {}, world size: {}'.format(local_rank, rank, world_size)
+    )
+
+    # Set the device id.
+    device = rank % torch.cuda.device_count()
+    if local_rank is not None:
+        device = local_rank
+    torch.cuda.set_device(device)
+
+    # Call the init process.
+    init_method = 'tcp://'
+    master_ip = os.getenv('MASTER_ADDR', 'localhost')
+    master_port = os.getenv('MASTER_PORT', '6000')
+    init_method += master_ip + ':' + master_port
+    torch.distributed.init_process_group(backend=backend, world_size=world_size, rank=rank, init_method=init_method)
+    return local_rank, rank, world_size
+
+
 if __name__ == '__main__':
     install_megatron_dependence()
     args = get_args()
-    world_size = args.tensor_model_parallel_size
-
     if args.local_rank == -1:
         device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
+        rank = args.local_rank
+        local_rank = rank
+        world_size = 1
     else:
-        torch.cuda.set_device(args.local_rank)
-        device = torch.device("cuda", args.local_rank)
-        # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
-        torch.distributed.init_process_group(
-            backend='nccl', init_method='env://', rank=args.local_rank, world_size=world_size
-        )
+        local_rank, rank, world_size = initialize_distributed(args)
 
-    convert(args.local_rank, world_size, args)
+    torch.distributed.barrier()
+    convert(local_rank, rank, world_size, args)
