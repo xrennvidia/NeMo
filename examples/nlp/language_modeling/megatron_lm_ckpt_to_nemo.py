@@ -17,7 +17,7 @@ Conversion script to convert Megatron_LM checkpoints into nemo checkpoint.
   Example to run this conversion script:
     python -m torch.distributed.launch --nproc_per_node=<tensor_model_parallel_size> megatron_lm_ckpt_to_nemo.py \
      --checkpoint_folder <path_to_PTL_checkpoints_folder> \
-     --checkpoint_name <checkpoint_name> \
+     --checkpoint_name megatron_gpt--val_loss=99.99-step={steps}-consumed_samples={consumed}.0 \
      --nemo_file_path <path_to_output_nemo_file> \
      --model_type <megatron model type> \
      --tensor_model_parallel_size <tensor_model_parallel_size>
@@ -286,6 +286,9 @@ def load_from_checkpoint(
         consumed = None
         if 'args' in old_checkpoint and hasattr(old_checkpoint['args'], 'consumed_train_samples'):
             consumed = getattr(old_checkpoint['args'], 'consumed_train_samples')
+        steps = None
+        if 'iteration' in old_checkpoint:
+            steps = old_checkpoint['iteration']
 
         if 'cfg' in kwargs:
             model = cls._load_model_state(checkpoint, strict=strict, **kwargs)
@@ -303,7 +306,7 @@ def load_from_checkpoint(
                 model.register_artifact("tokenizer.merge_file", cfg.tokenizer.merge_file)
     finally:
         cls._set_model_restore_state(is_being_restored=False)
-    return model, checkpoint, consumed
+    return model, checkpoint, consumed, steps
 
 
 def convert(local_rank, rank, world_size, args):
@@ -334,7 +337,7 @@ def convert(local_rank, rank, world_size, args):
         name_translate = {}
         name_translate['transformer'] = 'encoder'
         name_translate['.attention.'] = '.self_attention.'
-        model, checkpoint, consumed = load_from_checkpoint(
+        model, checkpoint, consumed, steps = load_from_checkpoint(
             MegatronGPTModel,
             checkpoint_path,
             hparams_file=args.hparams_file,
@@ -347,7 +350,7 @@ def convert(local_rank, rank, world_size, args):
         name_translate = {}
         name_translate['transformer'] = 'encoder'
         name_translate['.attention.'] = '.self_attention.'
-        model, checkpoint, consumed = load_from_checkpoint(
+        model, checkpoint, consumed, steps = load_from_checkpoint(
             MegatronBertModel,
             checkpoint_path,
             hparams_file=args.hparams_file,
@@ -371,12 +374,18 @@ def convert(local_rank, rank, world_size, args):
     if args.output_ckpt_file_path:
         filepath = args.output_ckpt_file_path
         base_dir = pathlib.Path(filepath).parent
-        filename_stem = pathlib.Path(filepath).stem
-        filename_suffix = pathlib.Path(filepath).suffix
+        filename_str = pathlib.Path(filepath).name
+        suffix = '.ckpt'
+        content = {}
         if consumed is not None:
-            filename = f'{filename_stem}-consumed_samples={consumed}.0{filename_suffix}'
+            content['consumed'] = consumed
         else:
-            filename = f'{filename_stem}{filename_suffix}'
+            content['consumed'] = 0
+        if steps is not None:
+            content['steps'] = steps
+        else:
+            content['steps'] = 0
+        filename = filename_str.format(**content) + suffix
         checkpoint_path = inject_model_parallel_rank(os.path.join(base_dir, filename))
         trainer.accelerator.training_type_plugin.checkpoint_io.save_checkpoint(checkpoint, checkpoint_path)
         logging.info(f'NeMo model checkpoint files saved to: {args.output_ckpt_file_path}')
