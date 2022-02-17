@@ -1,8 +1,12 @@
 # coding=utf-8
-import os, sys
+import os
+import re
+import sys
+import nltk
 import json
 from datasets import load_dataset
 from argparse import ArgumentParser
+from nltk.tokenize import sent_tokenize
 from promptsource.templates import DatasetTemplates
 sys.path.append("../../")
 from nemo.collections.nlp.data.language_modeling.t0_task_manager import (
@@ -12,29 +16,67 @@ from nemo.collections.nlp.data.language_modeling.t0_task_manager import (
     t0_debug, TEMPLATE_CHUNK_NAME, ORIG_TXT_CHUNK_NAME
 )
 
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt')
+
 special_dt_dir ={
     "story_cloze": "/home/jpilault/datasets/downloads/story_cloze_2016/"
 }
+MAX_CHARS = 1500
 
 def get_text_template_idx(example, templated_text):
     elements = []
-    for el in example.values():
-        if isinstance(el, dict) and 'table' in el:
+    for key, val in example.items():
+        if key == 'concepts':
+            # for common_gen
+            el = val
+        elif key == 'choices' and isinstance(val, dict)  and 'text' in val:
+            # for qasc
+            el = val['text']
+        elif isinstance(val, dict) and 'table' in val:
             # for wiki_bio
-            el = el['table']['column_header'] + [e.strip() for e in el['table']['content']]
-        elif not isinstance(el, str):
+            el = val['table']['column_header'] + [e.strip() for e in val['table']['content']]
+        elif not isinstance(val, str):
             continue
-        elif el.find('@highlight') != -1:
+        elif val.find('@highlight') != -1:
             # for super_glue/record
-            el = el.split('@highlight')
+            el = val.split('@highlight')
+        elif len(val) < MAX_CHARS:
+            el = [val]
         else:
-            el = [el]
+            # for long inputs that are clipped in template (race, cnn-dm, imdb, ...)
+            el = []
+            tok_el = sent_tokenize(val)
+            for sent in tok_el:
+                if len(sent) > MAX_CHARS:
+                    el.extend(re.split(r'\\.\\.\\.|,|[.]', sent))
+                else:
+                    el.append(sent)
         elements.extend(el)
+    elements.sort(key=len)
+    elements.reverse()
+
+    i = len(elements) - 1
+    while i > -1:
+        if not elements[i].lower().strip() in templated_text.lower():
+            elements.pop(i)
+        i -= 1
+
+    i = len(elements) - 1
+    while i > 0:
+        if elements[i].lower().strip() in elements[0].lower().strip():
+            elements.pop(i)
+        i -= 1
 
     original_text_idx = []
     for el in elements:
         el = el.replace("\'", r"'")
         idx = templated_text.find(el)
+        if idx == -1:
+            el = el.lower().strip()
+            idx = templated_text.lower().find(el)
         if idx != -1:
             idx_range = [idx, idx + len(el)]
             if idx_range not in original_text_idx:
@@ -48,10 +90,9 @@ def get_text_template_idx(example, templated_text):
         txt_start, txt_end = original_text_idx[original_text_chunk_idx]
         if txt_start > pointer:
             template_idx.append([pointer, txt_start])
-            pointer = txt_end
+        pointer = txt_end
         original_text_chunk_idx += 1
         if original_text_chunk_idx > len(original_text_idx) - 1:
-            pointer = txt_end
             if pointer < len(templated_text):
                 template_idx.append([pointer, len(templated_text)])
                 pointer = len(templated_text)
@@ -91,12 +132,14 @@ def apply_prompts(dataset, prompts, splits, save_paths):
                         original_text_idx, template_idx = get_text_template_idx(example, templated_text)
                         chunked_idx = organize_chunk_idx(original_text_idx, template_idx)
                         assert chunked_idx[0][1][0] == 0
-                        assert any(c[1][1] == len(templated_text) for c in chunked_idx)
+                        #assert any(c[1][1] == len(templated_text) for c in chunked_idx)
                         row[template_name] = {
                             'input': templated_text, 'output': output, 'chunked_idx': chunked_idx
                         }
                     except IndexError:
                         if not printed:
+                            print("ISSUE DETECTED")
+                            #original_text_idx, template_idx = get_text_template_idx(example, templated_text)
                             print(save_path)
                             print(template_name)
                         printed = True

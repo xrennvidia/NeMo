@@ -96,7 +96,7 @@ class T0Dataset(Dataset):
             file_name: path to file
             task_name: T0 task name
             tokenizer: such as AutoTokenizer
-            max_seq_length: max sequence length minus 2 for [CLS] and [SEP]
+            max_query_length: max sequence length minus 2 for [CLS] and [SEP]
             use_cache: whether to use data cache
             prefix_override: if you want to override default prompt for this task specify this via a string.
         """
@@ -109,8 +109,8 @@ class T0Dataset(Dataset):
         self.max_samples = max_samples
         evaluate = False if 'train' in file_path else True  # TODO: needed?
 
-        self.max_seq_length = max_seq_length
-        self.max_seq_length_decoder = max_seq_length_decoder
+        self.max_query_length = max_seq_length
+        self.max_query_length_decoder = max_seq_length_decoder
         self.prefix_override = prefix_override
         #TODO: add non-prompted data get_example method
         self.examples = self.get_prompted_examples(file_path, task_name, subset)
@@ -123,7 +123,7 @@ class T0Dataset(Dataset):
             data_dir,
             "cached_{}_{}_{}_{}".format(
                 file_name, self.tokenizer.name,
-                str(self.max_seq_length ), str(getattr(self.tokenizer, "vocab_size", 0))
+                str(self.max_query_length ), str(getattr(self.tokenizer, "vocab_size", 0))
             ),
         )
 
@@ -170,8 +170,8 @@ class T0Dataset(Dataset):
                 logging.info(f"Writing example {ex_index} of {len(self.examples)}")
 
             enc_query = self.tokenizer.text_to_ids(example.input_text)
-            if len(enc_query) > self.max_seq_length:
-                enc_query = enc_query[: self.max_seq_length]
+            if len(enc_query) > self.max_query_length:
+                enc_query = enc_query[: self.max_query_length]
             dec_query = (
                     [self.tokenizer.cls_id]
                     + self.tokenizer.text_to_ids(example.label)
@@ -278,16 +278,16 @@ class T0PrimeDataset(T0Dataset):
             file_name: path to file
             task_name: T0 task name
             tokenizer: such as AutoTokenizer
-            max_seq_length: max sequence length minus 2 for [CLS] and [SEP]
+            max_query_length: max sequence length minus 2 for [CLS] and [SEP]
             use_cache: whether to use data cache
             prefix_override: if you want to override default prompt for this task specify this via a string.
         """
+        self.prompt_token_id = prompt_token_id
+        self.prompt_seq_len = prompt_seq_len
         super().__init__(
             file_path, task_name, subset, tokenizer, max_seq_length, max_seq_length_decoder,
             use_cache, prefix_override, extension, max_samples
         )
-        self.prompt_token_id = prompt_token_id
-        self.prompt_seq_len = prompt_seq_len
 
 
     def get_prompted_examples(self, file_path, task_name, subset):
@@ -345,11 +345,8 @@ class T0PrimeDataset(T0Dataset):
                     enc_query.extend([self.prompt_token_id] * len(chunk_tokens))
                 else:
                     assert chunk_name == ORIG_TXT_CHUNK_NAME
-                    enc_query.extend(chunk_tokens)
-            if len(template) < self.prompt_seq_len:
-                enc_query.extend([self.prompt_token_id] * (self.prompt_seq_len - len(template)))
-            if len(enc_query) > self.max_seq_length:
-                enc_query = enc_query[: self.max_seq_length]
+                    remain = max(0, self.max_query_length - len(enc_query) - len(chunk_tokens))
+                    enc_query.extend(chunk_tokens[:remain])  # only reduce original chunk
             dec_query = (
                     [self.tokenizer.cls_id]
                     + self.tokenizer.text_to_ids(example.label)
@@ -389,13 +386,16 @@ class T0PrimeDataset(T0Dataset):
         guids = [item['guid'] for item in batch]
         prompt_ids = [item['prompt_id'] for item in batch]
 
+        max_template_length = max(self.prompt_seq_len, max([len(item) for item in template]))
+        enc_query = [item_q + [self.prompt_token_id] * (max_template_length - len(item_t)) for item_q, item_t in zip(enc_query, template)]
+
         max_dec_input_length = max([len(item) for item in dec_input])
         max_enc_query_length = max([len(item) for item in enc_query])
         max_label_length = max([len(item) for item in labels])
 
         loss_mask = [([1] * (len(item))) + ([0] * (max_label_length - len(item))) for item in labels]
         enc_query = [item + [self.tokenizer.pad_id] * (max_enc_query_length - len(item)) for item in enc_query]
-        template = [item + [self.tokenizer.pad_id] * (self.prompt_seq_len - len(item)) for item in template]
+        template = [item[:self.prompt_seq_len] + [self.tokenizer.pad_id] * (self.prompt_seq_len - len(item)) for item in template]
         dec_input = [item + [self.tokenizer.pad_id] * (max_dec_input_length - len(item)) for item in dec_input]
         labels = [item + [self.tokenizer.pad_id] * (max_label_length - len(item)) for item in labels]
 

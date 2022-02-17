@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import os
 from pathlib import Path
 
 from omegaconf.omegaconf import OmegaConf, open_dict
@@ -27,7 +27,8 @@ from nemo.collections.nlp.parts.nlp_overrides import GradScaler, NLPDDPPlugin
 from nemo.core.config import hydra_runner
 from nemo.utils import logging
 from nemo.utils.exp_manager import StatelessTimer, exp_manager
-
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+os.environ['HYDRA_FULL_ERROR'] = '1'
 
 @hydra_runner(config_path="conf", config_name="megatron_t0_prime_config")
 def main(cfg) -> None:

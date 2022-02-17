@@ -32,14 +32,14 @@ class PromptEncoder(NeuralModule, Exportable):
     @property
     def input_types(self) -> Optional[Dict[str, NeuralType]]:
         return {
-            "enc_taskname": NeuralType(('B', 'T', 'C'), ChannelType(), optional=True),
+            "template_embeddings": NeuralType(('B', 'T', 'C'), ChannelType(), optional=True),
         }
 
     @property
     def output_types(self) -> Optional[Dict[str, NeuralType]]:
         return {"output_embeds": NeuralType(('B', 'T', 'C'), ChannelType())}
 
-    def __init__(self, prompt_seq_len: int, hidden_size: int, lstm_dropout: float, num_layers: int, reparametrize: True):
+    def __init__(self, prompt_seq_len: int, hidden_size: int, lstm_dropout: float, num_layers: int, reparametrize: bool):
         """
         Initializes the PromptEncoder module.
         Args:
@@ -80,8 +80,8 @@ class PromptEncoder(NeuralModule, Exportable):
             if template_embeddings is not None:
                 bz, task_seq, _ = template_embeddings.shape
                 _, seq, emb = prompt_embeds.shape
-                input_embeds = prompt_embeds.expand(bz, seq, emb).clone()
+                prompt_embeds = prompt_embeds.expand(bz, seq, emb).clone()
                 length = min(task_seq, seq)
-                input_embeds[:, 0:length, :] = template_embeddings[:, 0:length, :]
-            prompt_embeds = self.mlp_head(self.lstm_head(input_embeds)[0])
+                prompt_embeds[:, 0:length, :] = template_embeddings[:, 0:length, :]
+            prompt_embeds = self.mlp_head(self.lstm_head(prompt_embeds)[0])
         return prompt_embeds

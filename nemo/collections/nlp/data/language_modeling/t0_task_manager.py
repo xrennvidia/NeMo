@@ -14,8 +14,7 @@ special_splits = {
 }
 
 t0_debug = {
-    'wiki_bio': None,
-    'super_glue': ['record', 'boolq']
+    'race': ['high', 'middle'], 'yelp_review_full': None, 'super_glue': ['copa', 'boolq']
 }
 
 t0_traindt_names_subset = {
@@ -31,8 +30,8 @@ t0_traindt_names_subset = {
     # Structure-To-Text
     'common_gen': None, 'wiki_bio': None,
     # Sentiment
-    'amazon_polarity': None, 'app_reviews': None, 'imdb': None,
-    'rotten_tomatoes': None, 'yelp_review_full': None,
+    'amazon_polarity': None, 'app_reviews': None,
+    'imdb': None, 'rotten_tomatoes': None, 'yelp_review_full': None,
     # Summarization
     'cnn_dailymail': '3.0.0', 'gigaword': None, 'multi_news': None,
     'samsum': None, 'xsum': None,
@@ -42,11 +41,11 @@ t0_traindt_names_subset = {
     'glue': ['mrpc', 'qqp'], 'paws': 'labeled_final'
 }
 t0p_traindt_names_subset = {
-    # Multiple-Choice QA
+     #Multiple-Choice QA
     'openbookqa': 'main', 'piqa': None, 'race': ['high', 'middle'],
-    # Extractive QA
+     #Extractive QA
     'squad_v2': None,
-    # Closed-Book QA
+     #Closed-Book QA
     'ai2_arc': ['ARC-Challenge', 'ARC-Easy'], 'trivia_qa': 'unfiltered',
     'web_questions': None
 }
@@ -73,9 +72,10 @@ DATA_ORG = {
 }
 
 
+# TODO: make this nicer
 task_ids_dict = {}
 id = 0
-for task_dict in [t0pp_traindt_names_subset, t0_all_evaldt_names_subset]:
+for task_dict in [t0pp_traindt_names_subset, t0_all_evaldt_names_subset, t0_debug]:
     for data_name, subsets in task_dict.items():
         if not isinstance(subsets, list):
             subsets = [subsets]
