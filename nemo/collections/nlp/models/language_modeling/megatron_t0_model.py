@@ -47,7 +47,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
     def __init__(self, cfg: DictConfig, trainer: Trainer):
         super().__init__(cfg=cfg, trainer=trainer)
         self.cfg = cfg
-        self.acc_metric_dict = {}
+        self.acc_metric_dict = torch.nn.ModuleDict()
         self._reduced_loss_buffer = []
 
 
@@ -116,12 +116,10 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             label = [id for id in label if id not in self.model.tokenizer.additional_special_tokens_ids]
             pred = self.model.tokenizer.ids_to_text(pred)
             label = self.model.tokenizer.ids_to_text(label)
-            guid = guid.item()
-            prompt_id = prompt_id.item()
-            prompt_id = 1
-            self.acc_metric_dict[guid] = self.acc_metric_dict.get(guid, {})
-            self.acc_metric_dict[guid][prompt_id] = self.acc_metric_dict[guid].get(prompt_id, ExactStringMatchMetric())
-            _ = self.acc_metric_dict[guid][prompt_id](pred, label)
+            key = f'task{guid.item()}_prompt{prompt_id.item()}'
+            if not self.acc_metric_dict.__contains__(key):
+                self.acc_metric_dict[key] = ExactStringMatchMetric().to(self.device)
+            _ = self.acc_metric_dict[key](pred, label)
 
     def inference_step(self, batch, batch_idx):
         loss = self.model.validation_step(batch, batch_idx)
@@ -141,11 +139,10 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         """Uses exact match"""
         losses = [x['loss'] for x in outputs]
         averaged_loss = average_losses_across_data_parallel_group(losses)
-        for guid in self.acc_metric_dict.keys():
-            for prompt_id in self.acc_metric_dict[guid].keys():
-                accuracy = self.acc_metric_dict[guid][prompt_id].compute()
-                self.acc_metric_dict[guid][prompt_id].reset()
-                self.log(f'validation_acc_task{guid}_prompt{prompt_id}', accuracy)
+        for key in self.acc_metric_dict.keys():
+            accuracy = self.acc_metric_dict[key].compute()
+            self.acc_metric_dict[key].reset()
+            self.log(f'validation_acc_{key}', accuracy)
         self.log('validation_loss', averaged_loss)
         return averaged_loss[0], accuracy
 
