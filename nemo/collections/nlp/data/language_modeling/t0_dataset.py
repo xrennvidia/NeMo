@@ -341,8 +341,9 @@ class T0PrimeDataset(T0Dataset):
                 chunk_name = chunk[0]
                 chunk_tokens = self.tokenizer.text_to_ids(chunk[1])
                 if chunk_name == TEMPLATE_CHUNK_NAME:
-                    template.extend(chunk_tokens)
-                    enc_query.extend([self.prompt_token_id] * len(chunk_tokens))
+                    remain = max(0, self.prompt_seq_len - len(template) - len(chunk_tokens))
+                    template.extend(chunk_tokens[:remain])
+                    enc_query.extend([self.prompt_token_id] * len(chunk_tokens[:remain]))
                 else:
                     assert chunk_name == ORIG_TXT_CHUNK_NAME
                     remain = max(0, self.max_query_length - len(enc_query) - len(chunk_tokens))

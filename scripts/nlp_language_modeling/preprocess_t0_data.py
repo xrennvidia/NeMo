@@ -131,15 +131,18 @@ def apply_prompts(dataset, prompts, splits, save_paths):
                         output = result[1]
                         original_text_idx, template_idx = get_text_template_idx(example, templated_text)
                         chunked_idx = organize_chunk_idx(original_text_idx, template_idx)
+                        #TODO remove exception when finished debugging
+                        if len(original_text_idx) < len(template_idx):
+                            raise ValueError("Original text bigger than template!")
+                            #original_text_idx, template_idx = get_text_template_idx(example, templated_text)
                         assert chunked_idx[0][1][0] == 0
                         #assert any(c[1][1] == len(templated_text) for c in chunked_idx)
                         row[template_name] = {
                             'input': templated_text, 'output': output, 'chunked_idx': chunked_idx
                         }
-                    except IndexError:
+                    except (IndexError, ValueError):
                         if not printed:
                             print("ISSUE DETECTED")
-                            #original_text_idx, template_idx = get_text_template_idx(example, templated_text)
                             print(save_path)
                             print(template_name)
                         printed = True

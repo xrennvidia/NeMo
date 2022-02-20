@@ -43,7 +43,7 @@ model:
   freeze: True
 
   prompt_encoder:
-    seq_len: 30
+    seq_len: 96
     dropout: 0.0
     num_layers: 2
     reparametrize: True
@@ -53,25 +53,25 @@ model:
     dir_path: '/home/jpilault/datasets/T0_prompted'
     max_data_size: 500000  # from T0 paper (https://arxiv.org/abs/2110.08207)
     train_ds:
-      batch_size: 32
+      batch_size: 16
       shuffle: True
       num_workers: 0
       pin_memory: True
-      max_seq_length: 512
+      max_seq_length: 416
 
     validation_ds:
       batch_size: 32
       shuffle: False
       num_workers: 0
       pin_memory: True
-      max_seq_length: 512
+      max_seq_length: 416
 
     test_ds:
       batch_size: 32
       shuffle: False
       num_workers: 0
       pin_memory: True
-      max_seq_length: 512
+      max_seq_length: 416
 
   optim:
     name: fused_adam
