@@ -735,7 +735,8 @@ def plot(
     duration=None,
     threshold=None,
     per_args=None,
-    ignore_thresholding=False
+    ignore_thresholding=False,
+    FRAME_LEN=0.01
 ):
     """
     Plot VAD outputs for demonstration in tutorial
@@ -746,7 +747,6 @@ def plot(
         threshold (float): threshold for prediction score (from 0 to 1).
     """
     plt.figure(figsize=[20, 2])
-    FRAME_LEN = 0.01
 
     audio, sample_rate = librosa.load(path=path2audio_file, sr=16000, mono=True, offset=offset, duration=duration)
     dur = librosa.get_duration(audio, sr=sample_rate)
@@ -767,7 +767,7 @@ def plot(
     ax1.set_ylim([-1, 1])
     ax2 = ax1.twinx()
 
-    prob = frame
+    prob = np.array(frame)
     if not ignore_thresholding and threshold and per_args:
         raise ValueError("threshold and per_args cannot be used at same time!")
     if not ignore_thresholding  and not threshold and not per_args:

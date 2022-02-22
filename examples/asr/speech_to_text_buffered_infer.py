@@ -38,7 +38,7 @@ can_gpu = torch.cuda.is_available()
 
 
 def get_wer_feat(mfst, asr, frame_len, tokens_per_chunk, delay, vad_delay, preprocessor_cfg, model_stride_in_secs, device, 
-                vad=None, threshold=0.4):
+                vad=None, threshold=0.4, look_back=4):
     # Create a preprocessor to convert audio samples into raw features,
     # Normalization will be done per buffer in frame_bufferer
     # Do not normalize whatever the model's preprocessor setting is
@@ -67,7 +67,7 @@ def get_wer_feat(mfst, asr, frame_len, tokens_per_chunk, delay, vad_delay, prepr
                 total_duration_to_asr = 0
                 for i in range(len(speech_segments)): 
                     asr.reset()
-                    offset = speech_segments[i][0] - frame_len * 4
+                    offset = max(speech_segments[i][0] - frame_len * look_back, 0)
 
                     if row['duration'] and speech_segments[i][1] > row['duration']:
                         end = row['duration']
@@ -75,7 +75,7 @@ def get_wer_feat(mfst, asr, frame_len, tokens_per_chunk, delay, vad_delay, prepr
                     else:
                         end = speech_segments[i][1]
 
-                    duration = end - speech_segments[i][0] + frame_len * 4
+                    duration = end - speech_segments[i][0] + frame_len * look_back
                     
                     asr.read_audio_file(row['audio_filepath'], offset, duration, delay, model_stride_in_secs)
 #                     print(row['audio_filepath'])
@@ -114,7 +114,7 @@ def get_wer_feat(mfst, asr, frame_len, tokens_per_chunk, delay, vad_delay, prepr
     wer = word_error_rate(hypotheses=hyps, references=refs)
     print(wer)
     if vad:
-        print(f"VAD reduces total durations for ASR inference from {int(sum(original_durations))} seconds to {int(sum(total_durations_to_asr))} seconds, by filtering out some noise or musci")
+        print(f"VAD reduces total durations for ASR inference from {int(sum(original_durations))} seconds to {int(sum(total_durations_to_asr))} seconds, by filtering out some noise or music")
     
     return hyps, refs, wer, total_durations_to_asr, total_speech_segments, total_streaming_vad_logits
 
@@ -161,6 +161,12 @@ def main():
         type=float,
         default=0.4,
         help="threshold",
+    )
+        parser.add_argument(
+        "--look_back",
+        type=int,
+        default=4,
+        help="look back int",
     )
 
     args = parser.parse_args()
@@ -215,7 +221,7 @@ def main():
     vad_mid_delay = math.ceil((chunk_len + (total_vad_buffer - chunk_len) / 2) / 1)
 
     frame_vad = None
-    threshold = args.threshold
+
     if args.vad_before_asr and args.vad_model:
         
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -247,7 +253,8 @@ def main():
         model_stride_in_secs,
         asr_model.device,
         frame_vad,
-        threshold
+        args.threshold,
+        args.look_back
     )
     
     logging.info(f"WER is {round(wer, 2)} when decoded with a delay of {round(mid_delay*model_stride_in_secs, 2)}s")
