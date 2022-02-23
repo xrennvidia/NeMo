@@ -105,7 +105,7 @@ class WaveformFeaturizer(object):
     def max_augmentation_length(self, length):
         return self.augmentor.max_augmentation_length(length)
 
-    def process(self, file_path, offset=0, duration=0, trim=False, orig_sr=None):
+    def process(self, file_path, offset=0, duration=0, trim=False, orig_sr=None, n_channels=1):
         audio = AudioSegment.from_file(
             file_path,
             target_sr=self.sample_rate,
@@ -114,6 +114,7 @@ class WaveformFeaturizer(object):
             duration=duration,
             trim=trim,
             orig_sr=orig_sr,
+            n_channels=n_channels
         )
         return self.process_segment(audio)
 

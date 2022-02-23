@@ -133,6 +133,7 @@ class _AudioTextDataset(Dataset):
         bos_id: Optional[int] = None,
         eos_id: Optional[int] = None,
         pad_id: int = 0,
+        n_channels: Optional[int] = None,
     ):
         self.parser = parser
 
@@ -149,6 +150,7 @@ class _AudioTextDataset(Dataset):
         self.eos_id = eos_id
         self.bos_id = bos_id
         self.pad_id = pad_id
+        self.n_channels = n_channels
 
     def __getitem__(self, index):
         sample = self.collection[index]
@@ -158,7 +160,7 @@ class _AudioTextDataset(Dataset):
             offset = 0
 
         features = self.featurizer.process(
-            sample.audio_file, offset=offset, duration=sample.duration, trim=self.trim, orig_sr=sample.orig_sr
+            sample.audio_file, offset=offset, duration=sample.duration, trim=self.trim, orig_sr=sample.orig_sr, n_channels=self.n_channels,
         )
         f, fl = features, torch.tensor(features.shape[-1]).long()
 
@@ -767,6 +769,7 @@ class AudioToBPEDataset(_AudioTextDataset):
         max_utts: int = 0,
         trim: bool = False,
         use_start_end_token: bool = True,
+        n_channels: Optional[int] = None,
     ):
         if use_start_end_token and hasattr(tokenizer, 'bos_token'):
             bos_id = tokenizer.bos_id
@@ -804,6 +807,7 @@ class AudioToBPEDataset(_AudioTextDataset):
             eos_id=eos_id,
             pad_id=pad_id,
             trim=trim,
+            n_channels = n_channels
         )
 
 

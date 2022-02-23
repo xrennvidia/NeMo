@@ -59,7 +59,7 @@ class AudioSegment(object):
     :raises TypeError: If the sample data type is not float or int.
     """
 
-    def __init__(self, samples, sample_rate, target_sr=None, trim=False, trim_db=60, orig_sr=None):
+    def __init__(self, samples, sample_rate, target_sr=None, trim=False, trim_db=60, orig_sr=None, n_channels=8):
         """Create audio segment from samples.
         Samples are convert float32 internally, with int scaled to [-1, 1].
         """
@@ -75,6 +75,9 @@ class AudioSegment(object):
         #     self._samples = np.mean(self._samples, 1)
 
         self._orig_sr = orig_sr if orig_sr is not None else sample_rate
+        if n_channels is not None and self._samples.shape[0] > n_channels:
+            self._samples = self._samples[:n_channels][:]
+
         self._channels = self._samples.shape[0]
 
     def __eq__(self, other):
@@ -121,7 +124,7 @@ class AudioSegment(object):
 
     @classmethod
     def from_file(
-        cls, audio_file, target_sr=None, int_values=False, offset=0, duration=0, trim=False, orig_sr=None,
+        cls, audio_file, target_sr=None, int_values=False, offset=0, duration=0, trim=False, orig_sr=None, n_channels=None,
     ):
         """
         Load a file supported by librosa and return as an AudioSegment.
@@ -176,7 +179,7 @@ class AudioSegment(object):
             except CouldntDecodeError as e:
                 logging.error(f"Loading {audio_file} via pydub raised CouldntDecodeError: `{e}`.")
 
-        return cls(samples, sample_rate, target_sr=target_sr, trim=trim, orig_sr=orig_sr)
+        return cls(samples, sample_rate, target_sr=target_sr, trim=trim, orig_sr=orig_sr, n_channels=n_channels)
 
     @classmethod
     def segment_from_file(cls, audio_file, target_sr=None, n_segments=0, trim=False, orig_sr=None):
