@@ -115,6 +115,7 @@ def get_bpe_dataset(
         max_utts=config.get('max_utts', 0),
         trim=config.get('trim_silence', False),
         use_start_end_token=config.get('use_start_end_token', True),
+        n_channels=config.get('n_channels', None)
     )
     return dataset
 
