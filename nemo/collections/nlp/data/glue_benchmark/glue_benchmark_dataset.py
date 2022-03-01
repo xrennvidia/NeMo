@@ -36,6 +36,7 @@ from nemo.collections.nlp.data.glue_benchmark.data_processors import (
     Sst2Processor,
     StsbProcessor,
     WnliProcessor,
+    XNlIProcessor,
 )
 from nemo.collections.nlp.data.language_modeling.megatron.t5_dataset import (
     make_attention_mask_3d,
@@ -58,6 +59,7 @@ processors = {
     "qnli": QnliProcessor,
     "rte": RteProcessor,
     "wnli": WnliProcessor,
+    "xnli": XNlIProcessor,
 }
 output_modes = {
     "cola": "classification",
@@ -70,6 +72,7 @@ output_modes = {
     "qnli": "classification",
     "rte": "classification",
     "wnli": "classification",
+    "xnli": "classification",
 }
 GLUE_TASKS_NUM_LABELS = {
     "cola": 2,
@@ -116,6 +119,7 @@ class GLUEDataset(Dataset):
             max_seq_length: max sequence length minus 2 for [CLS] and [SEP]
             use_cache: whether to use data cache
         """
+        original_file_name = file_name
         logging.info(f'Processing {file_name}')
         data_dir, file_name = os.path.split(file_name)
         file_name = file_name[:-4]
@@ -134,7 +138,15 @@ class GLUEDataset(Dataset):
         output_mode = output_modes[self.task_name]
         self.label_list = processor.get_labels()
 
-        self.examples = processor.get_dev_examples(data_dir) if evaluate else processor.get_train_examples(data_dir)
+        # TODO: use a different variable to decide whether to trust the user provided filename. This is a temporary workaround for T5 GLUE and XNLI.
+        if not compute_features:
+            if not os.path.exists(original_file_name):
+                raise ValueError(f"Could not find file : {original_file_name}")
+            self.examples = processor.get_examples(original_file_name)
+        else:
+            self.examples = (
+                processor.get_dev_examples(data_dir) if evaluate else processor.get_train_examples(data_dir)
+            )
         processor_name = type(processor).__name__
         vocab_size = getattr(tokenizer, "vocab_size", 0)
         if compute_features:
@@ -418,10 +430,15 @@ class TextToTextGLUEDataset(GLUEDataset):
         labels = torch.LongTensor(labels)
         loss_mask = torch.LongTensor(loss_mask)
 
+<<<<<<< HEAD
         enc_mask = make_attention_mask_3d(enc_query, enc_query, self.tokenizer.pad_id).long()
         dec_mask = make_attention_mask_3d(dec_input, dec_input, self.tokenizer.pad_id)
         dec_mask = (dec_mask * make_history_mask_3d(dec_input)).long()
         enc_dec_mask = make_attention_mask_3d(dec_input, enc_query, self.tokenizer.pad_id).long()
+=======
+        enc_mask = (enc_query != self.tokenizer.pad_id).long()
+        dec_mask = (dec_input != self.tokenizer.pad_id).long()
+>>>>>>> bc6215f166e69502fd7784fc73a5c2c39b465819
 
         return {
             'text_enc': enc_query,
@@ -430,7 +447,10 @@ class TextToTextGLUEDataset(GLUEDataset):
             'loss_mask': loss_mask,
             'enc_mask': enc_mask,
             'dec_mask': dec_mask,
+<<<<<<< HEAD
             'enc_dec_mask': enc_dec_mask,
+=======
+>>>>>>> bc6215f166e69502fd7784fc73a5c2c39b465819
         }
 
     def make_history_mask_3d(self, block):
@@ -470,6 +490,54 @@ class TextToTextGLUEDataset(GLUEDataset):
         return features
 
 
+<<<<<<< HEAD
+=======
+class TextToTextXNlIDataset(TextToTextGLUEDataset):
+    """XNLI Dataset in a text-to-text format."""
+
+    def __init__(
+        self,
+        file_name: str,
+        task_name: str,
+        tokenizer: TokenizerSpec,
+        max_seq_length: int,
+        max_seq_length_decoder: int = 128,
+        use_cache: bool = True,
+        prefix_override: str = None,
+        lang_list: List[str] = None,
+    ):
+        self.lang_list = set(lang_list)
+        super().__init__(
+            file_name, task_name, tokenizer, max_seq_length, max_seq_length_decoder, use_cache, prefix_override
+        )
+        if len(lang_list) <= 0 or lang_list is None:
+            raise ValueError(f"Found an empty or None lang_list for {self.task_name}")
+        self.features = self.convert_xnli_examples_to_features()
+
+    def __getitem__(self, idx):
+        enc_query, dec_input, labels, lang = self.features[idx]
+        return {'text_enc': enc_query, 'text_dec': dec_input, 'labels': labels, 'lang': lang}
+
+    def collate_fn(self, batch):
+        base_batch = super().collate_fn(batch)
+        base_batch['lang'] = [item['lang'] for item in batch]
+        return base_batch
+
+    def convert_xnli_examples_to_features(self):
+        """
+        Converts examples into Text-to-Text batches to be used with a model like T5.
+        Inputs are prefixed with a text prompt that indicates the task to perform.
+        """
+        features = self.features
+        lang_filtered_features = []
+        for ex_index, example in enumerate(self.examples):
+            language = example.guid.split('-')[1]
+            if language in self.lang_list:
+                lang_filtered_features.append(features[ex_index] + [language])
+        return lang_filtered_features
+
+
+>>>>>>> bc6215f166e69502fd7784fc73a5c2c39b465819
 class InputFeatures(object):
     """A single set of features of data.
 

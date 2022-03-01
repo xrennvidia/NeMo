@@ -32,7 +32,11 @@ class PromptEncoder(NeuralModule, Exportable):
     @property
     def input_types(self) -> Optional[Dict[str, NeuralType]]:
         return {
+<<<<<<< HEAD
             "template_embeddings": NeuralType(('B', 'T', 'C'), ChannelType(), optional=True),
+=======
+            "enc_taskname": NeuralType(('B', 'T', 'C'), ChannelType(), optional=True),
+>>>>>>> bc6215f166e69502fd7784fc73a5c2c39b465819
         }
 
     @property
@@ -53,13 +57,21 @@ class PromptEncoder(NeuralModule, Exportable):
         self.hidden_size = hidden_size
         self.reparametrize = reparametrize
         # ent embedding
+<<<<<<< HEAD
         self.cloze_mask = [1] * prompt_seq_len
+=======
+        self.cloze_length = template
+        self.cloze_mask = [1] * sum(self.cloze_length)
+>>>>>>> bc6215f166e69502fd7784fc73a5c2c39b465819
         self.cloze_mask = torch.LongTensor(self.cloze_mask).bool()
         self.register_buffer('seq_indices', torch.LongTensor(list(range(len(self.cloze_mask)))))
 
         # embedding
         self.embedding = torch.nn.Embedding(len(self.cloze_mask), self.hidden_size)
+<<<<<<< HEAD
         #TODO: add MLP reparametrize here
+=======
+>>>>>>> bc6215f166e69502fd7784fc73a5c2c39b465819
         # LSTM
         self.lstm_head = torch.nn.LSTM(
             input_size=self.hidden_size,
@@ -74,6 +86,7 @@ class PromptEncoder(NeuralModule, Exportable):
         )
 
     @typecheck()
+<<<<<<< HEAD
     def forward(self, template_embeddings=None) -> torch.Tensor:
         prompt_embeds = self.embedding(self.seq_indices).unsqueeze(0)
         if self.reparametrize:
@@ -85,3 +98,15 @@ class PromptEncoder(NeuralModule, Exportable):
                 prompt_embeds[:, 0:length, :] = template_embeddings[:, 0:length, :]
             prompt_embeds = self.mlp_head(self.lstm_head(prompt_embeds)[0])
         return prompt_embeds
+=======
+    def forward(self, enc_taskname) -> torch.Tensor:
+        input_embeds = self.embedding(self.seq_indices).unsqueeze(0)
+        if enc_taskname is not None:
+            bz, task_seq, _ = enc_taskname.shape
+            _, seq, emb = input_embeds.shape
+            input_embeds = input_embeds.expand(bz, seq, emb).clone()
+            length = min(task_seq, seq)
+            input_embeds[:, 0:length, :] = enc_taskname[:, 0:length, :]
+        output_embeds = self.mlp_head(self.lstm_head(input_embeds)[0])
+        return output_embeds
+>>>>>>> bc6215f166e69502fd7784fc73a5c2c39b465819
