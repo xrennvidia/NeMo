@@ -112,7 +112,7 @@ class AudioFeatureIterator(IterableDataset):
         if last <= self._features_len[0]:
             frame = self._features[:, self._start : last].cpu()
             self._start = last
-            if self._start == self._features_len[0]:
+            if self._start == self._features_len[0]-1:
                 self.output = False
 
         else:
