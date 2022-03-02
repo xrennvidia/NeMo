@@ -22,13 +22,12 @@ from typing import Dict, List, Optional, Union
 import torch
 from omegaconf import DictConfig, OmegaConf, open_dict
 from pytorch_lightning import Trainer
-from torch.utils.data import ChainDataset
 from tqdm.auto import tqdm
 
 from nemo.collections.asr.data import audio_to_text_dataset
 from nemo.collections.asr.data.audio_to_text_dali import DALIOutputs
 from nemo.collections.asr.losses.rnnt import RNNTLoss, resolve_rnnt_default_loss_name
-from nemo.collections.asr.metrics.rnnt_wer import RNNTWER, RNNTDecoding
+from nemo.collections.asr.metrics.rnnt_wer import RNNTWER, RNNTDecoding, RNNTDecodingConfig
 from nemo.collections.asr.models.asr_model import ASRModel
 from nemo.collections.asr.modules.rnnt import RNNTDecoderJoint
 from nemo.collections.asr.parts.mixins import ASRModuleMixin
@@ -37,6 +36,7 @@ from nemo.core.classes import Exportable
 from nemo.core.classes.common import PretrainedModelInfo, typecheck
 from nemo.core.neural_types import AcousticEncodedRepresentation, AudioSignal, LengthsType, NeuralType, SpectrogramType
 from nemo.utils import logging
+from nemo.utils.export_utils import augment_filename
 
 
 class EncDecRNNTModel(ASRModel, ASRModuleMixin, Exportable):
@@ -111,7 +111,9 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, Exportable):
             self.compute_eval_loss = True
 
         # Setup fused Joint step if flag is set
-        if self.joint.fuse_loss_wer:
+        if self.joint.fuse_loss_wer or (
+            self.decoding.joint_fused_batch_size is not None and self.decoding.joint_fused_batch_size > 0
+        ):
             self.joint.set_loss(self.loss)
             self.joint.set_wer(self.wer)
 
@@ -350,6 +352,11 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, Exportable):
                 # Assume same decoding config as before
                 decoding_cfg = self.cfg.decoding
 
+            # Assert the decoding config with all hyper parameters
+            decoding_cls = OmegaConf.structured(RNNTDecodingConfig)
+            decoding_cls = OmegaConf.create(OmegaConf.to_container(decoding_cls))
+            decoding_cfg = OmegaConf.merge(decoding_cls, decoding_cfg)
+
             self.decoding = RNNTDecoding(
                 decoding_cfg=decoding_cfg, decoder=self.decoder, joint=self.joint, vocabulary=self.joint.vocabulary,
             )
@@ -363,7 +370,9 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, Exportable):
             )
 
             # Setup fused Joint step
-            if self.joint.fuse_loss_wer:
+            if self.joint.fuse_loss_wer or (
+                self.decoding.joint_fused_batch_size is not None and self.decoding.joint_fused_batch_size > 0
+            ):
                 self.joint.set_loss(self.loss)
                 self.joint.set_wer(self.wer)
 
@@ -398,6 +407,11 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, Exportable):
             logging.info("No `decoding_cfg` passed when changing decoding strategy, using internal config")
             decoding_cfg = self.cfg.decoding
 
+        # Assert the decoding config with all hyper parameters
+        decoding_cls = OmegaConf.structured(RNNTDecodingConfig)
+        decoding_cls = OmegaConf.create(OmegaConf.to_container(decoding_cls))
+        decoding_cfg = OmegaConf.merge(decoding_cls, decoding_cfg)
+
         self.decoding = RNNTDecoding(
             decoding_cfg=decoding_cfg, decoder=self.decoder, joint=self.joint, vocabulary=self.joint.vocabulary,
         )
@@ -411,7 +425,9 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, Exportable):
         )
 
         # Setup fused Joint step
-        if self.joint.fuse_loss_wer:
+        if self.joint.fuse_loss_wer or (
+            self.decoding.joint_fused_batch_size is not None and self.decoding.joint_fused_batch_size > 0
+        ):
             self.joint.set_loss(self.loss)
             self.joint.set_wer(self.wer)
 
@@ -472,10 +488,10 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, Exportable):
 
             dataset = audio_to_text_dataset.get_char_dataset(config=config, augmentor=augmentor)
 
-        if type(dataset) is ChainDataset:
-            collate_fn = dataset.datasets[0].collate_fn
-        else:
+        if hasattr(dataset, 'collate_fn'):
             collate_fn = dataset.collate_fn
+        else:
+            collate_fn = dataset.datasets[0].collate_fn
 
         return torch.utils.data.DataLoader(
             dataset=dataset,
@@ -517,10 +533,15 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, Exportable):
             # We also need to check if limit_train_batches is already set.
             # If it's an int, we assume that the user has set it to something sane, i.e. <= # training batches,
             # and don't change it. Otherwise, adjust batches accordingly if it's a float (including 1.0).
-            if isinstance(self._trainer.limit_train_batches, float):
+            if self._trainer is not None and isinstance(self._trainer.limit_train_batches, float):
                 self._trainer.limit_train_batches = int(
                     self._trainer.limit_train_batches
                     * ceil((len(self._train_dl.dataset) / self.world_size) / train_data_config['batch_size'])
+                )
+            elif self._trainer is None:
+                logging.warning(
+                    "Model Trainer was not set before constructing the dataset, incorrect number of "
+                    "training batches will be used. Please set the trainer and rebuild the dataset."
                 )
 
     def setup_validation_data(self, val_data_config: Optional[Union[DictConfig, Dict]]):
@@ -897,11 +918,11 @@ class EncDecRNNTModel(ASRModel, ASRModuleMixin, Exportable):
 
     def export(self, output: str, input_example=None, **kwargs):
         encoder_exp, encoder_descr = self.encoder.export(
-            self._augment_output_filename(output, 'Encoder'), input_example=input_example, **kwargs,
+            augment_filename(output, 'Encoder'), input_example=input_example, **kwargs,
         )
         decoder_joint = RNNTDecoderJoint(self.decoder, self.joint)
         decoder_exp, decoder_descr = decoder_joint.export(
-            self._augment_output_filename(output, 'Decoder-Joint'),
+            augment_filename(output, 'Decoder-Joint'),
             # TODO: propagate from export()
             input_example=None,
             **kwargs,

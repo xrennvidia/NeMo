@@ -41,11 +41,15 @@ An example ASR train and validation configuration should look similar to the fol
       trim_silence: True
       max_duration: 16.7
       shuffle: True
-      is_tarred: False  # If set to true, uses the tarred version of the Dataset
-      tarred_audio_filepaths: null      # Not used if is_tarred is false
-      tarred_shard_strategy: "scatter"  # Not used if is_tarred is false
       num_workers: 8
       pin_memory: true
+      # tarred datasets
+      is_tarred: false # If set to true, uses the tarred version of the Dataset
+      tarred_audio_filepaths: null     # Not used if is_tarred is false
+      shuffle_n: 2048                  # Not used if is_tarred is false
+      # bucketing params
+      bucketing_strategy: "synced_randomized"
+      bucketing_batch_size: null
 
     validation_ds:
       manifest_filepath: ???
@@ -667,9 +671,16 @@ The most important component at the top level is the ``strategy``. It can take o
   decoding:
     strategy: "greedy_batch"
 
+    # preserve decoding alignments
+    preserve_alignments: false
+
+    # Overrides the fused batch size after training.
+    # Setting it to -1 will process whole batch at once when combined with `greedy_batch` decoding strategy
+    fused_batch_size: Optional[int] = -1
+
     # greedy strategy config
     greedy:
-      max_symbols: 30
+      max_symbols: 10
 
     # beam strategy config
     beam:
@@ -715,7 +726,9 @@ Refer to the above paper for results and recommendations of ``fastemit_lambda``.
 Fine-tuning Configurations
 --------------------------
 
-All ASR scripts support easy fine-tuning by partially/fully loading the pretrained weights from a checkpoint into the currently instantiated model. Pre-trained weights can be provided in multiple ways -
+All ASR scripts support easy fine-tuning by partially/fully loading the pretrained weights from a checkpoint into the **currently instantiated model**. Note that the currently instantiated model should have parameters that match the pre-trained checkpoint (such that weights may load properly). In order to directly fine-tune a pre-existing checkpoint, please follow the tuturial : `ASR Language Fine-tuning. <https://colab.research.google.com/github/NVIDIA/NeMo/blob/stable/tutorials/asr/ASR_CTC_Language_Finetuning.ipynb>_
+
+Pre-trained weights can be provided in multiple ways -
 
 1) Providing a path to a NeMo model (via ``init_from_nemo_model``)
 2) Providing a name of a pretrained NeMo model (which will be downloaded via the cloud) (via ``init_from_pretrained_model``)
