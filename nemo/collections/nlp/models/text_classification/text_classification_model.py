@@ -51,13 +51,11 @@ class TextClassificationModel(NLPModel, Exportable):
         self.dataset_cfg = cfg.dataset
         # tokenizer needs to get initialized before the super.__init__()
         # as dataloaders and datasets need it to process the data
-        self.setup_tokenizer(cfg.tokenizer)
-
+        if cfg.language_model.get('nemo_file', None) is None:
+            self.setup_tokenizer(cfg.tokenizer)
         self.class_weights = None
 
-        super().__init__(cfg=cfg, trainer=trainer)
-
-        self.bert_model = get_lm_model(
+        bert_model = get_lm_model(
             pretrained_model_name=cfg.language_model.pretrained_model_name,
             config_file=self.register_artifact('language_model.config_file', cfg.language_model.config_file),
             config_dict=cfg.language_model.config,
@@ -66,6 +64,12 @@ class TextClassificationModel(NLPModel, Exportable):
             vocab_file=self.register_artifact('tokenizer.vocab_file', cfg.tokenizer.vocab_file),
             trainer=trainer,
         )
+        
+        if cfg.language_model.get('nemo_file', None) is not None:
+            self.tokenizer = bert_model.tokenizer
+
+        super().__init__(cfg=cfg, trainer=trainer)
+        self.bert_model = bert_model
 
         if cfg.language_model.get('nemo_file', None) is not None:
             hidden_size = self.bert_model.cfg.hidden_size
