@@ -37,7 +37,7 @@
 
 import torch
 
-from nemo.collections.tts.helpers.helpers import OperationMode
+from nemo.collections.tts.helpers.helpers import OperationMode, split_view
 from nemo.collections.tts.modules.squeezewave_submodules import SqueezeWaveNet
 from nemo.collections.tts.modules.submodules import Invertible1x1Conv
 from nemo.core.classes import NeuralModule, typecheck
@@ -150,18 +150,18 @@ class SqueezeWaveModule(NeuralModule):
                 "audio": NeuralType(('B', 'T'), AudioSignal()),
             }
 
-    def input_example(self):
+    def input_example(self, max_batch=1, max_dim=256):
         """
         Generates input examples for tracing etc.
         Returns:
             A tuple of input examples.
         """
         par = next(self.parameters())
-        mel = torch.randn((1, self.n_mel_channels, 96), device=par.device, dtype=par.dtype)
+        mel = torch.randn((max_batch, self.n_mel_channels, max_dim), device=par.device, dtype=par.dtype)
         return tuple([mel])
 
     def audio_to_normal_dist(self, *, spec: torch.Tensor, audio: torch.Tensor) -> (torch.Tensor, list, list):
-        audio = audio.unfold(1, self.n_group, self.n_group).permute(0, 2, 1)
+        audio = split_view(audio, self.n_group, 1).permute(0, 2, 1)
         output_audio = []
         log_s_list = []
         log_det_W_list = []

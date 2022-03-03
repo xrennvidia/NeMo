@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import math
+import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -54,6 +55,7 @@ __all__ = [
     'AudioToMelSpectrogramPreprocessor',
     'AudioToMFCCPreprocessor',
     'SpectrogramAugmentation',
+    'MaskedPatchAugmentation',
     'CropOrPadSpectrogramAugmentation',
 ]
 
@@ -158,6 +160,12 @@ class AudioToMelSpectrogramPreprocessor(AudioPreprocessor):
             mag_power (float): The power that the linear spectrogram is raised to
                 prior to multiplication with mel basis.
                 Defaults to 2 for a power spec
+            rng : Random number generator
+            nb_augmentation_prob (float) : Probability with which narrowband augmentation would be applied to
+                samples in the batch.
+                Defaults to 0.0
+            nb_max_freq (int) : Frequency above which all frequencies will be masked for narrowband augmentation.
+                Defaults to 4000
         """
 
     def save_to(self, save_path: str):
@@ -194,30 +202,33 @@ class AudioToMelSpectrogramPreprocessor(AudioPreprocessor):
         }
 
     def __init__(
-            self,
-            sample_rate=16000,
-            window_size=0.02,
-            window_stride=0.01,
-            n_window_size=None,
-            n_window_stride=None,
-            window="hann",
-            normalize="per_feature",
-            n_fft=None,
-            preemph=0.97,
-            features=64,
-            lowfreq=0,
-            highfreq=None,
-            log=True,
-            log_zero_guard_type="add",
-            log_zero_guard_value=2 ** -24,
-            dither=1e-5,
-            pad_to=16,
-            frame_splicing=1,
-            exact_pad=False,
-            stft_exact_pad=False,
-            stft_conv=False,
-            pad_value=0,
-            mag_power=2.0,
+        self,
+        sample_rate=16000,
+        window_size=0.02,
+        window_stride=0.01,
+        n_window_size=None,
+        n_window_stride=None,
+        window="hann",
+        normalize="per_feature",
+        n_fft=None,
+        preemph=0.97,
+        features=64,
+        lowfreq=0,
+        highfreq=None,
+        log=True,
+        log_zero_guard_type="add",
+        log_zero_guard_value=2 ** -24,
+        dither=1e-5,
+        pad_to=16,
+        frame_splicing=1,
+        exact_pad=False,
+        stft_exact_pad=False,
+        stft_conv=False,
+        pad_value=0,
+        mag_power=2.0,
+        rng=None,
+        nb_augmentation_prob=0.0,
+        nb_max_freq=4000,
     ):
         super().__init__(n_window_size, n_window_stride)
 
@@ -255,6 +266,9 @@ class AudioToMelSpectrogramPreprocessor(AudioPreprocessor):
             stft_conv=stft_conv,
             pad_value=pad_value,
             mag_power=mag_power,
+            rng=rng,
+            nb_augmentation_prob=nb_augmentation_prob,
+            nb_max_freq=nb_max_freq,
         )
 
     def get_features(self, input_signal, length):
@@ -646,7 +660,6 @@ class SpectrogramAugmentation(NeuralModule):
             # self.spec_cutout.to(self._device)
         else:
             self.spec_cutout = lambda input_spec: input_spec
-
         if freq_masks + time_masks > 0:
             self.spec_augment = SpecAugment(
                 freq_masks=freq_masks,
@@ -661,6 +674,7 @@ class SpectrogramAugmentation(NeuralModule):
 
         # Check if numba is supported, and use a Numba kernel if it is
         if use_numba_spec_augment and numba_utils.numba_cuda_is_supported(__NUMBA_MINIMUM_VERSION__):
+            logging.info('Numba CUDA SpecAugment kernel is being used')
             self.spec_augment_numba = SpecAugmentNumba(
                 freq_masks=freq_masks,
                 time_masks=time_masks,
@@ -682,6 +696,72 @@ class SpectrogramAugmentation(NeuralModule):
             augmented_spec = self.spec_augment_numba(input_spec=augmented_spec, length=length)
         else:
             augmented_spec = self.spec_augment(input_spec=augmented_spec, length=length)
+        return augmented_spec
+
+
+class MaskedPatchAugmentation(NeuralModule):
+    """
+        Zeroes out fixed size time patches of the spectrogram.
+        All samples in batch are guaranteed to have the same amount of masked time steps.
+        Optionally also performs frequency masking in the same way as SpecAugment.
+        Args:
+            patch_size (int): up to how many time steps does one patch consist of.
+            Defaults to 48.
+            mask_patches (int): how many patches should be masked in each sample.
+            Defaults to 10.
+            freq_masks (int): how many frequency segments should be cut.
+            Defaults to 0.
+            freq_width (int): maximum number of frequencies to be cut in a segment.
+            Defaults to 0.
+    """
+
+    @property
+    def input_types(self):
+        """Returns definitions of module input types
+        """
+        return {
+            "input_spec": NeuralType(('B', 'D', 'T'), SpectrogramType()),
+            "length": NeuralType(tuple('B'), LengthsType()),
+        }
+
+    @property
+    def output_types(self):
+        """Returns definitions of module output types
+        """
+        return {"augmented_spec": NeuralType(('B', 'D', 'T'), SpectrogramType())}
+
+    def __init__(
+        self, patch_size: int = 48, mask_patches: int = 10, freq_masks: int = 0, freq_width: int = 0,
+    ):
+        super().__init__()
+        self.patch_size = patch_size
+        self.mask_patches = mask_patches
+
+        if freq_masks > 0:
+            self.spec_augment = SpecAugment(freq_masks=freq_masks, time_masks=0, freq_width=freq_width, time_width=0,)
+        else:
+            self.spec_augment = None
+
+    @typecheck()
+    def forward(self, input_spec, length):
+        augmented_spec = input_spec
+
+        min_len = torch.min(length)
+        mask_patches = self.mask_patches
+        if min_len < self.patch_size * self.mask_patches:
+            mask_patches = min_len // self.patch_size
+
+        for idx in range(input_spec.shape[0]):
+            cur_len = length[idx]
+            patches = range(cur_len // self.patch_size - 1)
+            masked_patches = random.sample(patches, mask_patches)
+
+            for mp in masked_patches:
+                augmented_spec[idx, :, mp * self.patch_size : (mp + 1) * self.patch_size] = 0.0
+
+        if self.spec_augment is not None:
+            augmented_spec = self.spec_augment(input_spec=augmented_spec, length=length)
+
         return augmented_spec
 
 
@@ -784,6 +864,9 @@ class AudioToMelSpectrogramPreprocessorConfig:
     stft_conv: bool = False
     pad_value: int = 0
     mag_power: float = 2.0
+    rng: Optional[str] = None
+    nb_augmentation_prob: float = 0.0
+    nb_max_freq: int = 4000
 
 
 @dataclass

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 
-from nemo_text_processing.text_normalization.en.graph_utils import GraphFst, insert_space
+from nemo_text_processing.text_normalization.en.graph_utils import NEMO_CHAR, GraphFst, insert_space
 from nemo_text_processing.text_normalization.en.taggers.cardinal import CardinalFst
 from nemo_text_processing.text_normalization.en.utils import get_abs_path, load_labels
 
@@ -29,8 +29,8 @@ except (ModuleNotFoundError, ImportError):
 
 class RomanFst(GraphFst):
     """
-    Finite state transducer for classifying electronic: as URLs, email addresses, etc.
-        e.g. cdf1@abc.edu -> tokens { electronic { username: "cdf1" domain: "abc.edu" } }
+    Finite state transducer for classifying roman numbers:
+        e.g. "IV" -> tokens { roman { integer: "four" } }
 
     Args:
         deterministic: if True will provide a single transduction option,
@@ -55,6 +55,12 @@ class RomanFst(GraphFst):
             | (ties + insert_space + digit_teen)
             | (hundreds + pynini.closure(insert_space + ties, 0, 1) + pynini.closure(insert_space + digit_teen, 0, 1))
         ).optimize()
+
+        # add a higher weight when roman number consists of a single symbol
+        graph = pynini.compose(pynini.closure(NEMO_CHAR, 2), graph) | pynutil.add_weight(
+            pynini.compose(NEMO_CHAR, graph), 101
+        )
+        graph = graph.optimize() + pynini.closure(pynutil.delete("."), 0, 1)
 
         graph = pynutil.insert("integer: \"") + graph + pynutil.insert("\"")
         graph = self.add_tokens(graph)

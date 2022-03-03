@@ -16,9 +16,8 @@
 from nemo_text_processing.text_normalization.en.graph_utils import (
     NEMO_NOT_QUOTE,
     GraphFst,
-    delete_space,
-    get_abs_path,
-    insert_space,
+    delete_extra_space,
+    delete_preserve_order,
 )
 
 try:
@@ -44,74 +43,50 @@ class MoneyFst(GraphFst):
 
     def __init__(self, decimal: GraphFst, deterministic: bool = True):
         super().__init__(name="money", kind="verbalize", deterministic=deterministic)
+        if deterministic or True:
+            keep_space = pynini.accep(" ")
+            maj = pynutil.delete("currency_maj: \"") + pynini.closure(NEMO_NOT_QUOTE, 1) + pynutil.delete("\"")
+            min = pynutil.delete("currency_min: \"") + pynini.closure(NEMO_NOT_QUOTE, 1) + pynutil.delete("\"")
 
-        def _get_minor_currencies(file):
-            minor_currencies = []
-            with open(get_abs_path(file), 'r') as f:
-                for line in f:
-                    min_cur = line.strip()
-                    minor_currencies.append(pynutil.insert(min_cur))
-            return minor_currencies
+            fractional_part = (
+                pynutil.delete("fractional_part: \"") + pynini.closure(NEMO_NOT_QUOTE, 1) + pynutil.delete("\"")
+            )
 
-        unit = (
-            pynutil.delete("currency:")
-            + delete_space
-            + pynutil.delete("\"")
-            + pynini.closure(NEMO_NOT_QUOTE, 1)
-            + pynutil.delete("\"")
-        )
-        graph = decimal.numbers + delete_space + pynutil.insert(" ") + unit
+            integer_part = (
+                pynutil.delete("integer_part: \"") + pynini.closure(NEMO_NOT_QUOTE, 1) + pynutil.delete("\"")
+            )
 
-        if not deterministic:
-            minor_currencies_singular = _get_minor_currencies("data/currency/currency_minor_one.tsv")
-            minor_currencies_singular = pynini.union(*minor_currencies_singular)
-            minor_currencies_singular = (
-                pynini.closure(NEMO_NOT_QUOTE)
-                + (
-                    pynini.accep("one")
-                    | pynini.cross("zero one", "one")
-                    | pynini.cross("oh one", "one")
-                    | pynini.cross(" o one", " one")
+            if not deterministic:
+                integer_part |= (
+                    pynutil.delete("integer_part: \"")
+                    + pynini.closure(NEMO_NOT_QUOTE, 1)
+                    + pynini.cross("hundred ", "hundred and ")
+                    + pynini.closure(NEMO_NOT_QUOTE, 1)
+                    + pynutil.delete("\"")
                 )
-                + insert_space
-                + minor_currencies_singular
+
+            optional_add_and = pynini.closure(pynutil.insert("and "), 0, 1)
+
+            #  *** currency_maj
+            graph_integer = integer_part + keep_space + maj
+
+            #  *** currency_maj + (***) | ((and) *** current_min)
+            fractional = optional_add_and + fractional_part + delete_extra_space + min
+
+            graph_integer_with_minor = (
+                integer_part + keep_space + maj + keep_space + fractional + delete_preserve_order
             )
 
-            minor_currencies_plural = _get_minor_currencies("data/currency/currency_minor.tsv")
-            minor_currencies_plural = insert_space + pynini.union(*minor_currencies_plural)
+            # *** point *** currency_maj
+            graph_decimal = decimal.numbers + keep_space + maj
 
-            fractional_default = (
-                pynutil.delete("fractional_part:")
-                + delete_space
-                + pynutil.delete("\"")
-                + ((pynini.closure(NEMO_NOT_QUOTE, 1) + minor_currencies_plural) | minor_currencies_singular)
-                + pynutil.delete("\"")
-            )
+            # *** current_min
+            graph_minor = fractional_part + delete_extra_space + min + delete_preserve_order
 
-            # $2.00 {two zero zero dollars} -> two dollars
-            fractional_with_zeros = (
-                pynutil.delete("fractional_part:")
-                + delete_space
-                + pynutil.delete("\"")
-                + pynini.cross('zero', '')
-                + pynini.closure(pynini.cross(' zero', ''))
-                + delete_space
-                + pynutil.delete("\"")
-                + delete_space
-            )
+            graph = graph_integer | graph_integer_with_minor | graph_decimal | graph_minor
 
-            fractional = fractional_with_zeros | fractional_default
-
-            graph |= (
-                decimal.integer
-                + delete_space
-                + insert_space
-                + unit
-                + delete_space
-                + insert_space
-                + pynini.closure(pynutil.insert("and "), 0, 1)
-                + fractional
-            )
+            if not deterministic:
+                graph |= graph_integer + delete_preserve_order
 
         delete_tokens = self.delete_tokens(graph)
         self.fst = delete_tokens.optimize()

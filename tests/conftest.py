@@ -11,8 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import os.path
+import shutil
 import tarfile
+import tempfile
 import urllib.request
 from os import mkdir
 from os.path import dirname, exists, getsize, join
@@ -52,6 +54,12 @@ def pytest_addoption(parser):
         action='store_false',
         help="numba compatibility checks will be relaxed to just availability of cuda, "
         "without cuda compatibility matrix check",
+    )
+    parser.addoption(
+        '--tn_cache_dir',
+        type=str,
+        default=None,
+        help="path to a directory with .far grammars for CPU TN/ITN tests, (DEFAULT: None, i.e. no cache)",
     )
 
 
@@ -105,6 +113,36 @@ def test_data_dir():
     return test_data_dir_
 
 
+def extract_data_from_tar(test_dir, test_data_archive, url=None, local_data=False):
+    # Remove .data folder.
+    if exists(test_dir):
+        if not local_data:
+            rmtree(test_dir)
+        else:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                print("Copying local tarfile to temporary storage..")
+                shutil.copy2(test_data_archive, temp_dir)
+                print("Deleting test dir to cleanup old data")
+                rmtree(test_dir)
+                mkdir(test_dir)
+                print("Restoring local tarfile to test dir")
+                shutil.copy2(os.path.join(temp_dir, os.path.basename(test_data_archive)), test_data_archive)
+
+    # Create one .data folder.
+    if not exists(test_dir):
+        mkdir(test_dir)
+
+    # Download (if required)
+    if url is not None and not local_data:
+        urllib.request.urlretrieve(url, test_data_archive)
+
+    # Extract tar
+    print("Extracting the `{}` test archive, please wait...".format(test_data_archive))
+    tar = tarfile.open(test_data_archive)
+    tar.extractall(path=test_dir)
+    tar.close()
+
+
 def pytest_configure(config):
     """
     Initial configuration of conftest.
@@ -135,54 +173,57 @@ def pytest_configure(config):
                     __TEST_DATA_FILENAME, test_data_local_size, test_dir
                 )
             )
-            return
 
     # Get size of remote test_data archive.
-    try:
-        url = __TEST_DATA_URL + __TEST_DATA_FILENAME
-        u = urllib.request.urlopen(url)
-    except:
-        # Couldn't access remote archive.
-        if test_data_local_size == -1:
-            pytest.exit("Test data not present in the system and cannot access the '{}' URL".format(url))
-        else:
+    url = None
+    if not config.option.use_local_test_data:
+        try:
+            url = __TEST_DATA_URL + __TEST_DATA_FILENAME
+            u = urllib.request.urlopen(url)
+        except:
+            # Couldn't access remote archive.
+            if test_data_local_size == -1:
+                pytest.exit("Test data not present in the system and cannot access the '{}' URL".format(url))
+            else:
+                print(
+                    "Cannot access the '{}' URL, using the test data ({}B) found in the `{}` folder.".format(
+                        url, test_data_local_size, test_dir
+                    )
+                )
+                return
+
+        # Get metadata.
+        meta = u.info()
+        test_data_remote_size = int(meta["Content-Length"])
+
+        # Compare sizes.
+        if test_data_local_size != test_data_remote_size:
             print(
-                "Cannot access the '{}' URL, using the test data ({}B) found in the `{}` folder.".format(
-                    url, test_data_local_size, test_dir
+                "Downloading the `{}` test archive from `{}`, please wait...".format(
+                    __TEST_DATA_FILENAME, __TEST_DATA_URL
                 )
             )
-            return
 
-    # Get metadata.
-    meta = u.info()
-    test_data_remote_size = int(meta["Content-Length"])
+            extract_data_from_tar(test_dir, test_data_archive, url=url, local_data=config.option.use_local_test_data)
 
-    # Compare sizes.
-    if test_data_local_size != test_data_remote_size:
-        print(
-            "Downloading the `{}` test archive from `{}`, please wait...".format(__TEST_DATA_FILENAME, __TEST_DATA_URL)
-        )
-        # Remove .data folder.
-        if exists(test_dir):
-            rmtree(test_dir)
-        # Create one .data folder.
-        mkdir(test_dir)
-        # Download
-        urllib.request.urlretrieve(url, test_data_archive)
-        # Extract tar
-        print("Extracting the `{}` test archive, please wait...".format(test_data_archive))
-        tar = tarfile.open(test_data_archive)
-        tar.extractall(path=test_dir)
-        tar.close()
-    else:
-        print(
-            "A valid `{}` test archive ({}B) found in the `{}` folder.".format(
-                __TEST_DATA_FILENAME, test_data_local_size, test_dir
+        else:
+            print(
+                "A valid `{}` test archive ({}B) found in the `{}` folder.".format(
+                    __TEST_DATA_FILENAME, test_data_local_size, test_dir
+                )
             )
-        )
+
+    else:
+        # untar local test data
+        extract_data_from_tar(test_dir, test_data_archive, local_data=config.option.use_local_test_data)
 
     if config.option.relax_numba_compat is not None:
         from nemo.core.utils import numba_utils
 
         print("Setting numba compat :", config.option.relax_numba_compat)
         numba_utils.set_numba_compat_strictness(strict=config.option.relax_numba_compat)
+
+    # Set cache directory for TN/ITN tests
+    from .nemo_text_processing.utils import set_cache_dir
+
+    set_cache_dir(config.option.tn_cache_dir)

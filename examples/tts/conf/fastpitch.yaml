@@ -1,3 +1,5 @@
+# TODO(Oktai15): remove this config in 1.8.0 version
+
 name: "FastPitch"
 sample_rate: 22050
 
@@ -142,3 +144,5 @@ exp_manager:
   name: ${name}
   create_tensorboard_logger: True
   create_checkpoint_callback: True
+  checkpoint_callback_params:
+    monitor: v_loss

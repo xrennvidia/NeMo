@@ -13,6 +13,10 @@
 # limitations under the License.
 
 
+import hydra
+import omegaconf
+import pytorch_lightning
+
 from nemo.core.classes.common import (
     FileIO,
     Model,
@@ -27,3 +31,4 @@ from nemo.core.classes.exportable import Exportable, ExportFormat
 from nemo.core.classes.loss import Loss
 from nemo.core.classes.modelPT import ModelPT
 from nemo.core.classes.module import NeuralModule
+from nemo.utils import exceptions

@@ -32,6 +32,7 @@ from nemo.core.classes.common import PretrainedModelInfo, typecheck
 from nemo.core.neural_types.elements import LengthsType, MelSpectrogramType, TokenIndex
 from nemo.core.neural_types.neural_type import NeuralType
 from nemo.utils import logging
+from nemo.utils.decorators import deprecated
 
 
 @dataclass
@@ -45,6 +46,7 @@ class GlowTTSConfig:
     test_ds: Optional[Dict[Any, Any]] = None
 
 
+@deprecated(version="1.8", explanation="GlowTTSModel will be removed. Use FastPitchModel instead.")
 class GlowTTSModel(SpectrogramGenerator):
     """
     GlowTTS model used to generate spectrograms from text
@@ -206,6 +208,7 @@ class GlowTTSModel(SpectrogramGenerator):
             )
             log_audio_to_tb(tb_logger, outputs[0]['y'][0], "true_audio_gf", self.global_step)
             log_audio_to_tb(tb_logger, outputs[0]['y_gen'][0], "generated_audio_gf", self.global_step)
+        self.log('val_loss', avg_loss)
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
     def _setup_dataloader_from_config(self, cfg: DictConfig):

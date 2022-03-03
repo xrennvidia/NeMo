@@ -21,7 +21,7 @@ from omegaconf import MISSING, DictConfig, OmegaConf, open_dict
 from pystoi import stoi
 from pytorch_lightning.loggers import LoggerCollection, TensorBoardLogger
 
-from nemo.collections.tts.helpers.helpers import OperationMode, waveglow_log_to_tb_func
+from nemo.collections.tts.helpers.helpers import OperationMode, split_view, waveglow_log_to_tb_func
 from nemo.collections.tts.losses.uniglowloss import UniGlowLoss
 from nemo.collections.tts.models.base import GlowVocoder
 from nemo.collections.tts.modules.uniglow import UniGlowModule
@@ -35,6 +35,7 @@ from nemo.core.neural_types.elements import (
 )
 from nemo.core.neural_types.neural_type import NeuralType
 from nemo.utils import logging
+from nemo.utils.decorators import deprecated
 
 
 @dataclass
@@ -46,6 +47,7 @@ class WaveglowConfig:
     validation_ds: Optional[Dict[Any, Any]] = None
 
 
+@deprecated(version="1.8", explanation="UniGlowModel will be removed. Use WaveGlowModel or HifiGanModel instead.")
 class UniGlowModel(GlowVocoder):
     """Waveglow model used to convert betweeen spectrograms and audio"""
 
@@ -259,6 +261,6 @@ class UniGlowModel(GlowVocoder):
         audio = torch.ones(1, self._cfg.train_ds.dataset.n_segments)
         spec, spec_len = self.audio_to_melspec_precessor(audio, torch.FloatTensor([len(audio)]))
         spec = spec[:, :, :-1]
-        audio = audio.unfold(1, self._cfg.uniglow.n_group, self._cfg.uniglow.n_group).permute(0, 2, 1)
+        audio = split_view(audio, self._cfg.uniglow.n_group, 1).permute(0, 2, 1)
         upsample_factor = audio.shape[2] // spec.shape[2]
         return upsample_factor

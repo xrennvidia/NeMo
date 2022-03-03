@@ -12,12 +12,17 @@ model:
     trim_silence: True
     max_duration: 16.7
     shuffle: True
-    is_tarred: False
+    # tarred datasets
+    is_tarred: false
     tarred_audio_filepaths: null
     shard_strategy: "scatter"
     augmentor:
       multi_channel:
         prob: 1.0
+    shuffle_n: 2048
+    # bucketing params
+    bucketing_strategy: "synced_randomized"
+    bucketing_batch_size: null
 
   validation_ds:
     manifest_filepath: ???

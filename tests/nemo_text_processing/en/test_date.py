@@ -18,11 +18,13 @@ from nemo_text_processing.text_normalization.normalize import Normalizer
 from nemo_text_processing.text_normalization.normalize_with_audio import NormalizerWithAudio
 from parameterized import parameterized
 
-from ..utils import PYNINI_AVAILABLE, parse_test_case_file
+from ..utils import CACHE_DIR, PYNINI_AVAILABLE, parse_test_case_file
 
 
 class TestDate:
-    inverse_normalizer_en = InverseNormalizer(lang='en') if PYNINI_AVAILABLE else None
+    inverse_normalizer_en = (
+        InverseNormalizer(lang='en', cache_dir=CACHE_DIR, overwrite_cache=False) if PYNINI_AVAILABLE else None
+    )
 
     @parameterized.expand(parse_test_case_file('en/data_inverse_text_normalization/test_cases_date.txt'))
     @pytest.mark.skipif(
@@ -34,8 +36,16 @@ class TestDate:
         pred = self.inverse_normalizer_en.inverse_normalize(test_input, verbose=False)
         assert pred == expected
 
-    normalizer_en = Normalizer(input_case='cased', lang='en') if PYNINI_AVAILABLE else None
-    normalizer_with_audio_en = NormalizerWithAudio(input_case='cased', lang='en') if PYNINI_AVAILABLE else None
+    normalizer_en = (
+        Normalizer(input_case='cased', lang='en', cache_dir=CACHE_DIR, overwrite_cache=False)
+        if PYNINI_AVAILABLE
+        else None
+    )
+    normalizer_with_audio_en = (
+        NormalizerWithAudio(input_case='cased', lang='en', cache_dir=CACHE_DIR, overwrite_cache=False)
+        if PYNINI_AVAILABLE and CACHE_DIR
+        else None
+    )
 
     @parameterized.expand(parse_test_case_file('en/data_text_normalization/test_cases_date.txt'))
     @pytest.mark.skipif(
@@ -46,10 +56,18 @@ class TestDate:
     def test_norm_uncased(self, test_input, expected):
         pred = self.normalizer_en.normalize(test_input, verbose=False)
         assert pred == expected
-        pred_non_deterministic = self.normalizer_with_audio_en.normalize(test_input, n_tagged=100)
-        assert expected in pred_non_deterministic
 
-    normalizer_uppercased = Normalizer(input_case='cased', lang='en') if PYNINI_AVAILABLE else None
+        if self.normalizer_with_audio_en:
+            pred_non_deterministic = self.normalizer_with_audio_en.normalize(
+                test_input, punct_post_process=False, n_tagged=100
+            )
+            assert expected in pred_non_deterministic
+
+    normalizer_uppercased = (
+        Normalizer(input_case='cased', lang='en', cache_dir=CACHE_DIR, overwrite_cache=False)
+        if PYNINI_AVAILABLE
+        else None
+    )
     cases_uppercased = {"Aug. 8": "august eighth", "8 Aug.": "the eighth of august", "aug. 8": "august eighth"}
 
     @parameterized.expand(cases_uppercased.items())
@@ -61,5 +79,9 @@ class TestDate:
     def test_norm_cased(self, test_input, expected):
         pred = self.normalizer_uppercased.normalize(test_input, verbose=False)
         assert pred == expected
-        pred_non_deterministic = self.normalizer_with_audio_en.normalize(test_input, n_tagged=100)
-        assert expected in pred_non_deterministic
+
+        if self.normalizer_with_audio_en:
+            pred_non_deterministic = self.normalizer_with_audio_en.normalize(
+                test_input, punct_post_process=False, n_tagged=30
+            )
+            assert expected in pred_non_deterministic

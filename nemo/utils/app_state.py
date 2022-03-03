@@ -38,14 +38,20 @@ class AppState(metaclass=Singleton):
         self._device_id = None
         self._local_rank = None
         self._global_rank = None
-        self._model_parallel_rank = None
+        self._tensor_model_parallel_rank = None
+        self._pipeline_model_parallel_rank = None
         self._data_parallel_rank = None
 
         self._world_size = None
         self._model_parallel_size = None
-        self._model_parallel_group = None
+        self._tensor_model_parallel_size = None
+        self._tensor_model_parallel_group = None
+        self._pipeline_model_parallel_size = None
+        self._pipeline_model_parallel_group = None
+        self._is_megatron_initialized = False
         self._data_parallel_size = None
         self._data_parallel_group = None
+        self._megatron_checkpoint_version = None
 
         self._random_seed = None
 
@@ -60,8 +66,8 @@ class AppState(metaclass=Singleton):
 
         # Save and Restore (.nemo)
         self._tmpdir_name = None
-        self._model_config_yaml = "model_config.yaml"
-        self._model_weights_ckpt = "model_weights.ckpt"
+        self._is_model_being_restored = False
+        self._nemo_file_folder = None
         self._model_restore_path = None
         self._all_model_restore_paths = []
         self._model_guid_map = {}  # type: Dict[str, ModelMetadataRegistry]
@@ -115,6 +121,38 @@ class AppState(metaclass=Singleton):
         self._model_parallel_size = size
 
     @property
+    def tensor_model_parallel_size(self):
+        """ Property returns the number of GPUs in each model parallel group.
+            Returns:
+                Number of GPUs in each model parallel group.
+        """
+        return self._tensor_model_parallel_size
+
+    @tensor_model_parallel_size.setter
+    def tensor_model_parallel_size(self, size):
+        """ Property sets the number of GPUs in each model parallel group.
+            Args:
+                size (int):  Number of GPUs in each model parallel group.
+        """
+        self._tensor_model_parallel_size = size
+
+    @property
+    def pipeline_model_parallel_size(self):
+        """ Property returns the number of GPUs in each model parallel group.
+            Returns:
+                Number of GPUs in each model parallel group.
+        """
+        return self._pipeline_model_parallel_size
+
+    @pipeline_model_parallel_size.setter
+    def pipeline_model_parallel_size(self, size):
+        """ Property sets the number of GPUs in each model parallel group.
+            Args:
+                size (int):  Number of GPUs in each model parallel group.
+        """
+        self._pipeline_model_parallel_size = size
+
+    @property
     def data_parallel_size(self):
         """ Property returns the number of GPUs in each data parallel group.
             Returns:
@@ -163,36 +201,68 @@ class AppState(metaclass=Singleton):
         self._global_rank = rank
 
     @property
-    def model_parallel_rank(self):
+    def tensor_model_parallel_rank(self):
         """ Property returns the model parallel rank.
             Returns:
                 Model parallel rank.
         """
-        return self._model_parallel_rank
+        return self._tensor_model_parallel_rank
 
-    @model_parallel_rank.setter
-    def model_parallel_rank(self, rank):
+    @tensor_model_parallel_rank.setter
+    def tensor_model_parallel_rank(self, rank):
         """ Property sets the model parallel rank.
             Args:
                 rank (int):  Model parallel rank.
         """
-        self._model_parallel_rank = rank
+        self._tensor_model_parallel_rank = rank
 
     @property
-    def model_parallel_group(self):
+    def tensor_model_parallel_group(self):
         """ Property returns the model parallel group.
             Returns:
                 Model parallel group.
         """
-        return self._model_parallel_group
+        return self._tensor_model_parallel_group
 
-    @model_parallel_group.setter
-    def model_parallel_group(self, group):
+    @tensor_model_parallel_group.setter
+    def tensor_model_parallel_group(self, group):
         """ Property sets the model parallel group.
             Args:
                 group:  Model parallel group.
         """
-        self._model_parallel_group = group
+        self._tensor_model_parallel_group = group
+
+    @property
+    def pipeline_model_parallel_rank(self):
+        """ Property returns the model parallel rank.
+            Returns:
+                Model parallel rank.
+        """
+        return self._pipeline_model_parallel_rank
+
+    @pipeline_model_parallel_rank.setter
+    def pipeline_model_parallel_rank(self, rank):
+        """ Property sets the model parallel rank.
+            Args:
+                rank (int):  Model parallel rank.
+        """
+        self._pipeline_model_parallel_rank = rank
+
+    @property
+    def pipeline_model_parallel_group(self):
+        """ Property returns the model parallel group.
+            Returns:
+                Model parallel group.
+        """
+        return self._pipeline_model_parallel_group
+
+    @pipeline_model_parallel_group.setter
+    def pipeline_model_parallel_group(self, group):
+        """ Property sets the model parallel group.
+            Args:
+                group:  Model parallel group.
+        """
+        self._pipeline_model_parallel_group = group
 
     @property
     def data_parallel_rank(self):
@@ -348,14 +418,6 @@ class AppState(metaclass=Singleton):
         self._checkpoint_callback_params = params
 
     @property
-    def model_config_yaml(self):
-        return self._model_config_yaml
-
-    @property
-    def model_weights_ckpt(self):
-        return self._model_weights_ckpt
-
-    @property
     def model_restore_path(self):
         restore_path = self._all_model_restore_paths[-1] if len(self._all_model_restore_paths) > 0 else None
         return restore_path
@@ -384,3 +446,19 @@ class AppState(metaclass=Singleton):
         # Returns the global model idx and restoration path
         metadata = self._model_guid_map[guid]
         return metadata
+
+    @property
+    def is_model_being_restored(self) -> bool:
+        return self._is_model_being_restored
+
+    @is_model_being_restored.setter
+    def is_model_being_restored(self, is_restored: bool):
+        self._is_model_being_restored = is_restored
+
+    @property
+    def nemo_file_folder(self) -> str:
+        return self._nemo_file_folder
+
+    @nemo_file_folder.setter
+    def nemo_file_folder(self, path: str):
+        self._nemo_file_folder = path

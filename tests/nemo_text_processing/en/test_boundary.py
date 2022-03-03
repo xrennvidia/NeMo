@@ -12,20 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-
 import pytest
 from nemo_text_processing.text_normalization.normalize import Normalizer
 from nemo_text_processing.text_normalization.normalize_with_audio import NormalizerWithAudio
 from parameterized import parameterized
 
-from ..utils import PYNINI_AVAILABLE, parse_test_case_file
+from ..utils import CACHE_DIR, PYNINI_AVAILABLE, parse_test_case_file
 
 
 class TestBoundary:
 
-    normalizer_en = Normalizer(input_case='cased', lang='en') if PYNINI_AVAILABLE else None
-    normalizer_with_audio_en = NormalizerWithAudio(input_case='cased', lang='en') if PYNINI_AVAILABLE else None
+    normalizer_en = (
+        Normalizer(input_case='cased', lang='en', cache_dir=CACHE_DIR, overwrite_cache=False)
+        if PYNINI_AVAILABLE
+        else None
+    )
+    normalizer_with_audio_en = (
+        NormalizerWithAudio(input_case='cased', lang='en', cache_dir=CACHE_DIR, overwrite_cache=False)
+        if PYNINI_AVAILABLE and CACHE_DIR
+        else None
+    )
 
     @parameterized.expand(parse_test_case_file('en/data_text_normalization/test_cases_boundary.txt'))
     @pytest.mark.skipif(
@@ -36,7 +42,9 @@ class TestBoundary:
     def test_norm(self, test_input, expected):
         pred = self.normalizer_en.normalize(test_input, verbose=False)
         assert pred == expected
-        pred_non_deterministic = self.normalizer_with_audio_en.normalize(
-            test_input, n_tagged=100, punct_pre_process=False, punct_post_process=False
-        )
-        assert expected in pred_non_deterministic
+
+        if self.normalizer_with_audio_en:
+            pred_non_deterministic = self.normalizer_with_audio_en.normalize(
+                test_input, n_tagged=30, punct_post_process=False
+            )
+            assert expected in pred_non_deterministic

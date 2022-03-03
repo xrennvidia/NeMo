@@ -84,13 +84,18 @@ class TelephoneFst(GraphFst):
         number_part = area_part + number_words
         number_part = pynutil.insert("number_part: \"") + number_part + pynutil.insert("\"")
         extension = (
-            pynutil.insert("extension : \"")
-            + pynini.closure(digit + insert_space, 0, 3)
-            + digit
-            + pynutil.insert("\"")
+            pynutil.insert("extension: \"") + pynini.closure(digit + insert_space, 0, 3) + digit + pynutil.insert("\"")
         )
         optional_extension = pynini.closure(insert_space + extension, 0, 1)
 
         graph = optional_country_code + number_part + optional_extension
+
+        # ip
+        digit_to_str_graph = pynini.compose(
+            NEMO_DIGIT ** (1, 3), digit + pynini.closure(pynutil.insert(" ") + digit)
+        ).optimize()
+        ip_graph = digit_to_str_graph + (pynini.cross(".", " dot ") + digit_to_str_graph) ** 3
+        graph |= pynutil.insert("number_part: \"") + ip_graph.optimize() + pynutil.insert("\"")
+
         final_graph = self.add_tokens(graph)
         self.fst = final_graph.optimize()
