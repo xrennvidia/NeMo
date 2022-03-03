@@ -404,9 +404,10 @@ class MegatronT0PrimeModel(MegatronT0Model):
         self.prompt_encoder = PromptEncoder(
             prompt_seq_len=self.prompt_seq_len,
             hidden_size=self.hidden_size,
-            lstm_dropout=cfg.prompt_encoder.dropout,
+            prompt_dropout=cfg.prompt_encoder.dropout,
             num_layers=cfg.prompt_encoder.num_layers,
-            reparametrize=cfg.prompt_encoder.reparametrize
+            reparametrize=cfg.prompt_encoder.reparametrize,
+            prompt_gen_type=cfg.prompt_encoder.prompt_gen_type
         )
         self.embeddings = self.model.model.language_model.embedding.word_embeddings
         self.model.tokenizer.add_special_tokens({'additional_special_tokens': [cfg.pseudo_token]})
@@ -421,10 +422,12 @@ class MegatronT0PrimeModel(MegatronT0Model):
 
         queries_for_embedding[(encoder_input_ids == self.pseudo_token_id)] = self.pad_token_id
         query_embeddings = self.embeddings(queries_for_embedding).clone().type(self.float_type)
-        if self.cfg.prompt_encoder.task_dependent:
-            template_embeddings = self.embeddings(prompt_input_ids)
+        if self.cfg.prompt_encoder.task_dependent and self.cfg.data.split_template:
+            prompt_condition = self.embeddings(prompt_input_ids)
+        elif self.cfg.prompt_encoder.task_dependent:
+            prompt_condition = query_embeddings
         else:
-            template_embeddings = None
+            prompt_condition = None
 
         index = ((encoder_input_ids == self.pseudo_token_id)
                      .nonzero().reshape((bz, -1, 2))[:, :, 1][:, :, None]
@@ -434,12 +437,12 @@ class MegatronT0PrimeModel(MegatronT0Model):
         index = index.expand(bz, seq, emb)[:, :self.prompt_seq_len, :]
 
         if self.float_type == torch.float32:
-            replace_embeds = self.prompt_encoder(template_embeddings=template_embeddings)
+            replace_embeds = self.prompt_encoder(prompt_condition=prompt_condition)
         else:
             with torch.autocast(device_type="cuda", dtype=self.float_type):
-                replace_embeds = self.prompt_encoder(template_embeddings=template_embeddings)
+                replace_embeds = self.prompt_encoder(prompt_condition=prompt_condition)
 
-        if template_embeddings is None:
+        if prompt_condition is None:
             _, replace_seq, _ = replace_embeds.shape
             replace_embeds = replace_embeds.expand(bz, replace_seq, emb)
 
@@ -562,7 +565,8 @@ class MegatronT0PrimeModel(MegatronT0Model):
                         max_samples=getattr(self.cfg.data, "max_samples", None),
                         prompt_token_id=self.pseudo_token_id,
                         prompt_seq_len=self.prompt_seq_len,
-                        use_cache=self.cfg.data.use_cache
+                        use_cache=self.cfg.data.use_cache,
+                        split_template=self.cfg.data.split_template
                     )
                     #TODO: implement a better task manager
                     dataset_dict["%s_%s" % (dt_name, "" if subset is None else subset)] = dataset

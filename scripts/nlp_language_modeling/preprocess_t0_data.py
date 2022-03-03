@@ -131,7 +131,6 @@ def apply_prompts(dataset, prompts, splits, save_paths):
                         output = result[1]
                         original_text_idx, template_idx = get_text_template_idx(example, templated_text)
                         chunked_idx = organize_chunk_idx(original_text_idx, template_idx)
-                        #TODO remove exception when finished debugging
                         if len(original_text_idx) < len(template_idx):
                             raise ValueError("Original text bigger than template!")
                             #original_text_idx, template_idx = get_text_template_idx(example, templated_text)

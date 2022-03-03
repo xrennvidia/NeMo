@@ -48,6 +48,7 @@ model:
     num_layers: 2
     reparametrize: True
     task_dependent: True
+    prompt_gen_type: linear
 
   data:
     dir_path: '/home/jpilault/datasets/T0_prompted'

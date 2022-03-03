@@ -268,6 +268,7 @@ class T0PrimeDataset(T0Dataset):
             prompt_seq_len: int,
             max_seq_length_decoder: int = 128,
             use_cache: bool = True,
+            split_template: bool = True,
             prefix_override: str = None,
             extension: str = 'jsonl',
             max_samples: int = None,
@@ -284,6 +285,7 @@ class T0PrimeDataset(T0Dataset):
         """
         self.prompt_token_id = prompt_token_id
         self.prompt_seq_len = prompt_seq_len
+        self.split_template = split_template
         super().__init__(
             file_path, task_name, subset, tokenizer, max_seq_length, max_seq_length_decoder,
             use_cache, prefix_override, extension, max_samples
@@ -340,13 +342,13 @@ class T0PrimeDataset(T0Dataset):
             for chunk in input_text_chunks:
                 chunk_name = chunk[0]
                 chunk_tokens = self.tokenizer.text_to_ids(chunk[1])
-                if chunk_name == TEMPLATE_CHUNK_NAME:
+                if chunk_name == TEMPLATE_CHUNK_NAME and self.split_template:
                     remain = max(0, self.prompt_seq_len - len(template) - len(chunk_tokens))
                     template.extend(chunk_tokens[:remain])
                     enc_query.extend([self.prompt_token_id] * len(chunk_tokens[:remain]))
                 else:
-                    assert chunk_name == ORIG_TXT_CHUNK_NAME
-                    remain = max(0, self.max_query_length - len(enc_query) - len(chunk_tokens))
+                    max_length = self.max_query_length + (0 if self.split_template else self.prompt_seq_len)
+                    remain = max(0, max_length - len(enc_query) - len(chunk_tokens))
                     enc_query.extend(chunk_tokens[:remain])  # only reduce original chunk
             dec_query = (
                     [self.tokenizer.cls_id]
@@ -386,9 +388,10 @@ class T0PrimeDataset(T0Dataset):
         labels = [item['labels'] for item in batch]
         guids = [item['guid'] for item in batch]
         prompt_ids = [item['prompt_id'] for item in batch]
-
-        max_template_length = max(self.prompt_seq_len, max([len(item) for item in template]))
-        enc_query = [item_q + [self.prompt_token_id] * (max_template_length - len(item_t)) for item_q, item_t in zip(enc_query, template)]
+        
+        if self.split_template:
+            max_template_length = max(self.prompt_seq_len, max([len(item) for item in template]))
+            enc_query = [item_q + [self.prompt_token_id] * (max_template_length - len(item_t)) for item_q, item_t in zip(enc_query, template)]
 
         max_dec_input_length = max([len(item) for item in dec_input])
         max_enc_query_length = max([len(item) for item in enc_query])
