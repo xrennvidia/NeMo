@@ -110,9 +110,6 @@ class MnliProcessor(DataProcessor):
     def label2string(self, label):
         return label
 
-<<<<<<< HEAD
-=======
-
 class XNlIProcessor(DataProcessor):
     """Processor for the MultiNLI data set (GLUE version)."""
 
@@ -150,7 +147,6 @@ class XNlIProcessor(DataProcessor):
     def label2string(self, label):
         return label
 
->>>>>>> bc6215f166e69502fd7784fc73a5c2c39b465819
 
 class MnliMismatchedProcessor(MnliProcessor):
     """Processor for the MultiNLI Mismatched data set (GLUE version)."""

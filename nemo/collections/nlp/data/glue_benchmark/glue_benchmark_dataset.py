@@ -430,15 +430,8 @@ class TextToTextGLUEDataset(GLUEDataset):
         labels = torch.LongTensor(labels)
         loss_mask = torch.LongTensor(loss_mask)
 
-<<<<<<< HEAD
-        enc_mask = make_attention_mask_3d(enc_query, enc_query, self.tokenizer.pad_id).long()
-        dec_mask = make_attention_mask_3d(dec_input, dec_input, self.tokenizer.pad_id)
-        dec_mask = (dec_mask * make_history_mask_3d(dec_input)).long()
-        enc_dec_mask = make_attention_mask_3d(dec_input, enc_query, self.tokenizer.pad_id).long()
-=======
         enc_mask = (enc_query != self.tokenizer.pad_id).long()
         dec_mask = (dec_input != self.tokenizer.pad_id).long()
->>>>>>> bc6215f166e69502fd7784fc73a5c2c39b465819
 
         return {
             'text_enc': enc_query,
@@ -447,10 +440,6 @@ class TextToTextGLUEDataset(GLUEDataset):
             'loss_mask': loss_mask,
             'enc_mask': enc_mask,
             'dec_mask': dec_mask,
-<<<<<<< HEAD
-            'enc_dec_mask': enc_dec_mask,
-=======
->>>>>>> bc6215f166e69502fd7784fc73a5c2c39b465819
         }
 
     def make_history_mask_3d(self, block):
@@ -490,8 +479,6 @@ class TextToTextGLUEDataset(GLUEDataset):
         return features
 
 
-<<<<<<< HEAD
-=======
 class TextToTextXNlIDataset(TextToTextGLUEDataset):
     """XNLI Dataset in a text-to-text format."""
 
@@ -537,7 +524,6 @@ class TextToTextXNlIDataset(TextToTextGLUEDataset):
         return lang_filtered_features
 
 
->>>>>>> bc6215f166e69502fd7784fc73a5c2c39b465819
 class InputFeatures(object):
     """A single set of features of data.
 

@@ -32,6 +32,9 @@ def get_text_template_idx(example, templated_text):
         if key == 'concepts':
             # for common_gen
             el = val
+        elif key == 'dialogue':
+            # for samsum
+            el = val.split("\n")
         elif key == 'choices' and isinstance(val, dict)  and 'text' in val:
             # for qasc
             el = val['text']
@@ -43,6 +46,9 @@ def get_text_template_idx(example, templated_text):
         elif val.find('@highlight') != -1:
             # for super_glue/record
             el = val.split('@highlight')
+        elif val.find("|||||") != -1:
+            # for multinews
+            el = val.split('|||||')
         elif len(val) < MAX_CHARS:
             el = [val]
         else:
@@ -143,6 +149,7 @@ def apply_prompts(dataset, prompts, splits, save_paths):
                     except (IndexError, ValueError):
                         if not printed:
                             print("ISSUE DETECTED")
+                            original_text_idx, template_idx = get_text_template_idx(example, templated_text)
                             print(save_path)
                             print(template_name)
                         printed = True

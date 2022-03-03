@@ -14,7 +14,7 @@ special_splits = {
 }
 
 t0_debug = {
-    'race': ['high', 'middle'], 'yelp_review_full': None, 'super_glue': ['copa', 'boolq']
+    'xsum': None
 }
 
 t0_traindt_names_subset = {
