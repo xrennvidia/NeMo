@@ -708,13 +708,13 @@ class MegatronGPTModel(NLPModel):
             init_consumed_samples = 0
         self.init_consumed_samples = init_consumed_samples
 
-        # Initalize soft prompts before loading datasets and training
-        if self.use_soft_prompts:
-            self.init_new_prompts()
-
         if stage == 'predict':
             return
         else:
+            # Initalize soft prompts before loading datasets and training
+            if self.use_soft_prompts:
+                self.init_new_prompts()
+
             # TODO: consider adding a ModelPT guard to check if model is being restored.
             # allowing restored models to optionally setup datasets
             self.build_train_valid_test_datasets()
@@ -783,6 +783,9 @@ class MegatronGPTModel(NLPModel):
                 fp32_grad_accum = False
                 # TODO: contiguous grad bucket for fp16 is also planned to be supported
                 contiguous_grad_bucket = False
+                raise ValueError(
+                    "fp16 training is not yet supported with O2. Please set megatron_amp_O2 to False in the model config."
+                )
 
             # TODO: this should be true when not using pipeline parallelism
             # we will support that for bf16 when we have async handler from apex
