@@ -38,7 +38,7 @@ can_gpu = torch.cuda.is_available()
 
 
 def get_wer_feat(mfst, asr, frame_len, tokens_per_chunk, delay, vad_delay, preprocessor_cfg, model_stride_in_secs, device, 
-                vad=None, threshold=0.4, look_back=4):
+                vad=None, threshold=0.4, look_back=4, num_to_words=True):
     # Create a preprocessor to convert audio samples into raw features,
     # Normalization will be done per buffer in frame_bufferer
     # Do not normalize whatever the model's preprocessor setting is
@@ -84,8 +84,8 @@ def get_wer_feat(mfst, asr, frame_len, tokens_per_chunk, delay, vad_delay, prepr
                     total_duration_to_asr += duration
 
                 final_hyp = final_hyp[1:-1]
-                final_hyp = clean_label(final_hyp)
-                ref_clean = clean_label(row['text'])
+                final_hyp = clean_label(final_hyp, num_to_words)
+                ref_clean = clean_label(row['text'], num_to_words)
 
                 # print(final_hyp)
                 hyps.append(final_hyp)
@@ -99,10 +99,10 @@ def get_wer_feat(mfst, asr, frame_len, tokens_per_chunk, delay, vad_delay, prepr
                 asr.read_audio_file(row['audio_filepath'], offset=0, duration=None, 
                                     delay=delay, model_stride_in_secs=model_stride_in_secs)
                 hyp = asr.transcribe(tokens_per_chunk, delay)
-                hyp_clean = clean_label(hyp)
+                hyp_clean = clean_label(hyp, num_to_words)
                 # print(hyp)
                 hyps.append(hyp_clean)
-                ref_clean = clean_label(row['text'])
+                ref_clean = clean_label(row['text'], num_to_words)
                 refs.append(ref_clean)
                 
                 total_durations_to_asr.append(row['duration'])
@@ -167,6 +167,14 @@ def main():
         default=4,
         help="look back int",
     )
+
+    parser.add_argument(
+        "--num_to_words",
+        type=bool,
+        default=True,
+        help="whether to convet num to words when clean text",
+    )
+
 
     args = parser.parse_args()
     torch.set_grad_enabled(False)
@@ -254,6 +262,7 @@ def main():
         frame_vad,
         args.threshold,
         args.look_back
+        args.num_to_words
     )
     
     logging.info(f"WER is {round(wer, 2)} when decoded with a delay of {round(mid_delay*model_stride_in_secs, 2)}s")
