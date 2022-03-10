@@ -285,7 +285,7 @@ class GainPerturbation(Perturbation):
         rng: Random number generator
     """
 
-    def __init__(self, min_gain_dbfs=-10, max_gain_dbfs=10, rng=None):
+    def __init__(self, min_gain_dbfs=-10, max_gain_dbfs=10, rng=None, norm=False):
         self._min_gain_dbfs = min_gain_dbfs
         self._max_gain_dbfs = max_gain_dbfs
         self._rng = random.Random() if rng is None else rng
@@ -511,11 +511,16 @@ class WhiteNoisePerturbation(Perturbation):
         rng: Random number generator
     """
 
-    def __init__(self, min_level=-90, max_level=-46, rng=None):
+    def __init__(self, min_level=-90, max_level=-46, rng=None, norm=False):
         self.min_level = int(min_level)
         self.max_level = int(max_level)
         self._rng = np.random.RandomState() if rng is None else rng
         self._norm = norm
+
+    def norm_attitude(self, samples):
+        if max(abs(samples)) > 1.0:
+            samples = samples / max(abs(samples))
+        return samples
 
     def perturb(self, data):
         noise_level_db = self._rng.randint(self.min_level, self.max_level, dtype='int32')
