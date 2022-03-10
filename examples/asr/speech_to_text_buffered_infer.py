@@ -261,7 +261,7 @@ def main():
         asr_model.device,
         frame_vad,
         args.threshold,
-        args.look_back
+        args.look_back,
         args.num_to_words
     )
     
