@@ -15,6 +15,7 @@
 """Processing data for megatron pretraining."""
 
 import argparse
+import glob
 import gzip
 import json
 import multiprocessing
@@ -86,19 +87,113 @@ class Encoder(object):
     def encode(self, json_line):
         data = json.loads(json_line)
         ids = {}
+        lens = {}
         for key in self.args.json_keys:
             text = data[key]
+            if isinstance(text, list):
+                sentences = text
+            else:
+                sentences = [text]
             if self.args.apply_ftfy:
                 text = ftfy.fix_text(text)
             doc_ids = []
-            for sentence in Encoder.splitter.tokenize(text):
+            sentence_lens = []
+            for sentence in sentences:
                 sentence_ids = Encoder.tokenizer.text_to_ids(sentence)
                 if len(sentence_ids) > 0:
                     doc_ids.append(sentence_ids)
+                    sentence_lens.append(len(sentence_ids))
             if len(doc_ids) > 0 and self.args.append_eod:
-                doc_ids[-1].append(Encoder.tokenizer.eos_id)
+                doc_ids.append(Encoder.tokenizer.eos_id)
             ids[key] = doc_ids
-        return ids, len(json_line)
+            lens[key] = sentence_lens
+        return ids, lens, len(json_line)
+
+
+class Partition(object):
+    def __init__(self, args, workers):
+        self.args = args
+        self.workers = workers
+
+    def print_processing_stats(self, count, proc_start, total_bytes_processed):
+        if count % self.args.log_interval == 0:
+            current = time.time()
+            elapsed = current - proc_start
+            mbs = total_bytes_processed/elapsed/1024/1024
+            print(f"Processed {count} documents",
+                  f"({count/elapsed} docs/s, {mbs} MB/s).",
+                  file=sys.stderr)
+
+    def split_sentences(self, file_name):
+        input_file_name, output_file_name = file_name
+        print("Opening", input_file_name)
+        fin = open(input_file_name, 'r', encoding='utf-8')
+        fout = open(output_file_name, 'w')
+
+        encoder = Encoder(self.args)
+        pool = multiprocessing.Pool(self.workers, initializer=encoder.initializer)
+        split_docs = pool.imap(encoder.split, fin, 32)
+
+        proc_start = time.time()
+        total_bytes_processed = 0
+        for i, (doc, bytes_processed) in enumerate(split_docs, start=1):
+            total_bytes_processed += bytes_processed
+            fout.write(doc + "\n")
+            self.print_processing_stats(i, proc_start, total_bytes_processed)
+        
+        fin.close()
+        fout.close()
+
+
+    def process_json_file(self, file_name):
+        input_file_name, output_prefix = file_name
+        print("Opening", input_file_name)
+        fin = open(input_file_name, 'r', encoding='utf-8')
+
+        startup_start = time.time()
+        encoder = Encoder(self.args)
+        tokenizer = get_nmt_tokenizer(
+            library=self.args.tokenizer_library,
+            model_name=self.args.tokenizer_type,
+            tokenizer_model=self.args.tokenizer_model,
+            vocab_file=self.args.vocab_file,
+            merges_file=self.args.merge_file,
+        )
+        pool = multiprocessing.Pool(self.workers, initializer=encoder.initializer)
+        encoded_docs = pool.imap(encoder.encode, fin, 32)
+
+        level = "document"
+        if self.args.split_sentences:
+            level = "sentence"
+
+        output_bin_files = {}
+        output_idx_files = {}
+        builders = {}
+        
+        for key in self.args.json_keys:
+            output_bin_files[key] = "{}_{}_{}.bin".format(output_prefix,
+                                                          key, level)
+            output_idx_files[key] = "{}_{}_{}.idx".format(output_prefix,
+                                                          key, level)
+            builders[key] = indexed_dataset.make_builder(output_bin_files[key],
+                                                   impl=self.args.dataset_impl,
+                                                   vocab_size=tokenizer.vocab_size)
+        
+        startup_end = time.time()
+        proc_start = time.time()
+        total_bytes_processed = 0
+        print("Time to startup:", startup_end - startup_start)
+        for i, (doc, sentence_lens, bytes_processed) in enumerate(encoded_docs, start=1):
+            total_bytes_processed += bytes_processed
+            for key in doc.keys():
+                builders[key].add_doc(doc[key], sentence_lens[key])
+            self.print_processing_stats(i, proc_start, total_bytes_processed)
+
+        print("Done! Now finalizing.")
+        for key in self.args.json_keys:
+            builders[key].finalize(output_idx_files[key])
+            
+        fin.close()
 
 
 def get_args():
@@ -141,6 +236,7 @@ def get_args():
     group = parser.add_argument_group(title='runtime')
     group.add_argument('--workers', type=int, default=1, help='Number of worker processes to launch')
     group.add_argument('--log-interval', type=int, default=100, help='Interval between progress updates')
+    group.add_argument('--partitions', type=int, default=1, help='Number of file partitions')
     group.add_argument(
         '--preproc-folder',
         action='store_true',
@@ -163,6 +259,23 @@ def get_args():
     assert args.tokenizer_type is not None or args.tokenizer_model is not None
     return args
 
+def get_file_name(args, file_id):
+    file_name, extension = os.path.splitext(args.input)
+    input_file_name = file_name + "_" + str(file_id) + extension
+    sentence_split_file = file_name + "_ss_" + str(file_id) + extension
+    output_prefix = args.output_prefix + "_" + str(file_id)
+    file_names = {
+        'partition': input_file_name, 
+        'sentence_split': sentence_split_file, 
+        'output_prefix': output_prefix} 
+    return file_names
+
+
+def check_files_exist(in_ss_out_names, key, num_partitions):
+    for i in range(num_partitions):
+        if not os.path.exists(in_ss_out_names[i][key]):
+            return False
+    return True
 
 def main():
     args = get_args()
@@ -185,6 +298,81 @@ def main():
     if nltk_available and args.split_sentences:
         nltk.download("punkt", quiet=True)
 
+    in_ss_out_names = []
+    if args.partitions == 1:
+        file_name, extension = os.path.splitext(args.input)
+        sentence_split_file = file_name + "_ss" + extension
+        in_ss_out_names.append((args.input, sentence_split_file, args.output_prefix))
+    else:
+        in_file_names = glob.glob(args.input)
+
+        # create .jsonl parition files
+        for idx in range(args.partitions):
+            in_ss_out_name = get_file_name(args, idx)
+            in_ss_out_names.append(in_ss_out_name)
+
+        # check to see if paritions were already created
+        partitions_present = check_files_exist(in_ss_out_names, 'partition', args.partitions)
+     
+        # check to see if paritions with split sentences already created
+        split_sentences_present = check_files_exist(in_ss_out_names, 'sentence_split', args.partitions)
+     
+        if not partitions_present and not split_sentences_present:
+            # populate .jsonl partition files from parent files
+            partitioned_input_files = []
+            for idx in range(args.partitions):
+                partitioned_input_file = open(in_ss_out_names[idx]['partition'], 'w')
+                partitioned_input_files.append(partitioned_input_file)
+
+            index = 0
+            for in_file_name in in_file_names:
+                # support for gzip files
+                if in_file_name.endswith(".gz"):
+                    fin = gzip.open(in_file_name, 'rt')
+                else:
+                    fin = open(in_file_name, 'r', encoding='utf-8')
+
+                for line in fin:
+                    partitioned_input_files[index].write(line)
+                    index = (index + 1) % args.partitions
+
+                fin.close()
+
+            for idx in range(args.partitions):
+                partitioned_input_files[idx].close()
+
+    assert args.workers % args.partitions == 0
+    partition = Partition(args, args.workers//args.partitions)
+
+    # check to see if paritions with split sentences already created
+    split_sentences_present = check_files_exist(in_ss_out_names, 'sentence_split', args.partitions)
+        
+    # split sentences in partition files 
+    if args.split_sentences and not split_sentences_present:
+        processes = []
+        for name in in_ss_out_names:
+            p = multiprocessing.Process(target=partition.split_sentences, 
+                                        args=((name['partition'], name['sentence_split']),))
+            p.start()
+            processes.append(p)
+        
+        for p in processes:
+            p.join()
+
+    
+    # encode partition files in parallel
+    processes = []
+    input_key = 'sentence_split' if args.split_sentences else 'partition'
+    for name in in_ss_out_names:
+        p = multiprocessing.Process(target=partition.process_json_file,
+                                    args=((name[input_key], name['output_prefix']),))
+        p.start()
+        processes.append(p)
+        
+    for p in processes:
+        p.join()
+
+    '''
     encoder = Encoder(args)
 
     tokenizer = get_nmt_tokenizer(
@@ -243,7 +431,7 @@ def main():
 
     for key in args.json_keys:
         builders[key].finalize(output_idx_files[key])
-
+    '''
 
 if __name__ == '__main__':
     main()

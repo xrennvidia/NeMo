@@ -545,6 +545,12 @@ class MMapIndexedDatasetBuilder(object):
     def end_document(self):
         self._doc_idx.append(len(self._sizes))
 
+    def add_doc(self, tensor, sizes):
+        np_array = np.array(tensor, dtype=self._dtype)
+        self._data_file.write(np_array.tobytes(order='C'))
+        self._sizes.extend(sizes)
+        self._doc_idx.append(len(self._sizes)) 
+
     def merge_file_(self, another_file):
         # Concatenate index
         index = MMapIndexedDataset.Index(index_file_path(another_file))

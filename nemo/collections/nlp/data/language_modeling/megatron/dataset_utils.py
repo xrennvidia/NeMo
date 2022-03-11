@@ -31,6 +31,7 @@
 # with some modifications.
 
 import collections
+import glob
 import math
 import os
 import subprocess
@@ -471,6 +472,58 @@ def build_train_valid_test_datasets(
             whole_word_masking=whole_word_masking,
             favor_long_ngrams=favor_long_ngrams,
         )
+    else:
+        return _build_train_valid_test_blended_datasets(
+            cfg,
+            trainer,
+            data_prefix,
+            data_impl,
+            splits_string,
+            train_valid_test_num_samples,
+            max_seq_length,
+            masked_lm_prob,
+            short_seq_prob,
+            seed,
+            skip_warmup,
+            binary_head,
+            max_seq_length_dec,
+            dataset_type=dataset_type,
+            tokenizer=tokenizer,
+            max_ngram_size=max_ngram_size,
+            mean_ngram_size=mean_ngram_size,
+            geometric_dist=geometric_dist,
+            permutation=permutation,
+            whole_word_masking=whole_word_masking,
+            favor_long_ngrams=favor_long_ngrams,
+        )
+
+def _build_train_valid_test_blended_datasets(
+    cfg,
+    trainer,
+    data_prefix,
+    data_impl,
+    splits_string,
+    train_valid_test_num_samples,
+    max_seq_length,
+    masked_lm_prob,
+    short_seq_prob,
+    seed,
+    skip_warmup,
+    binary_head,
+    max_seq_length_dec,
+    dataset_type,
+    tokenizer,
+    max_ngram_size,
+    mean_ngram_size,
+    geometric_dist,
+    permutation,
+    whole_word_masking,
+    favor_long_ngrams,
+):
+
+    if len(data_prefix) <= 1:
+        raise ValueError(f"Trying to build a blended dataset with less than 2 data prefixes: {data_prefix}")
+
     # Blending dataset.
     # Parse the values.
     output = get_datasets_weights_and_num_samples(data_prefix, train_valid_test_num_samples)
