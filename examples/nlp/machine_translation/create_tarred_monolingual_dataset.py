@@ -47,8 +47,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if not os.path.exists(args.out_dir):
         os.mkdir(args.out_dir)
-    if args.tokenizer_name in ["yttm", "sentencepiece"] and not os.path.exists(args.tokenizer_model):
-        assert FileNotFoundError("Could not find tokenizer model %s" % (args.tokenizer))
+    # if args.tokenizer_name in ["yttm", "sentencepiece"] and not os.path.exists(args.tokenizer_model):
+    #     assert FileNotFoundError("Could not find tokenizer model %s" % (args.tokenizer))
 
     tokenizer_model = MTDataPreproc.get_monolingual_tokenizer(
         tokenizer_name=args.tokenizer_name, tokenizer_model=args.tokenizer_model, bpe_dropout=args.bpe_droput

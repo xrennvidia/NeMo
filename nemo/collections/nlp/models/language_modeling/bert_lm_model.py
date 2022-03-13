@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import json
 from typing import Dict, Optional
 
 import torch
@@ -25,6 +26,7 @@ from nemo.collections.common.metrics import Perplexity
 from nemo.collections.nlp.data.language_modeling.lm_bert_dataset import (
     BertPretrainingDataset,
     BertPretrainingPreprocessedDataloader,
+    TarredBertDataset
 )
 from nemo.collections.nlp.modules.common import BertPretrainingTokenClassifier, SequenceClassifier
 from nemo.collections.nlp.modules.common.lm_utils import get_lm_model
@@ -54,11 +56,11 @@ class BERTLMModel(ModelPT):
         return output_types_dict
 
     def __init__(self, cfg: DictConfig, trainer: Trainer = None):
+        self.world_size = 1
+        if trainer is not None:
+            self.world_size = trainer.num_nodes * trainer.num_gpus
 
-        if cfg.tokenizer is not None:
-            self._setup_tokenizer(cfg.tokenizer)
-        else:
-            self.tokenizer = None
+        self.tokenizer = self._setup_tokenizer(cfg.tokenizer)
 
         super().__init__(cfg=cfg, trainer=trainer)
 
@@ -186,36 +188,14 @@ class BERTLMModel(ModelPT):
             self.log(f'val_loss', avg_loss)
 
     def setup_training_data(self, train_data_config: Optional[DictConfig]):
-        self._train_dl = (
-            self._setup_preprocessed_dataloader(train_data_config)
-            if self.tokenizer is None
-            else self._setup_dataloader(train_data_config)
-        )
+        self._train_dl = self._setup_dataloader(train_data_config)
 
     def setup_validation_data(self, val_data_config: Optional[DictConfig]):
-        self._validation_dl = (
-            self._setup_preprocessed_dataloader(val_data_config)
-            if self.tokenizer is None
-            else self._setup_dataloader(val_data_config)
-        )
+        self._validation_dl = self._setup_dataloader(val_data_config)
 
     def setup_test_data(self, test_data_config: Optional[DictConfig]):
-        pass
+        self._test_dl = self._setup_dataloader(test_data_config)
 
-    def _setup_preprocessed_dataloader(self, cfg: Optional[DictConfig]):
-        dataset = cfg.data_file
-        max_predictions_per_seq = cfg.max_predictions_per_seq
-        batch_size = cfg.batch_size
-
-        if os.path.isdir(dataset):
-            files = [os.path.join(dataset, f) for f in os.listdir(dataset) if os.path.isfile(os.path.join(dataset, f))]
-        else:
-            files = [dataset]
-        files.sort()
-        dl = BertPretrainingPreprocessedDataloader(
-            data_files=files, max_predictions_per_seq=max_predictions_per_seq, batch_size=batch_size,
-        )
-        return dl
 
     def _setup_tokenizer(self, cfg: DictConfig):
         tokenizer = get_tokenizer(
@@ -224,24 +204,93 @@ class BERTLMModel(ModelPT):
             special_tokens=OmegaConf.to_container(cfg.special_tokens) if cfg.special_tokens else None,
             vocab_file=cfg.vocab_file,
         )
-        self.tokenizer = tokenizer
+        return tokenizer
 
     def _setup_dataloader(self, cfg: DictConfig):
-        dataset = BertPretrainingDataset(
-            tokenizer=self.tokenizer,
-            data_file=cfg.data_file,
-            max_seq_length=cfg.max_seq_length,
-            mask_prob=cfg.mask_prob,
-            short_seq_prob=cfg.short_seq_prob,
-        )
-        dl = torch.utils.data.DataLoader(
-            dataset=dataset,
-            batch_size=cfg.batch_size,
-            collate_fn=dataset.collate_fn,
-            drop_last=cfg.get("drop_last", False),
-            shuffle=cfg.shuffle,
-            num_workers=cfg.get("num_workers", 0),
-        )
+        if cfg.get("use_tarred_dataset", False):
+            if cfg.get("tar_metadata_file") is None:
+                raise FileNotFoundError("Trying to use tarred data set but could not find metadata path in config.")
+            metadata_file_list = cfg.get('tar_metadata_file')
+            tar_files_list = cfg.get('tar_files', None)
+            if isinstance(metadata_file_list, str):
+                metadata_file_list = [metadata_file_list]
+            if tar_files_list is not None and isinstance(tar_files_list, str):
+                tar_files_list = [tar_files_list]
+            if tar_files_list is not None and len(tar_files_list) != len(metadata_file_list):
+                raise ValueError('The config must have the same number of tarfile paths and metadata file paths.')
+
+            datasets = []
+            for idx, metadata_file in enumerate(metadata_file_list):
+                with open(metadata_file) as metadata_reader:
+                    metadata = json.load(metadata_reader)
+                if tar_files_list is None:
+                    tar_files = metadata.get('tar_files')
+                    if tar_files is not None:
+                        # update absolute path of tar files based on metadata_file path
+                        valid_tar_files = []
+                        metadata_basedir = os.path.abspath(os.path.dirname(metadata_file))
+                        updated_fn = 0
+                        for fn in tar_files:
+                            # if a file does not exist, look in metadata file directory
+                            if os.path.exists(fn):
+                                valid_fn = fn
+                            else:
+                                updated_fn += 1
+                                valid_fn = os.path.join(metadata_basedir, os.path.basename(fn))
+                                if not os.path.exists(valid_fn):
+                                    raise RuntimeError(
+                                        f"File in tarred dataset is missing from absolute and relative paths {fn}"
+                                    )
+
+                            valid_tar_files.append(valid_fn)
+
+                        tar_files = valid_tar_files
+
+                        logging.info(f'Updated the path of {updated_fn} tarred files')
+                        logging.info(f'Loading from tarred dataset {tar_files}')
+                else:
+                    tar_files = tar_files_list[idx]
+                    if metadata.get('tar_files') is not None:
+                        logging.info(
+                            f'Tar file paths found in both cfg and metadata using one in cfg by default - {tar_files}'
+                        )
+            
+
+            dataset = TarredBertDataset(
+                text_tar_filepaths=tar_files,
+                tokenizer = self.tokenizer,
+                num_batches=metadata.get('num_batches'),
+                shuffle_n=cfg.get("tar_shuffle_n", 100),
+                shard_strategy=cfg.get("shard_strategy", "scatter"),
+                global_rank=self.global_rank,
+                world_size=self.world_size,
+            )
+
+            dl = torch.utils.data.DataLoader(
+                dataset=dataset,
+                batch_size=1,
+                sampler=None,
+                num_workers=cfg.get("num_workers", 2),
+                pin_memory=cfg.get("pin_memory", False),
+                drop_last=cfg.get("drop_last", False),
+            )
+        else:
+            
+            dataset = BertPretrainingDataset(
+                tokenizer=self.tokenizer,
+                data_file=cfg.data_file,
+                max_seq_length=cfg.max_seq_length,
+                mask_prob=cfg.mask_prob,
+                short_seq_prob=cfg.short_seq_prob,
+            )
+            dl = torch.utils.data.DataLoader(
+                dataset=dataset,
+                batch_size=cfg.batch_size,
+                collate_fn=dataset.collate_fn,
+                drop_last=cfg.get("drop_last", False),
+                shuffle=cfg.shuffle,
+                num_workers=cfg.get("num_workers", 0),
+            )
         return dl
 
     @classmethod

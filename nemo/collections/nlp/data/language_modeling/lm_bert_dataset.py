@@ -16,11 +16,15 @@ import array
 import os
 import pickle
 import random
+import braceexpand
+from nemo.utils import logging
+import webdataset as wd
+import io
 from typing import Dict, List, Optional
 
 import h5py
 import numpy as np
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader, DistributedSampler, IterableDataset
 from tqdm import tqdm
 
 from nemo.collections.nlp.data.data_utils.data_preprocessing import find_newlines, load_data_indices
@@ -32,6 +36,111 @@ __all__ = ['BertPretrainingDataset', 'BertPretrainingPreprocessedDataloader']
 def load_h5(input_file: str):
     return h5py.File(input_file, "r")
 
+
+class TarredBertDataset(IterableDataset):
+    """
+    Args:
+        text_tar_filepaths: Either a list of tokenized text tarball filepaths, or a string (can be brace-expandable).
+        tokenizer: tokenizer
+        num_batches: total number of batches
+        shuffle_n: How many samples to look ahead and load to be shuffled.See WebDataset documentation for more details.
+        shard_strategy: Tarred dataset shard distribution strategy chosen as a str value during ddp.
+            -   `scatter`: The default shard strategy applied by WebDataset, where each node gets
+                a unique set of shards, which are permanently pre-allocated and never changed at runtime.
+            -   `replicate`: Optional shard strategy, where each node gets all of the set of shards
+                available in the tarred dataset, which are permanently pre-allocated and never changed at runtime.
+                The benefit of replication is that it allows each node to sample data points from the entire
+                dataset independently of other nodes, and reduces dependence on value of `shuffle_n`.
+                Note: Replicated strategy allows every node to sample the entire set of available tarfiles,
+                and therefore more than one node may sample the same tarfile, and even sample the same
+                data points! As such, there is no assured guarantee that all samples in the dataset will be
+                sampled at least once during 1 epoch.
+        global_rank: Worker rank, used for partitioning shards.
+        world_size: Total number of processes, used for partitioning shards.
+    """
+    def __init__(self,
+                text_tar_filepaths,
+                tokenizer,
+                num_batches,
+                shuffle_n,
+                shard_strategy,
+                global_rank,
+                world_size,
+            ):
+        super(TarredBertDataset, self).__init__()
+        valid_shard_strategies = ['scatter', 'replicate']
+        if shard_strategy not in valid_shard_strategies:
+            raise ValueError(f"`shard_strategy` must be one of {valid_shard_strategies}")
+
+        if isinstance(text_tar_filepaths, str):
+            # Replace '(', '[', '<' and '_OP_' with '{'
+            brace_keys_open = ['(', '[', '<', '_OP_']
+            for bkey in brace_keys_open:
+                if bkey in text_tar_filepaths:
+                    text_tar_filepaths = text_tar_filepaths.replace(bkey, "{")
+
+            # Replace ')', ']', '>' and '_CL_' with '}'
+            brace_keys_close = [')', ']', '>', '_CL_']
+            for bkey in brace_keys_close:
+                if bkey in text_tar_filepaths:
+                    text_tar_filepaths = text_tar_filepaths.replace(bkey, "}")
+
+        if isinstance(text_tar_filepaths, str):
+            # Brace expand
+            text_tar_filepaths = list(braceexpand.braceexpand(text_tar_filepaths))
+
+        if shard_strategy == 'scatter':
+            logging.info("All tarred dataset shards will be scattered evenly across all nodes.")
+            if len(text_tar_filepaths) % world_size != 0:
+                logging.warning(
+                    f"Number of shards in tarred dataset ({len(text_tar_filepaths)}) is not divisible "
+                    f"by number of distributed workers ({world_size})."
+                )
+            begin_idx = (len(text_tar_filepaths) // world_size) * global_rank
+            end_idx = begin_idx + (len(text_tar_filepaths) // world_size)
+            logging.info('Begin Index : %d' % (begin_idx))
+            logging.info('End Index : %d' % (end_idx))
+            text_tar_filepaths = text_tar_filepaths[begin_idx:end_idx]
+            logging.info(
+                "Partitioning tarred dataset: process (%d) taking shards [%d, %d)", global_rank, begin_idx, end_idx
+            )
+            self.length = num_batches // world_size
+
+        elif shard_strategy == 'replicate':
+            logging.info("All tarred dataset shards will be replicated across all nodes.")
+            self.length = num_batches
+
+        else:
+            raise ValueError(f"Invalid shard strategy ! Allowed values are : {valid_shard_strategies}")
+
+        self.tarpath = text_tar_filepaths
+        self.tokenizer = tokenizer
+
+        # Put together WebDataset
+        self._dataset = wd.WebDataset(urls=text_tar_filepaths, nodesplitter=None)
+
+        if shuffle_n > 0:
+            self._dataset = self._dataset.shuffle(shuffle_n)
+        else:
+            logging.info("WebDataset will not shuffle files within the tar files.")
+
+        self._dataset = self._dataset.rename(pkl='pkl', key='__key__').to_tuple('pkl', 'key').map(f=self._build_sample)
+
+    def _build_sample(self, fname):
+        # Load file
+        pkl_file, _ = fname
+        pkl_file = io.BytesIO(pkl_file)
+        data = pickle.load(pkl_file)  # loads np.int64 vector
+        pkl_file.close()
+        src_ids = data["src"]
+        src_mask = (src_ids != self.tokenizer.pad_id).astype(np.int32)
+        return src_ids, src_mask
+
+    def __iter__(self):
+        return self._dataset.__iter__()
+
+    def __len__(self):
+        return self.length
 
 class BertPretrainingDataset(Dataset):
     """

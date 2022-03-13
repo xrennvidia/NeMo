@@ -711,9 +711,12 @@ class MTDataPreproc:
             global_batch_ctr -= num_files_in_tar
             print('Dropping %d batches because of overflow' % (num_files_in_tar))
 
-        json.dump({'num_batches': global_batch_ctr}, open(os.path.join(out_dir, 'metadata.json'), 'w'))
 
         tar_file_paths = glob.glob(f'{out_dir}/{pkl_file_prefix}-batches.tokens.{tokens_in_batch}.*.tar')
+        meta_data = {}
+        meta_data['num_batches'] = global_batch_ctr
+        meta_data['tar_files'] = [os.path.basename(x) for x in tar_file_paths]
+        json.dump(meta_data, open(os.path.join(out_dir, 'metadata.json'), 'w'))
 
         num_tar_files = len(tar_file_paths)
         if num_tar_files < world_size:

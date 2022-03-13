@@ -39,10 +39,13 @@ model:
       vocab_size: 30522
     config_file: null # json file, precedence over config
 
-  tokenizer: null
+  tokenizer:
+    tokenizer_name: ${model.language_model.pretrained_model_name} # tokenizer that inherits from TokenizerSpec
+    vocab_file: null # path to vocab file
+    tokenizer_model: null # tokenizer model for sentencepiece
+    special_tokens: null
 
   train_ds:
-    data_file: ??? # path to hdf5 file (or directory)
     max_predictions_per_seq: 80
     batch_size: 16
     shuffle: true
@@ -50,6 +53,9 @@ model:
     num_workers: 2
     drop_last: false
     pin_memory: false
+    use_tarred_dataset: False # if true tar_metadata_file will be used
+    tar_metadata_file: null # metadata for tarred dataset. A JSON file containing the list of tar_files in "text_tar_filepaths" field
+    tar_shuffle_n: 100 # How many samples to look ahead and load to be shuffled
 
   optim:
     name: adamw
