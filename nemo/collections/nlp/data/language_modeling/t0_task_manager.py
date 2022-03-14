@@ -1,5 +1,4 @@
 #TODO: implement a better task manager
-
 import os
 
 TEMPLATE_CHUNK_NAME = 'template'
@@ -25,7 +24,7 @@ t0_traindt_names_subset = {
     # Multiple-Choice QA
     'cos_e': 'v1.11', 'cosmos_qa': None, 'commonsense_qa': None, 'dream': None,
     'qasc': None, 'quail': None, 'quarel': None, 'quartz': None,
-    'sciq':None, 'social_i_qa':None, 'wiki_hop': 'original', 'wiqa': None,
+    'sciq': None, 'social_i_qa': None, 'wiki_hop': 'original', 'wiqa': None,
     # Extractive QA
     'adversarial_qa': ['dbidaf', 'dbert', 'droberta'],
     'duorc': ['SelfRC', 'ParaphraseRC'], 'quoref': None, 'ropes': None,
@@ -64,10 +63,9 @@ t0pp_traindt_names_subset = {
 t0pp_traindt_names_subset.update(t0p_traindt_names_subset)
 
 t0_all_evaldt_names_subset = {
-    #TODO uncomment
     'anli': None, 'hellaswag': None,
-    #'super_glue': ['cb', 'copa', 'rte', 'wic', 'wsc.fixed'],
-    #'winogrande': 'winogrande_xl', 'story_cloze': '2016',
+    'super_glue': ['cb', 'copa', 'rte', 'wic', 'wsc.fixed'],
+    'winogrande': 'winogrande_xl', 'story_cloze': '2016',
 }
 
 
