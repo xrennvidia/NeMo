@@ -16,10 +16,12 @@ from typing import Dict, List, Optional
 
 import torch
 from torch import nn
+from pytorch_lightning import Trainer
 
 from nemo.core.classes import Exportable, NeuralModule
 from nemo.core.classes.common import typecheck
 from nemo.core.neural_types import ChannelType, NeuralType
+from nemo.collections.nlp.models.language_modeling.bert_lm_model import BERTLMModel
 
 __all__ = ['PromptEncoder']
 
@@ -40,8 +42,8 @@ class PromptEncoder(NeuralModule, Exportable):
         return {"output_embeds": NeuralType(('B', 'T', 'C'), ChannelType())}
 
     def __init__(
-            self, prompt_seq_len: int, hidden_size: int, prompt_dropout: float,
-            num_layers: int, reparametrize: bool, prompt_gen_type: str
+            self, prompt_seq_len: int, hidden_size: int, prompt_dropout: float, num_layers: int,
+            reparametrize: bool, prompt_gen_type: str, trainer: Optional[Trainer] = None
     ):
         """
         Initializes the PromptEncoder module.
@@ -63,11 +65,12 @@ class PromptEncoder(NeuralModule, Exportable):
         self.embedding = torch.nn.Embedding(self.prompt_seq_len, self.hidden_size)
         PromptGenModels = {
             "sequential": SeqPromptGenerator,
-            "linear": LinearPromptGenerator
+            "linear": LinearPromptGenerator,
+            "bert": BertPromptGenerator
         }
         if self.reparametrize:
             PromptGen = PromptGenModels[prompt_gen_type]
-            self.prompt_generator = PromptGen(hidden_size, prompt_dropout, num_layers)
+            self.prompt_generator = PromptGen(hidden_size, prompt_dropout, num_layers, trainer)
 
     @typecheck()
     def forward(self, prompt_condition=None) -> torch.Tensor:
@@ -84,7 +87,7 @@ class PromptEncoder(NeuralModule, Exportable):
 
 
 class LinearPromptGenerator(NeuralModule, Exportable):
-    def __init__(self, hidden_size: int, prompt_dropout: float, num_layers: int):
+    def __init__(self, hidden_size: int, prompt_dropout: float, num_layers: int, trainer: Trainer):
         """
         Initializes the PromptEncoder module.
         Args:
@@ -105,7 +108,7 @@ class LinearPromptGenerator(NeuralModule, Exportable):
 
 
 class SeqPromptGenerator(NeuralModule, Exportable):
-    def __init__(self, hidden_size: int, prompt_dropout: float, num_layers: int):
+    def __init__(self, hidden_size: int, prompt_dropout: float, num_layers: int, trainer: Trainer):
         """
         Initializes the PromptEncoder module.
         Args:
@@ -126,6 +129,28 @@ class SeqPromptGenerator(NeuralModule, Exportable):
         self.mlp_head = nn.Sequential(
             nn.Linear(hidden_size, hidden_size),
             nn.ReLU(), nn.Linear(hidden_size, hidden_size)
+        )
+
+    @typecheck()
+    def forward(self, prompt_embeds) -> torch.Tensor:
+        prompt_embeds = self.mlp_head(self.lstm_head(prompt_embeds)[0])
+        return prompt_embeds
+
+
+class BertPromptGenerator(NeuralModule, Exportable):
+    def __init__(self, hidden_size: int, prompt_dropout: float, num_layers: int, trainer: Trainer):
+        """
+        Initializes the PromptEncoder module.
+        Args:
+            prompt_seq_len: number of prompt embeddings to produce
+            hidden_size: hidden dimension
+            prompt_dropout: the dropout used for the LSTM
+            num_layers: number of layers used in the LSTM
+        """
+        super().__init__()
+        self.bert = BERTLMModel.restore_from(
+            "bertbaseuncased",
+            trainer=trainer
         )
 
     @typecheck()
