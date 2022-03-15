@@ -20,6 +20,10 @@ model:
   only_mlm_loss: true # only use masked language model without next sentence prediction
   num_tok_classification_layers: 1 # number of token classification head output layers
   num_seq_classification_layers: 2 # number of sequence classification head output layers
+  max_seq_length: 512
+  mask_prob: 0.15
+  short_seq_prob: 0.1
+  seed: 1234
 
 
   language_model:
@@ -46,7 +50,11 @@ model:
     special_tokens: null
 
   train_ds:
-    max_predictions_per_seq: 80
+    max_seq_length: ${model.max_seq_length}
+    mask_prob: ${model.mask_prob}
+    max_seqshort_seq_prob_length: ${model.short_seq_prob}
+    short_seq_prob: ${model.short_seq_prob}
+    seed: ${model.seed}
     batch_size: 16
     shuffle: true
     num_samples: -1

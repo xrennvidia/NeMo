@@ -619,6 +619,7 @@ class MTDataPreproc:
         pkl_file_prefix,
         global_rank,
         world_size,
+        batch_size,
     ):
         """Create tarred dataset from a large monolingual corpus.
 
@@ -644,9 +645,9 @@ class MTDataPreproc:
         global_batch_ctr = 0
         tmp_f = tempfile.NamedTemporaryFile(delete=False, mode='w')
         tar_file_ptr = tarfile.open(
-            os.path.join(out_dir, '%s-batches.tokens.%d.%d.tar' % (pkl_file_prefix, tokens_in_batch, 1)), 'w'
+            os.path.join(out_dir, '%s-batches.tokens.%d.%d.tar' % (pkl_file_prefix, tokens_in_batch if batch_size is None else batch_size, 1)), 'w'
         )
-        metadata_path = os.path.join(out_dir, f'metadata.tokens.{tokens_in_batch}.json')
+        metadata_path = os.path.join(out_dir, f'metadata.tokens.{tokens_in_batch if batch_size is None else batch_size}.json')
         with open(fname, 'r') as f:
             for line in f:
                 tmp_f.write(line)
@@ -660,14 +661,15 @@ class MTDataPreproc:
                         num_files_in_tar,
                         tar_file_ctr,
                     ) = MTDataPreproc.write_monolingual_batches_to_tarfiles(
-                        out_dir,
-                        num_batches_per_tarfile,
-                        clean,
-                        max_seq_length,
-                        min_seq_length,
-                        tmp_f.name,
-                        tokens_in_batch,
-                        tokenizer,
+                        out_dir=out_dir,
+                        num_batches_per_tarfile=num_batches_per_tarfile,
+                        clean=clean,
+                        max_seq_length=max_seq_length,
+                        min_seq_length=min_seq_length,
+                        fname=tmp_f.name,
+                        num_tokens=tokens_in_batch,
+                        batch_size=batch_size,
+                        tokenizer=tokenizer,
                         num_files_in_tar=num_files_in_tar,
                         tar_file_ptr=tar_file_ptr,
                         tar_file_ctr=tar_file_ctr,
@@ -687,14 +689,15 @@ class MTDataPreproc:
             num_files_in_tar,
             tar_file_ctr,
         ) = MTDataPreproc.write_monolingual_batches_to_tarfiles(
-            out_dir,
-            num_batches_per_tarfile,
-            clean,
-            max_seq_length,
-            min_seq_length,
-            tmp_f.name,
-            tokens_in_batch,
-            tokenizer,
+            out_dir=out_dir,
+            num_batches_per_tarfile=num_batches_per_tarfile,
+            clean=clean,
+            max_seq_length=max_seq_length,
+            min_seq_length=min_seq_length,
+            fname=tmp_f.name,
+            num_tokens=tokens_in_batch,
+            tokenizer=tokenizer,
+            batch_size=batch_size,
             num_files_in_tar=num_files_in_tar,
             tar_file_ptr=tar_file_ptr,
             tar_file_ctr=tar_file_ctr,
@@ -706,13 +709,13 @@ class MTDataPreproc:
 
         if num_files_in_tar != num_batches_per_tarfile:
             os.remove(
-                os.path.join(out_dir, '%s-batches.tokens.%d.%d.tar' % (pkl_file_prefix, tokens_in_batch, tar_file_ctr))
+                os.path.join(out_dir, '%s-batches.tokens.%d.%d.tar' % (pkl_file_prefix, tokens_in_batch if batch_size is None else batch_size, tar_file_ctr))
             )
             global_batch_ctr -= num_files_in_tar
             print('Dropping %d batches because of overflow' % (num_files_in_tar))
 
 
-        tar_file_paths = glob.glob(f'{out_dir}/{pkl_file_prefix}-batches.tokens.{tokens_in_batch}.*.tar')
+        tar_file_paths = glob.glob(f'{out_dir}/{pkl_file_prefix}-batches.tokens.{tokens_in_batch if batch_size is None else batch_size}.*.tar')
         meta_data = {}
         meta_data['num_batches'] = global_batch_ctr
         meta_data['tar_files'] = [os.path.basename(x) for x in tar_file_paths]
@@ -997,6 +1000,7 @@ class MTDataPreproc:
         tar_file_ctr,
         global_batch_ctr,
         pkl_file_prefix,
+        batch_size,
     ):
         """
         Writes current fragment of the overall parallel corpus to tarfiles by:
@@ -1012,6 +1016,7 @@ class MTDataPreproc:
             clean=clean,
             max_seq_length=max_seq_length,
             min_seq_length=min_seq_length,
+            batch_size=batch_size,
             cache_ids=False,
         )
 
@@ -1026,7 +1031,7 @@ class MTDataPreproc:
                 tar_file_ctr += 1
                 tar_file_ptr.close()
                 tar_file_ptr = tarfile.open(
-                    os.path.join(out_dir, '%s-batches.tokens.%d.%d.tar' % (pkl_file_prefix, num_tokens, tar_file_ctr)),
+                    os.path.join(out_dir, '%s-batches.tokens.%d.%d.tar' % (pkl_file_prefix, num_tokens if batch_size is None else batch_size, tar_file_ctr)),
                     'w',
                 )
                 num_files_in_tar = 0

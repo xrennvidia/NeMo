@@ -77,7 +77,6 @@ class TarredBertDataset(IterableDataset):
         valid_shard_strategies = ['scatter', 'replicate']
         if shard_strategy not in valid_shard_strategies:
             raise ValueError(f"`shard_strategy` must be one of {valid_shard_strategies}")
-
         if isinstance(text_tar_filepaths, str):
             # Replace '(', '[', '<' and '_OP_' with '{'
             brace_keys_open = ['(', '[', '<', '_OP_']

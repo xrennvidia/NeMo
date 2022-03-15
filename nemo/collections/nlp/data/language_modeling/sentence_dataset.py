@@ -18,8 +18,7 @@ import json
 import logging
 import pickle
 from collections import OrderedDict
-from typing import Any
-
+from typing import Any, Optional
 import braceexpand
 import numpy as np
 import webdataset as wd
@@ -36,15 +35,17 @@ class SentenceDataset(Dataset):
         self,
         tokenizer: Any,
         dataset: Any,
-        tokens_in_batch: int = 1024,
+        tokens_in_batch: Optional[int] = 1024,
         clean: bool = False,
         cache_ids: bool = False,
         max_seq_length: int = 512,
         min_seq_length: int = 1,
+        batch_size: Optional[int] = None,
     ):
 
         self.tokenizer = tokenizer
         self.tokens_in_batch = tokens_in_batch
+        self.batch_size = batch_size
 
         ids = dataset_to_ids(dataset, tokenizer, cache_ids=cache_ids)
         if clean:
@@ -102,7 +103,7 @@ class SentenceDataset(Dataset):
         len_of_longest_sent = 0
         for sent_len, bucket in buckets.items():
             for sent_i in bucket:
-                if sent_len * (len(curr_batch) + 1) > self.tokens_in_batch:
+                if (self.batch_size is not None and len(curr_batch) >= self.batch_size) or (self.batch_size is None and sent_len * (len(curr_batch) + 1) > self.tokens_in_batch):
                     if not curr_batch:
                         raise ValueError(
                             f"The limitation on number of tokens in batch {self.tokens_in_batch} is too strong."

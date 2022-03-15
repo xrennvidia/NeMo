@@ -261,6 +261,7 @@ class BERTLMModel(ModelPT):
                         logging.info(
                             f'Tar file paths found in both cfg and metadata using one in cfg by default - {tar_files}'
                         )
+            
             dataset = TarredBertDataset(
                 text_tar_filepaths=tar_files,
                 tokenizer = self.tokenizer,
@@ -269,6 +270,10 @@ class BERTLMModel(ModelPT):
                 shard_strategy=cfg.get("shard_strategy", "scatter"),
                 global_rank=self.global_rank,
                 world_size=self.world_size,
+                max_seq_length=self._cfg.max_seq_length,
+                mask_prob=self._cfg.mask_prob,
+                short_seq_prob=self._cfg.short_seq_prob,
+                seed=self._cfg.seed,
             )
 
             dl = torch.utils.data.DataLoader(

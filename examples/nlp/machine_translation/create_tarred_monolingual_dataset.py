@@ -31,6 +31,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_seq_length', type=int, default=512, help='Max Sequence Length')
     parser.add_argument('--min_seq_length', type=int, default=1, help='Min Sequence Length')
     parser.add_argument('--tokens_in_batch', type=int, default=16000, help='# Tokens per batch per GPU')
+    parser.add_argument('--batch_size', type=int, default=None, help='Batchsize per GPU. Will overwrite tokens_in_batch is specified.')
     parser.add_argument(
         '--lines_per_dataset_fragment',
         type=int,
@@ -62,6 +63,7 @@ if __name__ == '__main__':
         max_seq_length=args.max_seq_length,
         min_seq_length=args.min_seq_length,
         tokens_in_batch=args.tokens_in_batch,
+        batch_size=args.batch_size,
         lines_per_dataset_fragment=args.lines_per_dataset_fragment,
         num_batches_per_tarfile=args.num_batches_per_tarfile,
         pkl_file_prefix=args.pkl_file_prefix,
