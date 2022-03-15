@@ -99,18 +99,23 @@ def get_text_template_idx(example, templated_text):
     template_idx.sort()
     return original_text_idx, template_idx
 
+
 def organize_chunk_idx(original_text_idx, template_idx):
-    tuple_list = []
+    chunk_idx_txt = ''
     while len(template_idx) > 0 or len(original_text_idx) > 0:
+        if chunk_idx_txt:
+            chunk_idx_txt += ', '
         if not original_text_idx:
-            tuple_list.append((TEMPLATE_CHUNK_NAME, template_idx.pop(0)))
+            chunk = (TEMPLATE_CHUNK_NAME, template_idx.pop(0))
         elif not template_idx:
-            tuple_list.append((ORIG_TXT_CHUNK_NAME, original_text_idx.pop(0)))
+            chunk = (ORIG_TXT_CHUNK_NAME, original_text_idx.pop(0))
         elif template_idx[0] < original_text_idx[0]:
-            tuple_list.append((TEMPLATE_CHUNK_NAME, template_idx.pop(0)))
+            chunk = (TEMPLATE_CHUNK_NAME, template_idx.pop(0))
         else:
-            tuple_list.append((ORIG_TXT_CHUNK_NAME, original_text_idx.pop(0)))
-    return tuple_list
+            chunk = (ORIG_TXT_CHUNK_NAME, original_text_idx.pop(0))
+        chunk_idx_txt += chunk[0] + '-' + str(chunk[1][0]) + '-' + str(chunk[1][1])
+    return chunk_idx_txt
+
 
 def apply_prompts(dataset, prompts, splits, save_paths):
     for split, save_path in zip(splits, save_paths):
@@ -131,9 +136,6 @@ def apply_prompts(dataset, prompts, splits, save_paths):
                         chunked_idx = organize_chunk_idx(original_text_idx, template_idx)
                         if len(original_text_idx) < len(template_idx):
                             raise ValueError("Original text bigger than template!")
-                            #original_text_idx, template_idx = get_text_template_idx(example, templated_text)
-                        assert chunked_idx[0][1][0] == 0
-                        #assert any(c[1][1] == len(templated_text) for c in chunked_idx)
                         row[template_name] = {
                             'input': templated_text, 'output': output, 'chunked_idx': chunked_idx
                         }
