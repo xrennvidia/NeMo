@@ -149,6 +149,7 @@ def build_training_sample(
             tokens_a.extend(sample[j])
         tokens_b = []
         is_next_random = False
+        
 
     # Truncate to `target_sequence_length`.
     max_num_tokens = target_seq_length
@@ -156,6 +157,7 @@ def build_training_sample(
 
     # Build tokens and toketypes.
     tokens, tokentypes = create_tokens_and_tokentypes(tokens_a, tokens_b, cls_id, sep_id)
+    
 
     # Masking.
     max_predictions_per_seq = masked_lm_prob * max_num_tokens

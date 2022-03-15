@@ -26,8 +26,10 @@ import h5py
 import numpy as np
 from torch.utils.data import DataLoader, DistributedSampler, IterableDataset
 from tqdm import tqdm
+import torch
 
 from nemo.collections.nlp.data.data_utils.data_preprocessing import find_newlines, load_data_indices
+from nemo.collections.nlp.data.language_modeling.megatron.bert_dataset import build_training_sample
 from nemo.core.classes import Dataset
 
 __all__ = ['BertPretrainingDataset', 'BertPretrainingPreprocessedDataloader']
@@ -66,6 +68,10 @@ class TarredBertDataset(IterableDataset):
                 shard_strategy,
                 global_rank,
                 world_size,
+                max_seq_length: Optional[int] = 512,
+                mask_prob: Optional[float] = 0.15,
+                short_seq_prob: Optional[float] = 0.1,
+                seed: Optional[int] = 1234,
             ):
         super(TarredBertDataset, self).__init__()
         valid_shard_strategies = ['scatter', 'replicate']
@@ -115,6 +121,16 @@ class TarredBertDataset(IterableDataset):
 
         self.tarpath = text_tar_filepaths
         self.tokenizer = tokenizer
+        self.max_seq_length = max_seq_length
+        self.mask_prob = mask_prob
+        self.short_seq_prob = short_seq_prob
+        self.seed = seed
+        self.vocab_id_list=list(range(len(self.tokenizer.vocab)))
+        self.vocab_id_to_token_dict=dict(enumerate(self.tokenizer.vocab))
+        self.cls_id=self.tokenizer.cls_id
+        self.sep_id=self.tokenizer.sep_id
+        self.mask_id=self.tokenizer.mask_id
+        self.pad_id=self.tokenizer.mask_id
 
         # Put together WebDataset
         self._dataset = wd.WebDataset(urls=text_tar_filepaths, nodesplitter=None)
@@ -124,17 +140,60 @@ class TarredBertDataset(IterableDataset):
         else:
             logging.info("WebDataset will not shuffle files within the tar files.")
 
-        self._dataset = self._dataset.rename(pkl='pkl', key='__key__').to_tuple('pkl', 'key').map(f=self._build_sample)
+        self._dataset = map(lambda x: self._build_sample(x[1], x[0]), enumerate(self._dataset.rename(pkl='pkl', key='__key__').to_tuple('pkl', 'key')))
 
-    def _build_sample(self, fname):
+    def _build_sample(self, fname, idx):
         # Load file
         pkl_file, _ = fname
         pkl_file = io.BytesIO(pkl_file)
         data = pickle.load(pkl_file)  # loads np.int64 vector
         pkl_file.close()
         src_ids = data["src"]
-        src_mask = (src_ids != self.tokenizer.pad_id).astype(np.int32)
-        return src_ids, src_mask
+        # print("SHAPE", src_ids.shape)
+        # # src_mask = (src_ids != self.tokenizer.pad_id).astype(np.int32)
+        samples = [x[x != self.tokenizer.pad_id] for x in src_ids]
+        
+        num_special_tokens = 3
+        max_num_tokens = self.max_seq_length - num_special_tokens
+        target_seq_lengths = [max_num_tokens] * len(samples)
+        
+    
+        input_ids = []
+        input_type_ids = []
+        input_mask = []
+        nsplabel= []
+        output_mask = []
+        output_ids = []
+        for i in range(len(samples)):
+            np_rng=np.random.RandomState(seed=((self.seed + idx) % 2 ** 32))
+            if np_rng.random() < self.short_seq_prob:
+                target_seq_lengths[i] = np_rng.randint(2, max_num_tokens)
+            x = build_training_sample(sample=[[y] for y in samples[i]],
+                            target_seq_length=target_seq_lengths[i],
+                            max_seq_length=self.max_seq_length,
+                            vocab_id_list=self.vocab_id_list,
+                            vocab_id_to_token_dict=self.vocab_id_to_token_dict, 
+                            cls_id=self.cls_id,
+                            sep_id=self.sep_id,
+                            mask_id=self.mask_id,
+                            pad_id=self.pad_id,
+                            masked_lm_prob=self.mask_prob,
+                            np_rng=np_rng,
+                            binary_head=True)
+
+            input_ids.append(x['text'])
+            input_type_ids.append(x['types'])
+            input_mask.append(x['padding_mask'])
+            nsplabel.append(int(not x['is_random']))
+            output_mask.append(x['loss_mask'])
+            output_ids.append(x['labels'])
+        input_ids = np.stack(input_ids)
+        input_type_ids = np.stack(input_type_ids)
+        input_mask = np.stack(input_mask)
+        nsplabel = np.stack(nsplabel)
+        output_mask = np.stack(output_mask)
+        output_ids = np.stack(output_ids)
+        return input_ids, input_type_ids, input_mask, output_ids, output_mask, nsplabel
 
     def __iter__(self):
         return self._dataset.__iter__()

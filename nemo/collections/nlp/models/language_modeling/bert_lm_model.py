@@ -87,7 +87,7 @@ class BERTLMModel(ModelPT):
             use_transformer_init=True,
         )
 
-        self.mlm_loss = SmoothedCrossEntropyLoss()
+        self.mlm_loss = SmoothedCrossEntropyLoss(pad_id=self.tokenizer.pad_id)
 
         if not self.only_mlm_loss:
             self.nsp_classifier = SequenceClassifier(
@@ -152,6 +152,13 @@ class BERTLMModel(ModelPT):
         passed in as `batch`.
         """
         input_ids, input_type_ids, input_mask, output_ids, output_mask, labels = batch
+        input_ids = input_ids.squeeze(0)
+        input_type_ids = input_type_ids.squeeze(0)
+        input_mask = input_mask.squeeze(0)
+        output_ids = output_ids.squeeze(0)
+        output_mask = output_mask.squeeze(0)
+        labels = labels.squeeze(0)
+        import ipdb; ipdb.set_trace()
         forward_outputs = self.forward(input_ids=input_ids, token_type_ids=input_type_ids, attention_mask=input_mask)
         mlm_log_probs, nsp_logits = self._parse_forward_outputs(forward_outputs)
         _, _, loss = self._compute_losses(mlm_log_probs, nsp_logits, output_ids, output_mask, labels)
@@ -254,8 +261,6 @@ class BERTLMModel(ModelPT):
                         logging.info(
                             f'Tar file paths found in both cfg and metadata using one in cfg by default - {tar_files}'
                         )
-            
-
             dataset = TarredBertDataset(
                 text_tar_filepaths=tar_files,
                 tokenizer = self.tokenizer,
