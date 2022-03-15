@@ -54,6 +54,6 @@ if __name__ == '__main__':
 
     file_list = glob.glob(old_dir + "*")
 
-    #reformat_json(file_list)
+    reformat_json(file_list)
     #check_outputs(file_list)
-    create_test_json(new_dir)
+    #create_test_json(new_dir)
