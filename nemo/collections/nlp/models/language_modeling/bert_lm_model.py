@@ -87,7 +87,7 @@ class BERTLMModel(ModelPT):
             use_transformer_init=True,
         )
 
-        self.mlm_loss = SmoothedCrossEntropyLoss(pad_id=self.tokenizer.pad_id)
+        self.mlm_loss = SmoothedCrossEntropyLoss(pad_id = self.tokenizer.pad_id)
 
         if not self.only_mlm_loss:
             self.nsp_classifier = SequenceClassifier(
@@ -132,6 +132,7 @@ class BERTLMModel(ModelPT):
         return mlm_log_probs, nsp_logits
 
     def _compute_losses(self, mlm_log_probs, nsp_logits, output_ids, output_mask, labels):
+        
         mlm_loss = self.mlm_loss(log_probs=mlm_log_probs, labels=output_ids, output_mask=output_mask)
         if self.only_mlm_loss:
             loss, nsp_loss = mlm_loss, None
@@ -158,7 +159,6 @@ class BERTLMModel(ModelPT):
         output_ids = output_ids.squeeze(0)
         output_mask = output_mask.squeeze(0)
         labels = labels.squeeze(0)
-        import ipdb; ipdb.set_trace()
         forward_outputs = self.forward(input_ids=input_ids, token_type_ids=input_type_ids, attention_mask=input_mask)
         mlm_log_probs, nsp_logits = self._parse_forward_outputs(forward_outputs)
         _, _, loss = self._compute_losses(mlm_log_probs, nsp_logits, output_ids, output_mask, labels)

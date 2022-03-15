@@ -130,7 +130,7 @@ class TarredBertDataset(IterableDataset):
         self.cls_id=self.tokenizer.cls_id
         self.sep_id=self.tokenizer.sep_id
         self.mask_id=self.tokenizer.mask_id
-        self.pad_id=self.tokenizer.mask_id
+        self.pad_id=self.tokenizer.pad_id
 
         # Put together WebDataset
         self._dataset = wd.WebDataset(urls=text_tar_filepaths, nodesplitter=None)
@@ -149,9 +149,8 @@ class TarredBertDataset(IterableDataset):
         data = pickle.load(pkl_file)  # loads np.int64 vector
         pkl_file.close()
         src_ids = data["src"]
-        # print("SHAPE", src_ids.shape)
-        # # src_mask = (src_ids != self.tokenizer.pad_id).astype(np.int32)
-        samples = [x[x != self.tokenizer.pad_id] for x in src_ids]
+        samples = [x[x != self.tokenizer.pad_id][1:-1] for x in src_ids]
+        samples = samples[0:2]
         
         num_special_tokens = 3
         max_num_tokens = self.max_seq_length - num_special_tokens
@@ -186,7 +185,9 @@ class TarredBertDataset(IterableDataset):
             input_mask.append(x['padding_mask'])
             nsplabel.append(int(not x['is_random']))
             output_mask.append(x['loss_mask'])
-            output_ids.append(x['labels'])
+            out_ids = x['text'].copy()
+            out_ids[output_mask == 1] = x['labels'][output_mask==1]
+            output_ids.append(out_ids)
         input_ids = np.stack(input_ids)
         input_type_ids = np.stack(input_type_ids)
         input_mask = np.stack(input_mask)
