@@ -150,7 +150,6 @@ class TarredBertDataset(IterableDataset):
         pkl_file.close()
         src_ids = data["src"]
         samples = [x[x != self.tokenizer.pad_id][1:-1] for x in src_ids]
-        samples = samples[0:2]
         
         num_special_tokens = 3
         max_num_tokens = self.max_seq_length - num_special_tokens
