@@ -121,10 +121,8 @@ def apply_prompts(dataset, prompts, splits, save_paths):
                 row = {}
                 for template_name in prompts.name_to_id_mapping:
                     prompt = prompts[template_name]
-                    if not prompt.metadata.original_task:
-                        continue
                     result = prompt.apply(example)
-                    if not result[0]:
+                    if len(result) < 2 or not result[0]:
                         continue
                     try:
                         templated_text = result[0]
