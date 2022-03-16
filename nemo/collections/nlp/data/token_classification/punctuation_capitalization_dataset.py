@@ -32,6 +32,7 @@ import multiprocessing as mp
 import os
 import pickle
 import random
+import shutil
 from dataclasses import dataclass
 from math import ceil
 from pathlib import Path
@@ -49,6 +50,7 @@ from nemo.collections.nlp.data.data_utils.data_preprocessing import get_label_st
 from nemo.core.classes import Dataset
 from nemo.core.neural_types import ChannelType, LabelsType, MaskType, NeuralType
 from nemo.utils import logging
+from nemo.utils.env_var_parsing import get_envint
 from nemo.utils.get_rank import is_global_rank_zero
 
 MAX_NUM_QUERIES_IN_SPLIT = 10 ** 4
@@ -930,6 +932,21 @@ class BertPunctuationCapitalizationDataset(Dataset):
         self.batch_building_progress_queue = batch_building_progress_queue
 
         master_device = is_global_rank_zero()
+        RANK = get_envint("RANK", None)
+        SLURM_PROCID = get_envint("SLURM_PROCID", None)
+        NODE_RANK = get_envint("NODE_RANK", get_envint("GROUP_RANK", 0))
+        LOCAL_RANK = get_envint("LOCAL_RANK", 0)
+        output_path = Path(
+            '/gpfs/fs1/projects/ent_aiapps/users/apeganov/results/autoregressive_punctuation_capitalization/'
+            'evelina_wiki_wmt_news_crawl_3_128_distil_lr1e-4_bs640k_steps300k_from_pretrained_debug/debug_output'
+        )
+        if output_path.exists():
+            shutil.rmtree(str(output_path))
+        output_path.mkdir(parents=True, exist_ok=True)
+        output_debug_file = (
+            output_path
+            / f"RANK{RANK}__SLURM_PROCID{SLURM_PROCID}__NODE_RANK{NODE_RANK}__LOCAL_RANK{LOCAL_RANK}.txt"
+        )
         self.features_pkl = self._get_path_to_pkl_features(text_file, cache_dir, max_seq_length, num_samples)
         features = None
         if master_device and not (self.features_pkl.is_file() and use_cache):
@@ -968,11 +985,20 @@ class BertPunctuationCapitalizationDataset(Dataset):
                 logging.info(f'Features saved to {self.features_pkl}')
 
         # wait until the master process writes to the processed data files
+        with output_debug_file.open('w') as f:
+            f.write(f'torch.distributed.is_initialized() = {torch.distributed.is_initialized()}\n')
         if torch.distributed.is_initialized():
+            with output_debug_file.open('a') as f:
+                f.write(f'on barrier')
             torch.distributed.barrier()
 
         if features is None:
-            features = pickle.load(self.features_pkl.open('rb'))
+            try:
+                features = pickle.load(self.features_pkl.open('rb'))
+            except FileNotFoundError:
+                with output_debug_file.open('a') as f:
+                    f.write('error\n')
+                raise
             li = features[-2:]
             self._check_label_ids_loaded_from_pkl(
                 punct_label_ids, capit_label_ids, *li, punct_label_vocab_file, capit_label_vocab_file
@@ -983,7 +1009,8 @@ class BertPunctuationCapitalizationDataset(Dataset):
             if self.verbose:
                 logging.info(f'Features restored from {self.features_pkl}')
             features = features[:-2]
-
+        with output_debug_file.open('a') as f:
+            f.write('no error\n')
         self.input_ids, self.subtokens_mask, self.punct_labels, self.capit_labels = features
         self.punct_label_ids, self.capit_label_ids = punct_label_ids, capit_label_ids
         self.batches = self._pack_into_batches(
