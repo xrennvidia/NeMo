@@ -22,6 +22,7 @@ from pytorch_lightning import Trainer
 from torch.utils.data import DataLoader
 
 from nemo.collections.common.losses import AggregatorLoss, CrossEntropyLoss, SmoothedCrossEntropyLoss
+from transformers import BertForMaskedLM
 from nemo.collections.common.metrics import Perplexity
 from nemo.collections.nlp.data.language_modeling.lm_bert_dataset import (
     BertPretrainingDataset,
@@ -44,17 +45,6 @@ class BERTLMModel(ModelPT):
     BERT language model pretraining.
     """
 
-    @property
-    def input_types(self) -> Optional[Dict[str, NeuralType]]:
-        return self.bert_model.input_types
-
-    @property
-    def output_types(self) -> Optional[Dict[str, NeuralType]]:
-        output_types_dict = {"mlm_log_probs": self.mlm_classifier.output_types["log_probs"]}
-        if not self.only_mlm_loss:
-            output_types_dict["nsp_logits"] = self.nsp_classifier.output_types["logits"]
-        return output_types_dict
-
     def __init__(self, cfg: DictConfig, trainer: Trainer = None):
         self.world_size = 1
         if trainer is not None:
@@ -64,89 +54,24 @@ class BERTLMModel(ModelPT):
 
         super().__init__(cfg=cfg, trainer=trainer)
 
-        self.bert_model = get_lm_model(
-            pretrained_model_name=cfg.language_model.pretrained_model_name,
-            config_file=self.register_artifact('language_model.config_file', cfg.language_model.config_file),
-            config_dict=OmegaConf.to_container(cfg.language_model.config) if cfg.language_model.config else None,
-            checkpoint_file=cfg.language_model.lm_checkpoint,
-            vocab_file=self.register_artifact('tokenizer.vocab_file', cfg.tokenizer.vocab_file)
-            if cfg.tokenizer
-            else None,
-        )
 
-        self.hidden_size = self.bert_model.config.hidden_size
-        self.vocab_size = self.bert_model.config.vocab_size
-        self.only_mlm_loss = cfg.only_mlm_loss
-
-        self.mlm_classifier = BertPretrainingTokenClassifier(
-            hidden_size=self.hidden_size,
-            num_classes=self.vocab_size,
-            num_layers=cfg.num_tok_classification_layers,
-            activation="gelu",
-            log_softmax=True,
-            use_transformer_init=True,
-        )
-
-        self.mlm_loss = SmoothedCrossEntropyLoss(pad_id = self.tokenizer.pad_id)
-
-        if not self.only_mlm_loss:
-            self.nsp_classifier = SequenceClassifier(
-                hidden_size=self.hidden_size,
-                num_classes=2,
-                num_layers=cfg.num_seq_classification_layers,
-                log_softmax=False,
-                activation="tanh",
-                use_transformer_init=True,
-            )
-
-            self.nsp_loss = CrossEntropyLoss()
-            self.agg_loss = AggregatorLoss(num_inputs=2)
-
-        # # tie weights of MLM softmax layer and embedding layer of the encoder
-        if (
-            self.mlm_classifier.mlp.last_linear_layer.weight.shape
-            != self.bert_model.embeddings.word_embeddings.weight.shape
-        ):
-            raise ValueError("Final classification layer does not match embedding layer.")
-        self.mlm_classifier.mlp.last_linear_layer.weight = self.bert_model.embeddings.word_embeddings.weight
-        # create extra bias
+        self.bert_model = BertForMaskedLM.from_pretrained(cfg.language_model.pretrained_model_name)
 
         # setup to track metrics
         self.validation_perplexity = Perplexity(compute_on_step=False)
 
         self.setup_optimization(cfg.optim)
 
-    @typecheck()
-    def forward(self, input_ids, token_type_ids, attention_mask):
+    def forward(self, input_ids, token_type_ids, attention_mask, labels):
         """
         No special modification required for Lightning, define it as you normally would
         in the `nn.Module` in vanilla PyTorch.
         """
-        hidden_states = self.bert_model(
-            input_ids=input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask,
+        output = self.bert_model(
+            input_ids=input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask, labels=labels
         )
-        mlm_log_probs = self.mlm_classifier(hidden_states=hidden_states)
-        if self.only_mlm_loss:
-            return (mlm_log_probs,)
-        nsp_logits = self.nsp_classifier(hidden_states=hidden_states)
-        return mlm_log_probs, nsp_logits
-
-    def _compute_losses(self, mlm_log_probs, nsp_logits, output_ids, output_mask, labels):
-        
-        mlm_loss = self.mlm_loss(log_probs=mlm_log_probs, labels=output_ids, output_mask=output_mask)
-        if self.only_mlm_loss:
-            loss, nsp_loss = mlm_loss, None
-        else:
-            nsp_loss = self.nsp_loss(logits=nsp_logits, labels=labels)
-            loss = self.agg_loss(loss_1=mlm_loss, loss_2=nsp_loss)
-        return mlm_loss, nsp_loss, loss
-
-    def _parse_forward_outputs(self, forward_outputs):
-        if self.only_mlm_loss:
-            return forward_outputs[0], None
-        else:
-            return forward_outputs
-
+        return output
+    
     def training_step(self, batch, batch_idx):
         """
         Lightning calls this inside the training loop with the data from the training dataloader
@@ -159,13 +84,12 @@ class BERTLMModel(ModelPT):
         output_ids = output_ids.squeeze(0)
         output_mask = output_mask.squeeze(0)
         labels = labels.squeeze(0)
-        forward_outputs = self.forward(input_ids=input_ids, token_type_ids=input_type_ids, attention_mask=input_mask)
-        mlm_log_probs, nsp_logits = self._parse_forward_outputs(forward_outputs)
-        _, _, loss = self._compute_losses(mlm_log_probs, nsp_logits, output_ids, output_mask, labels)
+        output_ids[output_mask==0]=-100
+        forward_outputs = self.forward(input_ids=input_ids, token_type_ids=input_type_ids, attention_mask=input_mask, labels=output_ids)
         lr = self._optimizer.param_groups[0]['lr']
-        self.log('train_loss', loss)
+        self.log('train_loss', forward_outputs.loss)
         self.log('lr', lr, prog_bar=True)
-        return {"loss": loss, "lr": lr}
+        return {"loss": forward_outputs.loss, "lr": lr}
 
     def validation_step(self, batch, batch_idx):
         """
@@ -173,26 +97,10 @@ class BERTLMModel(ModelPT):
         passed in as `batch`.
         """
         input_ids, input_type_ids, input_mask, output_ids, output_mask, labels = batch
-        forward_outputs = self.forward(input_ids=input_ids, token_type_ids=input_type_ids, attention_mask=input_mask)
-        mlm_log_probs, nsp_logits = self._parse_forward_outputs(forward_outputs)
-        _, _, loss = self._compute_losses(mlm_log_probs, nsp_logits, output_ids, output_mask, labels)
-        self.validation_perplexity(logits=mlm_log_probs)
-        return {'val_loss': loss}
-
-    def validation_epoch_end(self, outputs):
-        """Called at the end of validation to aggregate outputs.
-
-        Args:
-            outputs (list): The individual outputs of each validation step.
-
-        Returns:
-            dict: Validation loss and tensorboard logs.
-        """
-        if outputs:
-            avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-            perplexity = self.validation_perplexity.compute()
-            logging.info(f"evaluation perplexity {perplexity.cpu().item()}")
-            self.log(f'val_loss', avg_loss)
+        output_ids[output_mask==0]=-100
+        forward_outputs = self.forward(input_ids=input_ids, token_type_ids=input_type_ids, attention_mask=input_mask, labels=output_ids)
+        self.log('val_loss', forward_outputs.loss)
+        return {'val_loss': forward_outputs.loss}
 
     def setup_training_data(self, train_data_config: Optional[DictConfig]):
         self._train_dl = self._setup_dataloader(train_data_config)
@@ -289,9 +197,9 @@ class BERTLMModel(ModelPT):
             dataset = BertPretrainingDataset(
                 tokenizer=self.tokenizer,
                 data_file=cfg.data_file,
-                max_seq_length=cfg.max_seq_length,
-                mask_prob=cfg.mask_prob,
-                short_seq_prob=cfg.short_seq_prob,
+                max_seq_length=self._cfg.max_seq_length,
+                mask_prob=self._cfg.mask_prob,
+                short_seq_prob=self._cfg.short_seq_prob,
             )
             dl = torch.utils.data.DataLoader(
                 dataset=dataset,

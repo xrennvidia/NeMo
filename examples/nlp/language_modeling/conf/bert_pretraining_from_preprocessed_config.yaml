@@ -11,7 +11,7 @@ trainer:
   accelerator: gpu
   gradient_clip_val: 1.0
   log_every_n_steps: 1
-  val_check_interval: 1.0 # check once per epoch .25 for 4 times per epoch
+  val_check_interval: 10 # check once per epoch .25 for 4 times per epoch
   enable_checkpointing: False # provided by exp_manager
   logger: false # provided by exp_manager
 
@@ -50,11 +50,6 @@ model:
     special_tokens: null
 
   train_ds:
-    max_seq_length: ${model.max_seq_length}
-    mask_prob: ${model.mask_prob}
-    max_seqshort_seq_prob_length: ${model.short_seq_prob}
-    short_seq_prob: ${model.short_seq_prob}
-    seed: ${model.seed}
     batch_size: 16
     shuffle: true
     num_samples: -1
@@ -64,6 +59,16 @@ model:
     use_tarred_dataset: False # if true tar_metadata_file will be used
     tar_metadata_file: null # metadata for tarred dataset. A JSON file containing the list of tar_files in "text_tar_filepaths" field
     tar_shuffle_n: 100 # How many samples to look ahead and load to be shuffled
+
+  validation_ds:
+    batch_size: 8
+    shuffle: false
+    num_samples: -1
+    num_workers: 2
+    drop_last: false
+    pin_memory: false
+    use_tarred_dataset: False # if true tar_metadata_file will be used
+    data_file: ???
 
   optim:
     name: adamw
@@ -76,6 +81,9 @@ model:
       warmup_ratio: 0.01
       min_lr: 0.0
       last_epoch: -1
+      # pytorch lightning args
+      monitor: val_loss
+      reduce_on_plateau: false
 
 
 exp_manager:
