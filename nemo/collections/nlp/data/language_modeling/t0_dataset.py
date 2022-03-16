@@ -434,6 +434,8 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
                 + self.tokenizer.text_to_ids(example.label)
                 + [self.tokenizer.eos_id]
         )
+        if len(dec_query) > self.max_query_length_decoder + 1:
+            dec_query = dec_query[: self.max_query_length_decoder + 1]
         dec_input = dec_query[:-1]
         labels = dec_query[1:]
         task_id = [example.task_id]
