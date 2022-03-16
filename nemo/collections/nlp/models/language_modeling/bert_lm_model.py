@@ -22,7 +22,7 @@ from pytorch_lightning import Trainer
 from torch.utils.data import DataLoader
 
 from nemo.collections.common.losses import AggregatorLoss, CrossEntropyLoss, SmoothedCrossEntropyLoss
-from transformers import BertForMaskedLM
+from transformers import BertForMaskedLM, BertForPreTraining 
 from nemo.collections.common.metrics import Perplexity
 from nemo.collections.nlp.data.language_modeling.lm_bert_dataset import (
     BertPretrainingDataset,
@@ -54,11 +54,7 @@ class BERTLMModel(ModelPT):
 
         super().__init__(cfg=cfg, trainer=trainer)
 
-
         self.bert_model = BertForMaskedLM.from_pretrained(cfg.language_model.pretrained_model_name)
-
-        # setup to track metrics
-        self.validation_perplexity = Perplexity(compute_on_step=False)
 
         self.setup_optimization(cfg.optim)
 
@@ -67,6 +63,9 @@ class BERTLMModel(ModelPT):
         No special modification required for Lightning, define it as you normally would
         in the `nn.Module` in vanilla PyTorch.
         """
+        # output = self.bert_model(
+        #     input_ids=input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask, labels=labels, next_sentence_label=next_sentence_label
+        # )
         output = self.bert_model(
             input_ids=input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask, labels=labels
         )
@@ -86,6 +85,7 @@ class BERTLMModel(ModelPT):
         labels = labels.squeeze(0)
         output_ids[output_mask==0]=-100
         forward_outputs = self.forward(input_ids=input_ids, token_type_ids=input_type_ids, attention_mask=input_mask, labels=output_ids)
+        # forward_outputs = self.forward(input_ids=input_ids, token_type_ids=input_type_ids, attention_mask=input_mask, labels=output_ids, next_sentence_label=labels)
         lr = self._optimizer.param_groups[0]['lr']
         self.log('train_loss', forward_outputs.loss)
         self.log('lr', lr, prog_bar=True)
@@ -99,6 +99,7 @@ class BERTLMModel(ModelPT):
         input_ids, input_type_ids, input_mask, output_ids, output_mask, labels = batch
         output_ids[output_mask==0]=-100
         forward_outputs = self.forward(input_ids=input_ids, token_type_ids=input_type_ids, attention_mask=input_mask, labels=output_ids)
+        # forward_outputs = self.forward(input_ids=input_ids, token_type_ids=input_type_ids, attention_mask=input_mask, labels=output_ids, next_sentence_label=labels)
         self.log('val_loss', forward_outputs.loss)
         return {'val_loss': forward_outputs.loss}
 
