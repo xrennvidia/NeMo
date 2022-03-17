@@ -6,39 +6,44 @@ ORIG_TXT_CHUNK_NAME = 'original_text'
 
 special_splits = {
     'anli': {
-        'train' : ['train_r1', 'train_r2', 'train_r3'],
+        'train': ['train_r1', 'train_r2', 'train_r3'],
         'test': ['test_r1', 'test_r2', 'test_r3'],
         'validation': ['dev_r1', 'dev_r2', 'dev_r3']
     }
 }
 
 t0_debug = {
-    #"dummy_dataset": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
-    'squad_v2': None,
+    #"dummy_dataset": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+    #"dummy_dataset": ["10", "11"],
+    'app_reviews': None,
+    #'cnn_dailymail': '3.0.0',
     'race': ['high', 'middle'],
-    'yelp_review_full': None,
-    'super_glue': ['copa', 'boolq']
+    #'yelp_review_full': None,
+    #'super_glue': ['copa', 'boolq']
 }
 
 t0_traindt_names_subset = {
     # Multiple-Choice QA
     'cos_e': 'v1.11', 'cosmos_qa': None, 'commonsense_qa': None, 'dream': None,
     'qasc': None, 'quail': None, 'quarel': None, 'quartz': None,
-    'sciq': None, 'social_i_qa': None, 'wiki_hop': 'original', 'wiqa': None,
+    'sciq': None, 'social_i_qa': None,
+    'wiki_hop': 'original', 'wiqa': None,
     # Extractive QA
     'adversarial_qa': ['dbidaf', 'dbert', 'droberta'],
     'duorc': ['SelfRC', 'ParaphraseRC'], 'quoref': None, 'ropes': None,
     # Closed-Book QA
-    'kilt_tasks':'hotpotqa', 'wiki_qa': None,
+    'kilt_tasks': 'hotpotqa', 'wiki_qa': None,
     # Structure-To-Text
     'common_gen': None, 'wiki_bio': None,
     # Sentiment
     'amazon_polarity': None,
     'app_reviews': None,
-    'imdb': None, 'rotten_tomatoes': None, 'yelp_review_full': None,
+    'imdb': None, 'rotten_tomatoes': None,
+    'yelp_review_full': None,
     # Summarization
-    'cnn_dailymail': '3.0.0',
-    'gigaword': None, 'multi_news': None,
+    'ccdv/cnn_dailymail': '3.0.0',
+    'gigaword': None,
+    'multi_news': None,
     'samsum': None, 'xsum': None,
     # Topic Classification
     'ag_news': None, 'dbpedia_14': None, 'trec': None,

@@ -19,7 +19,8 @@
 
 import mmap
 import itertools
-from typing import Dict, Optional, List, Iterator, TypeVar
+from copy import deepcopy
+from typing import Dict, Optional, List, Iterator, TypeVar, Callable
 
 import torch
 from torch.utils.data import IterableDataset
@@ -30,6 +31,7 @@ from datasets.iterable_dataset import (
     RandomlyCyclingMultiSourcesExamplesIterable,
     MappedExamplesIterable,
     BufferShuffledExamplesIterable,
+    _BaseExamplesIterable
 )
 from nemo.collections.common.tokenizers.tokenizer_spec import TokenizerSpec
 from nemo.collections.nlp.data.language_modeling.t0_task_manager import (
@@ -69,13 +71,17 @@ class Task(object):
 
     def map_fn(self, multi_prompted_ex):
         features = []
-        for prompt_type, data in multi_prompted_ex.items():
-            if data is None:
-                continue
-            self.prompt_id[prompt_type] = self.prompt_id.get(prompt_type, len(self.prompt_id) + 1)
-            example = self.create_example(data, self.task_id, self.prompt_id[prompt_type])
-            feature_dicts = self.tokenize(example)
-            features.append(feature_dicts)
+        #TODO: remove try
+        try:
+            for prompt_type, data in multi_prompted_ex.items():
+                if data is None:
+                    continue
+                self.prompt_id[prompt_type] = self.prompt_id.get(prompt_type, len(self.prompt_id) + 1)
+                example = self.create_example(data, self.task_id, self.prompt_id[prompt_type])
+                feature_dicts = self.tokenize(example)
+                features.append(feature_dicts)
+        except:
+            print(prompt_type)
         return features
 
 
@@ -161,12 +167,21 @@ class T0DatasetBuilder(object):
         set_caching_enabled(use_cache)
         self.datasets = self.get_data_dict()
 
-    def assemble_datasets(self):
-        def update_ex_iterable(dataset):
-            """This hacks batched MappedExamplesIterable and RandomlyCyclingMultiSourcesExamplesIterable"""
+    def update_ex_iterable(self, dataset):
+        """This hacks MappedExamplesIterable and RandomlyCyclingMultiSourcesExamplesIterable"""
+        if isinstance(dataset, dict):
+            for key, torch_iter in dataset.items():
+                mapped_itr = torch_iter._ex_iterable
+                update_itr = MyMappedExamplesIterable(
+                    ex_iterable=mapped_itr.ex_iterable,
+                    function=mapped_itr.function,
+                    batched=mapped_itr.batched,
+                    batch_size=mapped_itr.batch_size
+                )
+                dataset[key]._ex_iterable = update_itr
+        else:
             rand_multisrc_iter = dataset._ex_iterable
             assert isinstance(rand_multisrc_iter, RandomlyCyclingMultiSourcesExamplesIterable)
-
             updated_buffered_itr = []
             for buffered_itr in rand_multisrc_iter.ex_iterables:
                 assert isinstance(buffered_itr, BufferShuffledExamplesIterable)
@@ -175,17 +190,19 @@ class T0DatasetBuilder(object):
                     ex_iterable=mapped_itr.ex_iterable,
                     function=mapped_itr.function,
                     batched=mapped_itr.batched,
-                    batch_size=mapped_itr.batch_size
+                    batch_size=mapped_itr.batch_size,
+                    output_function=True
                 )
                 buffered_itr.ex_iterable = update_itr
                 updated_buffered_itr.append(buffered_itr)
             dataset._ex_iterable = MyRandomlyCyclingMultiSourcesExamplesIterable(
                 ex_iterables=updated_buffered_itr,
-                seed=rand_multisrc_iter.seed,
+                generator=rand_multisrc_iter.generator,
                 probabilities=rand_multisrc_iter.probabilities
             )
-            return dataset
+        return dataset
 
+    def assemble_datasets(self):
         if self.split == 'train':
             datasets_list = list(self.datasets.values())
             datasets_list = [d.shuffle(buffer_size=self.buffer_size, seed=self.seed) for d in datasets_list]
@@ -195,11 +212,11 @@ class T0DatasetBuilder(object):
                 seed=self.seed
             )
             datasets.info.dataset_size = len(self)
-            datasets = update_ex_iterable(datasets)
+            datasets = self.update_ex_iterable(datasets)
             datasets = datasets.with_format('torch')
             return datasets
         else:
-            return self.datasets
+            return self.update_ex_iterable(self.datasets)
 
     def get_dataset(self, task):
         dataset = load_dataset(self.extension, data_files=task.file_path, streaming=True, chunksize=40<<20)
@@ -229,6 +246,8 @@ class T0DatasetBuilder(object):
                 subsets = [subsets]
             for subset in subsets:
                 logging.info('Subset name %s.' % subset)
+                if "/" in dt_name:
+                    dt_name = dt_name.split("/")[-1]
                 file_name = "_%s_%s.jsonl" % (dt_name, "" if subset is None else subset)
                 _, data_paths = get_data_paths_and_splits(self.split, self.dir_path, file_name, dt_name)
                 for file_path in data_paths:
@@ -500,14 +519,14 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
 
 class MyRandomlyCyclingMultiSourcesExamplesIterable(RandomlyCyclingMultiSourcesExamplesIterable):
     """Same as RandomlyCyclingMultiSourcesExamplesIterable but iter accounts for multiple workers/GPUs."""
-    def __init__(self, ex_iterables, seed: Optional[int] = None, probabilities: Optional[List[float]] = None):
-        super().__init__(ex_iterables, seed, probabilities)
+    def __init__(self, ex_iterables, generator: np.random.Generator, probabilities: Optional[List[float]] = None):
+        super().__init__(ex_iterables, generator, probabilities)
         self.rank = parallel_state.get_data_parallel_rank()
         self.world_size = parallel_state.get_data_parallel_world_size()
 
     def __iter__(self):
         #TODO include model parallel case
-        rng = np.random.default_rng(self.seed)
+        rng = deepcopy(self.generator)
         worker_info = torch.utils.data.get_worker_info()
         total_workers_per_process = 1 if worker_info is None else worker_info.num_workers
         worker_id = (0 if worker_info is None else worker_info.id) + total_workers_per_process * self.rank
@@ -532,20 +551,41 @@ class MyRandomlyCyclingMultiSourcesExamplesIterable(RandomlyCyclingMultiSourcesE
                 else:
                     iterators[i] = itertools.tee(iterators[i][1])
 
-    def shuffle_data_sources(self, seed: Optional[int]) -> "MyRandomlyCyclingMultiSourcesExamplesIterable":
+    def shuffle_data_sources(self, generator: np.random.Generator) -> "MyRandomlyCyclingMultiSourcesExamplesIterable":
         """Shuffle the data sources of each wrapped examples iterable."""
-        ex_iterables = [ex_iterable.shuffle_data_sources(seed) for ex_iterable in self.ex_iterables]
-        return MyRandomlyCyclingMultiSourcesExamplesIterable(ex_iterables, seed=seed, probabilities=self.probabilities)
+        ex_iterables = [ex_iterable.shuffle_data_sources(generator) for ex_iterable in self.ex_iterables]
+        return MyRandomlyCyclingMultiSourcesExamplesIterable(
+            ex_iterables, generator=generator, probabilities=self.probabilities
+        )
 
 
 class MyMappedExamplesIterable(MappedExamplesIterable):
+    def __init__(
+            self,
+            ex_iterable: _BaseExamplesIterable,
+            function: Callable,
+            with_indices: bool = False,
+            input_columns: Optional[List[str]] = None,
+            batched: bool = False,
+            batch_size: int = 1000,
+            remove_columns: Optional[List[str]] = None,
+            output_function: Optional[bool] = False
+    ):
+        super().__init__(
+            ex_iterable, function, with_indices, input_columns, batched, batch_size, remove_columns
+        )
+        self.output_function = output_function
+
     def __iter__(self):
         assert not self.batched, "Current implementation does handle batched examples. " \
                                "Use hugginface's dataset.MappedExamplesIterable instead."
         iterator = iter(self.ex_iterable)
         for key, example in iterator:
             # If not batched, apply the transform and yield the example directly
-            yield key, example, self.function
+            if self.output_function:
+                yield key, example, self.function
+            else:
+                yield key, self.function(example)
 
     def shuffle_data_sources(self, seed: Optional[int]) -> "MyMappedExamplesIterable":
         """Shuffle the wrapped examples iterable."""
