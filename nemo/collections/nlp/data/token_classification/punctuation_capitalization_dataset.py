@@ -937,7 +937,7 @@ class BertPunctuationCapitalizationDataset(Dataset):
         NODE_RANK = get_envint("NODE_RANK", get_envint("GROUP_RANK", 0))
         LOCAL_RANK = get_envint("LOCAL_RANK", 0)
         output_path = Path(
-            '/gpfs/fs1/projects/ent_aiapps/users/apeganov/results/autoregressive_punctuation_capitalization/'
+            '/results/'
             'evelina_wiki_wmt_news_crawl_3_128_distil_lr1e-4_bs640k_steps300k_from_pretrained_debug/debug_output'
         )
         if output_path.exists():
