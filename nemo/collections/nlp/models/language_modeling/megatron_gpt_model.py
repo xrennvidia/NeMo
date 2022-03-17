@@ -23,12 +23,12 @@ from omegaconf.omegaconf import open_dict
 from pytorch_lightning.plugins.precision.native_amp import NativeMixedPrecisionPlugin
 from pytorch_lightning.trainer.trainer import Trainer
 
-from nemo.collections.nlp.data.language_modeling.megatron.data_samplers import (
-    MegatronPretrainingRandomSampler,
-    MegatronPretrainingSampler,
-)
 from nemo.collections.nlp.data.language_modeling.megatron.gpt_dataset import build_train_valid_test_datasets
 from nemo.collections.nlp.data.language_modeling.megatron.gpt_prompt_tuning_dataset import GPTPromptTuningDataset
+from nemo.collections.nlp.data.language_modeling.megatron.megatron_batch_samplers import (
+    MegatronPretrainingBatchSampler,
+    MegatronPretrainingRandomBatchSampler,
+)
 from nemo.collections.nlp.models.language_modeling.megatron.gpt_model import GPTModel
 from nemo.collections.nlp.models.nlp_model import NLPModel
 from nemo.collections.nlp.modules.common.megatron.clip_grads import clip_grad_norm_fp32
@@ -106,7 +106,7 @@ class MegatronGPTModel(NLPModel):
         self._validate_trainer()
 
         # used in NVIDIA NGC PyTorch containers
-        self._enable_nvidia_optimizations()
+        # self._enable_nvidia_optimizations()
 
         if self.cfg.get('use_cpu_initialization', False) is False:
             torch.cuda.set_device(trainer.local_rank)
@@ -421,7 +421,7 @@ class MegatronGPTModel(NLPModel):
 
     def get_forward_output_and_loss_func(self):
         def fwd_output_and_loss_func(batch, model):
-            batch = [x.cuda() for x in batch]
+            batch = [x.cuda(non_blocking=True) for x in batch]
 
             if self.use_soft_prompts:
                 tokens, labels, loss_mask, attention_mask, position_ids, prompt_ids = batch
@@ -541,55 +541,17 @@ class MegatronGPTModel(NLPModel):
         loss = torch.sum(losses.view(-1) * loss_mask) / loss_mask.sum()  # sequence level nll
         return loss
 
-    def process_micro_batch(self, micro_batch):
-        """ Micro batch returned by MegatronGPT dataloader"""
-
-        data = micro_batch
-        # data_b = tensor_parallel.broadcast_data(keys, data, datatype)
-        data_b = data
-
-        # Unpack.
-        tokens_ = data_b['text'].long()
-        labels = tokens_[:, 1:].contiguous()
-        tokens = tokens_[:, :-1].contiguous()
-
-        # Get the masks and postition ids.
-        attention_mask, loss_mask, position_ids = get_ltor_masks_and_position_ids(
-            tokens,
-            self.tokenizer.eos_id,
-            self.cfg.data.get('reset_position_ids', False),
-            self.cfg.data.get('reset_attention_mask', False),
-            self.cfg.data.get('eod_mask_loss', False),
-        )
-
-        return tokens, labels, loss_mask, attention_mask, position_ids
-
     def process_global_batch(self, global_batch):
         """ Prepares the global batch for apex fwd/bwd functions.
             Global batch is a list of micro batches.
         """
-        tokens_list = []
-        labels_list = []
-        loss_mask_list = []
-        attention_mask_list = []
-        position_ids_list = []
-        for micro_batch in global_batch:
-            tokens, labels, loss_mask, attention_mask, position_ids = self.process_micro_batch(micro_batch)
-            micro_batch_size = tokens.shape[0]
-            tokens_list.append(tokens)
-            labels_list.append(labels)
-            loss_mask_list.append(loss_mask)
-            attention_mask_repeat = torch.concat([attention_mask for _ in range(micro_batch_size)])
-            attention_mask_list.append(attention_mask_repeat)
-            position_ids_list.append(position_ids)
-
-        tokens_tensor = torch.concat(tokens_list)
-        labels_tensor = torch.concat(labels_list)
-        loss_mask_tensor = torch.concat(loss_mask_list)
-        attention_mask_tensor = torch.concat(attention_mask_list)
-        position_ids_tensor = torch.concat(position_ids_list)
-
-        return tokens_tensor, labels_tensor, loss_mask_tensor, attention_mask_tensor, position_ids_tensor
+        return [
+            global_batch["tokens"],
+            global_batch["labels"],
+            global_batch["loss_mask"],
+            global_batch["attention_mask"],
+            global_batch["position_ids"],
+        ]
 
     def build_train_valid_test_datasets(self):
         if self.use_soft_prompts:
@@ -597,8 +559,8 @@ class MegatronGPTModel(NLPModel):
 
         logging.info('Building GPT datasets.')
         global_batch_size = self.trainer.world_size * self.cfg.micro_batch_size / self.cfg.tensor_model_parallel_size
-        # Compute trianing micro-batch steps: total_global_batch_steps x grad_acumms_per_global_batch
-        max_train_steps = self.trainer.max_steps * self.trainer.accumulate_grad_batches
+        global_batch_size = self.cfg.global_batch_size
+        max_train_steps = self.trainer.max_steps
         eval_iters = (max_train_steps // self.trainer.val_check_interval + 1) * self.trainer.limit_val_batches
         test_iters = self.trainer.limit_test_batches
 
@@ -617,6 +579,7 @@ class MegatronGPTModel(NLPModel):
             seq_length=self.cfg.data.seq_length,
             seed=self.cfg.seed,
             skip_warmup=self.cfg.data.get('skip_warmup', True),
+            tokenizer=self.tokenizer,
         )
         if self._train_ds is not None:
             logging.info(f'Length of train dataset: {len(self._train_ds)}')
@@ -638,20 +601,24 @@ class MegatronGPTModel(NLPModel):
         # Megatron sampler
         if hasattr(self.cfg.data, 'dataloader_type') and self.cfg.data.dataloader_type is not None:
             if self.cfg.data.dataloader_type == 'single':
-                batch_sampler = MegatronPretrainingSampler(
+                batch_sampler = MegatronPretrainingBatchSampler(
                     total_samples=len(dataset),
                     consumed_samples=consumed_samples,
                     micro_batch_size=self.cfg.micro_batch_size,
+                    global_batch_size=self.cfg.global_batch_size,
                     data_parallel_rank=parallel_state.get_data_parallel_rank(),
                     data_parallel_size=parallel_state.get_data_parallel_world_size(),
+                    drop_last=self.cfg.get('drop_last', True),
                 )
             elif self.cfg.data.dataloader_type == 'cyclic':
-                batch_sampler = MegatronPretrainingRandomSampler(
+                batch_sampler = MegatronPretrainingRandomBatchSampler(
                     total_samples=len(dataset),
                     consumed_samples=consumed_samples,
                     micro_batch_size=self.cfg.micro_batch_size,
+                    global_batch_size=self.cfg.global_batch_size,
                     data_parallel_rank=parallel_state.get_data_parallel_rank(),
                     data_parallel_size=parallel_state.get_data_parallel_world_size(),
+                    drop_last=self.cfg.get('drop_last', True),
                 )
             else:
                 raise ValueError('cfg.data.dataloader_type must be "single" or "cyclic"')
@@ -939,7 +906,7 @@ class MegatronGPTModel(NLPModel):
                 * tokens: list of tokens correspond to text
                 * log_probs: list of tokens log probabilities
                 * offsets: list of tokens start positions in text
-                
+
         """
         app_state = AppState()
 
@@ -1269,7 +1236,7 @@ class MegatronGPTModel(NLPModel):
         """ PTL hook: https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html#transfer-batch-to-device
             When using pipeline parallelism, we need the global batch to remain on the CPU,
             since the memory overhead will be too high when using a large number of microbatches.
-            Microbatches are transferred from CPU to GPU inside the pipeline. 
+            Microbatches are transferred from CPU to GPU inside the pipeline.
         """
         return batch
 
