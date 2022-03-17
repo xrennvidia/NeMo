@@ -932,57 +932,40 @@ class BertPunctuationCapitalizationDataset(Dataset):
         master_device = is_global_rank_zero()
         self.features_pkl = self._get_path_to_pkl_features(text_file, cache_dir, max_seq_length, num_samples)
         features = None
-        if master_device and not (self.features_pkl.is_file() and use_cache):
-            if verbose:
-                logging.info(f'Processing {text_file}')
-            res = self._read_dataset(text_file, labels_file, num_samples)
-            text_lines, punct_label_lines, capit_label_lines, punct_unique_labels, capit_unique_labels = res
-            if punct_label_ids:
-                self._check_label_ids_vs_unique_labels(
-                    punct_label_ids, punct_unique_labels, 'punct', 'punctuation', labels_file
-                )
-            else:
-                punct_label_ids = create_label_ids(punct_unique_labels, self.pad_label)
-            if capit_label_ids:
-                self._check_label_ids_vs_unique_labels(
-                    capit_label_ids, capit_unique_labels, 'capit', 'capitalzation', labels_file
-                )
-            else:
-                capit_label_ids = create_label_ids(capit_unique_labels, self.pad_label)
-            features = _get_features(
-                text_lines,
-                punct_label_lines,
-                capit_label_lines,
-                max_seq_length,
-                self.tokenizer,
-                pad_label=self.pad_label,
-                punct_label_ids=punct_label_ids,
-                capit_label_ids=capit_label_ids,
-                verbose=self.verbose,
-                progress_queue=tokenization_progress_queue,
-                n_jobs=n_jobs,
+        if verbose:
+            logging.info(f'Processing {text_file}')
+        res = self._read_dataset(text_file, labels_file, num_samples)
+        text_lines, punct_label_lines, capit_label_lines, punct_unique_labels, capit_unique_labels = res
+        if punct_label_ids:
+            self._check_label_ids_vs_unique_labels(
+                punct_label_ids, punct_unique_labels, 'punct', 'punctuation', labels_file
             )
+        else:
+            punct_label_ids = create_label_ids(punct_unique_labels, self.pad_label)
+        if capit_label_ids:
+            self._check_label_ids_vs_unique_labels(
+                capit_label_ids, capit_unique_labels, 'capit', 'capitalzation', labels_file
+            )
+        else:
+            capit_label_ids = create_label_ids(capit_unique_labels, self.pad_label)
+        features = _get_features(
+            text_lines,
+            punct_label_lines,
+            capit_label_lines,
+            max_seq_length,
+            self.tokenizer,
+            pad_label=self.pad_label,
+            punct_label_ids=punct_label_ids,
+            capit_label_ids=capit_label_ids,
+            verbose=self.verbose,
+            progress_queue=tokenization_progress_queue,
+            n_jobs=n_jobs,
+        )
+        if master_device:
             self.features_pkl.parent.mkdir(parents=True, exist_ok=True)
-            pickle.dump(tuple(list(features) + [punct_label_ids, capit_label_ids]), self.features_pkl.open("wb"))
-            if self.verbose:
-                logging.info(f'Features saved to {self.features_pkl}')
-
-        # wait until the master process writes to the processed data files
-        if torch.distributed.is_initialized():
-            torch.distributed.barrier()
-
-        if features is None:
-            features = pickle.load(self.features_pkl.open('rb'))
-            li = features[-2:]
-            self._check_label_ids_loaded_from_pkl(
-                punct_label_ids, capit_label_ids, *li, punct_label_vocab_file, capit_label_vocab_file
-            )
-            punct_label_ids, capit_label_ids = li[-2], li[-1]
-            if tokenization_progress_queue is not None:
-                tokenization_progress_queue.put(len(features[0]))
-            if self.verbose:
-                logging.info(f'Features restored from {self.features_pkl}')
-            features = features[:-2]
+        pickle.dump(tuple(list(features) + [punct_label_ids, capit_label_ids]), self.features_pkl.open("wb"))
+        if self.verbose:
+            logging.info(f'Features saved to {self.features_pkl}')
 
         self.input_ids, self.subtokens_mask, self.punct_labels, self.capit_labels = features
         self.punct_label_ids, self.capit_label_ids = punct_label_ids, capit_label_ids
