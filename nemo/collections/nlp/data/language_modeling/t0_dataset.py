@@ -133,6 +133,7 @@ class T0DatasetBuilder(object):
             max_seq_length_decoder: int = 128,
             seed: int = 43,
             buffer_size: int = 10_000,
+            chunk_size: int = 40 << 20,
             use_cache: bool = True,
             extension: str = 'json',
             max_samples: int = None
@@ -160,6 +161,7 @@ class T0DatasetBuilder(object):
         self.max_query_length_decoder = max_seq_length_decoder
         self.seed = seed
         self.buffer_size = buffer_size
+        self.chunk_size = chunk_size
         self.use_cache = use_cache
         self.extension = extension
         self.max_samples = max_samples
@@ -219,7 +221,9 @@ class T0DatasetBuilder(object):
             return self.update_ex_iterable(self.datasets)
 
     def get_dataset(self, task):
-        dataset = load_dataset(self.extension, data_files=task.file_path, streaming=True, chunksize=40<<20)
+        dataset = load_dataset(
+            self.extension, data_files=task.file_path, streaming=True, chunksize=self.chunk_size
+        )
         dataset = dataset['train'].map(task.map_fn, batched=False)
         dataset = dataset.with_format('torch')
         dataset.info.dataset_size = task.dataset_size
@@ -380,6 +384,7 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
             max_seq_length_decoder: int = 128,
             seed: int = 43,
             buffer_size: int = 10_000,
+            chunk_size: int = 40 << 20,
             use_cache: bool = True,
             extension: str = 'json',
             max_samples: int = None,
@@ -407,7 +412,7 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
         self.split_template = split_template
         super().__init__(
             t0_type, dir_path, max_sampling_size, split, tokenizer, max_seq_length, max_seq_length_decoder,
-            seed, buffer_size, use_cache, extension, max_samples
+            seed, buffer_size, chunk_size, use_cache, extension, max_samples
         )
 
     @staticmethod

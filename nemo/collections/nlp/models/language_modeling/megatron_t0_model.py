@@ -177,6 +177,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             max_seq_length=seq_length,
             seed=self.cfg.seed,
             buffer_size=self.cfg.data.buffer_size,
+            chunk_size=self.cfg.data.chunk_size,
             use_cache=self.cfg.data.use_cache,
             max_samples=getattr(self.cfg.data, "max_samples", None)
         )
@@ -511,6 +512,7 @@ class MegatronT0PrimeModel(MegatronT0Model):
             max_seq_length=seq_length,
             seed=self.cfg.seed,
             buffer_size=self.cfg.data.buffer_size,
+            chunk_size=self.cfg.data.chunk_size,
             use_cache=self.cfg.data.use_cache,
             max_samples=getattr(self.cfg.data, "max_samples", None),
             prompt_token_id=self.pseudo_token_id,

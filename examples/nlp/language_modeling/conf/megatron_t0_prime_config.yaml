@@ -53,7 +53,8 @@ model:
   data:
     dir_path: '/home/jpilault/datasets/T0_prompted'
     max_sampling_size: 500000  # from T0 paper (https://arxiv.org/abs/2110.08207)
-    buffer_size: 1_000
+    buffer_size: 100
+    chunk_size: 10_000
     train_ds:
       batch_size: 16
       shuffle: True
