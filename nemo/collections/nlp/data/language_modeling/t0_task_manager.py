@@ -41,7 +41,8 @@ t0_traindt_names_subset = {
     'imdb': None, 'rotten_tomatoes': None,
     'yelp_review_full': None,
     # Summarization
-    'ccdv/cnn_dailymail': '3.0.0',
+    'cnn_dailymail': '3.0.0',
+    #'ccdv/cnn_dailymail': '3.0.0',
     'gigaword': None,
     'multi_news': None,
     'samsum': None, 'xsum': None,
