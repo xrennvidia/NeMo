@@ -16,10 +16,10 @@ t0_debug = {
     #"dummy_dataset": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
     #"dummy_dataset": ["10", "11"],
     'app_reviews': None,
-    #'cnn_dailymail': '3.0.0',
+    'cnn_dailymail': '3.0.0',
     'race': ['high', 'middle'],
-    #'yelp_review_full': None,
-    #'super_glue': ['copa', 'boolq']
+    'yelp_review_full': None,
+    'super_glue': ['copa', 'boolq']
 }
 
 t0_traindt_names_subset = {
