@@ -71,17 +71,13 @@ class Task(object):
 
     def map_fn(self, multi_prompted_ex):
         features = []
-        #TODO: remove try
-        try:
-            for prompt_type, data in multi_prompted_ex.items():
-                if data is None:
-                    continue
-                self.prompt_id[prompt_type] = self.prompt_id.get(prompt_type, len(self.prompt_id) + 1)
-                example = self.create_example(data, self.task_id, self.prompt_id[prompt_type])
-                feature_dicts = self.tokenize(example)
-                features.append(feature_dicts)
-        except:
-            print(prompt_type)
+        for prompt_type, data in multi_prompted_ex.items():
+            if data is None:
+                continue
+            self.prompt_id[prompt_type] = self.prompt_id.get(prompt_type, len(self.prompt_id) + 1)
+            example = self.create_example(data, self.task_id, self.prompt_id[prompt_type])
+            feature_dicts = self.tokenize(example)
+            features.append(feature_dicts)
         return features
 
 

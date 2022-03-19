@@ -147,9 +147,9 @@ def apply_prompts(dataset, prompts, splits, save_paths):
                             print(template_name)
                         printed = True
                         continue
-
-                f.write(json.dumps(row))
-                f.write('\n')
+                if row:
+                    f.write(json.dumps(row))
+                    f.write('\n')
                 counter += 1
                 if counter % 100000 == 0:
                     print("{counter} applied...".format(counter=counter))
