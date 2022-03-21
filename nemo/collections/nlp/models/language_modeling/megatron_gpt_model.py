@@ -106,7 +106,7 @@ class MegatronGPTModel(NLPModel):
         self._validate_trainer()
 
         # used in NVIDIA NGC PyTorch containers
-        self._enable_nvidia_optimizations()
+        # self._enable_nvidia_optimizations()
 
         if self.cfg.get('use_cpu_initialization', False) is False:
             torch.cuda.set_device(trainer.local_rank)
@@ -139,10 +139,6 @@ class MegatronGPTModel(NLPModel):
             tensor_model_parallel_size=cfg.get('tensor_model_parallel_size', 1),
         )
 
-        # TODO: Not sure how to use lists of modules with PTL.
-        # This means we can only use pipeline parallelism without the interleaved schedule.
-        self.model = build_model(model_provider_func=self.model_provider_func, wrap_with_ddp=False)[0]
-
         # Prompt tuning initialization
         self.use_soft_prompts = self.cfg.get('use_soft_prompts', False)
 
@@ -156,11 +152,26 @@ class MegatronGPTModel(NLPModel):
             self.num_prompt_tokens = cfg.get('num_prompt_tokens', 100)
 
             if self.cfg.get('existing_prompt_tags', None):
+                # Assign prompt tag ids if none were present in the config
+                if type(self.cfg.existing_prompt_tags[0]) == str:
+                    existing_prompt_tags = self.cfg.existing_prompt_tags
+                    num_prompt_tags = len(existing_prompt_tags)
+                    existing_prompt_tags = [
+                        (existing_prompt_tags[tag_id], tag_id + 1) for tag_id in range(num_prompt_tags)
+                    ]
+
+                    with open_dict(self.cfg):
+                        self.cfg.existing_prompt_tags = existing_prompt_tags
+
                 # Fill table with prev tuned prompt tags and their ids
                 self.prompt_table = set(self.cfg.existing_prompt_tags)
 
                 # Get max prompt id from table for starting point of new prompt ids
                 self.next_prompt_id = max(self.prompt_table, key=lambda x: x[1])[1]
+
+        # TODO: Not sure how to use lists of modules with PTL.
+        # This means we can only use pipeline parallelism without the interleaved schedule.
+        self.model = build_model(model_provider_func=self.model_provider_func, wrap_with_ddp=False)[0]
 
         self.setup_optimizer_param_groups()
 
@@ -307,7 +318,7 @@ class MegatronGPTModel(NLPModel):
         # TODO: make sure compute_consumed_samples works for pipeline parallelism
         self.log(
             'consumed_samples',
-            self.compute_consumed_samples(self.trainer.global_step),
+            self.compute_consumed_samples(self.trainer.global_step - self.init_global_step),
             prog_bar=True,
             rank_zero_only=True,
         )
@@ -448,6 +459,11 @@ class MegatronGPTModel(NLPModel):
 
         return fwd_output_only_func
 
+    def on_pretrain_routine_start(self) -> None:
+        # keep a copy of init_global_step
+        self.init_global_step = self.trainer.global_step
+        return super().on_pretrain_routine_start()
+
     def validation_step(self, batch, batch_idx):
         """
             Our dataloaders produce a micro-batch and then we fetch
@@ -505,7 +521,11 @@ class MegatronGPTModel(NLPModel):
         torch.distributed.broadcast(averaged_loss, get_last_rank())
 
         self.log('val_loss', averaged_loss, prog_bar=True, rank_zero_only=True)
-        self.log('consumed_samples', self.compute_consumed_samples(self.trainer.global_step), rank_zero_only=True)
+        self.log(
+            'consumed_samples',
+            self.compute_consumed_samples(self.trainer.global_step - self.init_global_step),
+            rank_zero_only=True,
+        )
 
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)
@@ -538,9 +558,8 @@ class MegatronGPTModel(NLPModel):
             return
 
         logging.info('Building GPT datasets.')
-        global_batch_size = self.trainer.world_size * self.cfg.micro_batch_size / self.cfg.tensor_model_parallel_size
-        # Compute trianing micro-batch steps: total_global_batch_steps x grad_acumms_per_global_batch
-        max_train_steps = self.trainer.max_steps * self.trainer.accumulate_grad_batches
+        global_batch_size = self.cfg.global_batch_size
+        max_train_steps = self.trainer.max_steps
         eval_iters = (max_train_steps // self.trainer.val_check_interval + 1) * self.trainer.limit_val_batches
         test_iters = self.trainer.limit_test_batches
 
@@ -584,19 +603,21 @@ class MegatronGPTModel(NLPModel):
                 batch_sampler = MegatronPretrainingBatchSampler(
                     total_samples=len(dataset),
                     consumed_samples=consumed_samples,
-                    num_micro_batch_times_micro_batch_size=self.cfg.global_batch_size
-                    // parallel_state.get_data_parallel_world_size(),
+                    micro_batch_size=self.cfg.micro_batch_size,
+                    global_batch_size=self.cfg.global_batch_size,
                     data_parallel_rank=parallel_state.get_data_parallel_rank(),
                     data_parallel_size=parallel_state.get_data_parallel_world_size(),
+                    drop_last=self.cfg.get('drop_last', True),
                 )
             elif self.cfg.data.dataloader_type == 'cyclic':
                 batch_sampler = MegatronPretrainingRandomBatchSampler(
                     total_samples=len(dataset),
                     consumed_samples=consumed_samples,
-                    num_micro_batch_times_micro_batch_size=self.cfg.global_batch_size
-                    // parallel_state.get_data_parallel_world_size(),
+                    micro_batch_size=self.cfg.micro_batch_size,
+                    global_batch_size=self.cfg.global_batch_size,
                     data_parallel_rank=parallel_state.get_data_parallel_rank(),
                     data_parallel_size=parallel_state.get_data_parallel_world_size(),
+                    drop_last=self.cfg.get('drop_last', True),
                 )
             else:
                 raise ValueError('cfg.data.dataloader_type must be "single" or "cyclic"')
@@ -640,13 +661,26 @@ class MegatronGPTModel(NLPModel):
         Args:
             stage (str, optional): Can be 'fit', 'validate', 'test' or 'predict'. Defaults to None.
         """
-        # Initalize soft prompts before loading datasets and training
-        if self.use_soft_prompts:
-            self.init_new_prompts()
+        resume_checkpoint_path = self.trainer.checkpoint_connector.resume_from_checkpoint_fit_path
+        if resume_checkpoint_path:
+            try:
+                init_consumed_samples = int(
+                    float(re.findall(r"consumed_samples\=([0-9]+.[0-9]+)", resume_checkpoint_path)[0])
+                )
+            except (ValueError, TypeError):
+                logging.warning("Cannot parse the checkpoint file to get the consumed samples. assume it is zero.")
+                init_consumed_samples = 0
+        else:
+            init_consumed_samples = 0
+        self.init_consumed_samples = init_consumed_samples
 
         if stage == 'predict':
             return
         else:
+            # Initalize soft prompts before loading datasets and training
+            if self.use_soft_prompts:
+                self.init_new_prompts()
+
             # TODO: consider adding a ModelPT guard to check if model is being restored.
             # allowing restored models to optionally setup datasets
             self.build_train_valid_test_datasets()
@@ -669,13 +703,7 @@ class MegatronGPTModel(NLPModel):
             self.prompt_tuning_param_freeze_and_optimizer_setup()
 
         elif hasattr(self, '_train_ds'):
-            resume_checkpoint_path = self.trainer.checkpoint_connector.resume_from_checkpoint_fit_path
-            if resume_checkpoint_path:
-                consumed_samples = int(
-                    float(re.findall(r"consumed_samples\=([0-9]+.[0-9]+)", resume_checkpoint_path)[0])
-                )
-            else:
-                consumed_samples = 0
+            consumed_samples = self.compute_consumed_samples(0)
             logging.info(
                 f'Setting up train dataloader with len(len(self._train_ds)): {len(self._train_ds)} and consumed samples: {consumed_samples}'
             )
@@ -721,6 +749,9 @@ class MegatronGPTModel(NLPModel):
                 fp32_grad_accum = False
                 # TODO: contiguous grad bucket for fp16 is also planned to be supported
                 contiguous_grad_bucket = False
+                raise ValueError(
+                    "fp16 training is not yet supported with O2. Please set megatron_amp_O2 to False in the model config."
+                )
 
             # TODO: this should be true when not using pipeline parallelism
             # we will support that for bf16 when we have async handler from apex
@@ -745,12 +776,11 @@ class MegatronGPTModel(NLPModel):
         else:
             return [self._optimizer], [self._scheduler]
 
-    def compute_consumed_samples(self, global_step):
-        # TODO: this should be a counter self.consumed_samples
-        # and updated after every train_step: self.consumed_samples += global_batch_size
+    def compute_consumed_samples(self, steps_since_resume=0):
         app_state = AppState()
         consumed_samples = (
-            global_step * app_state.data_parallel_size * self.cfg.micro_batch_size * get_num_microbatches()
+            self.init_consumed_samples
+            + steps_since_resume * app_state.data_parallel_size * self.cfg.micro_batch_size * get_num_microbatches()
         )
         return int(consumed_samples)
 
@@ -878,18 +908,19 @@ class MegatronGPTModel(NLPModel):
 
         """
         app_state = AppState()
-        _reconfigure_microbatch_calculator(
-            rank=app_state.global_rank,
-            rampup_batch_size=None,
-            global_batch_size=1,
-            micro_batch_size=1,
-            data_parallel_size=1,
-        )
 
         results = []
         request_tokens = request["tokens"]
 
         for idx, tokens in enumerate(request_tokens):
+            micro_batch_size = tokens.shape[0]
+            _reconfigure_microbatch_calculator(
+                rank=app_state.global_rank,
+                rampup_batch_size=None,
+                global_batch_size=micro_batch_size,
+                micro_batch_size=micro_batch_size,
+                data_parallel_size=1,
+            )
 
             # For prompt tuned GPT models
             if self.use_soft_prompts:
@@ -928,11 +959,12 @@ class MegatronGPTModel(NLPModel):
                         reset_attention_mask=self.cfg.get('reset_attention_mask', False),
                         eod_mask_loss=self.cfg.get('eod_mask_loss', False),
                     )
+                attention_mask_repeat = torch.concat([attention_mask for _ in range(micro_batch_size)])
                 if self.use_soft_prompts:
-                    batch = [tokens, attention_mask, position_ids, prompt_ids]
+                    batch = [tokens, attention_mask_repeat, position_ids, prompt_ids]
                 else:
-                    batch = [tokens, attention_mask, position_ids]
-                tensor_shape = [tokens.shape[1], 1, self.cfg.hidden_size]
+                    batch = [tokens, attention_mask_repeat, position_ids]
+                tensor_shape = [tokens.shape[1], micro_batch_size, self.cfg.hidden_size]
                 if self.cfg.get('pipeline_model_parallel_size', 1) > 1:
                     output_tensor = forward_backward_pipelining_without_interleaving(
                         forward_step_func=self.get_forward_output_only_func(),
@@ -1003,18 +1035,19 @@ class MegatronGPTModel(NLPModel):
             * offsets: list of tokens start positions in text
         """
         app_state = AppState()
-        _reconfigure_microbatch_calculator(
-            rank=app_state.global_rank,
-            rampup_batch_size=None,
-            global_batch_size=1,
-            micro_batch_size=1,
-            data_parallel_size=1,
-        )
 
         results = []
         request_tokens = request["tokens"]
         for idx, tokens in enumerate(request_tokens):
             tokens_cut = tokens[:, :-1]
+            micro_batch_size = tokens_cut.shape[0]
+            _reconfigure_microbatch_calculator(
+                rank=app_state.global_rank,
+                rampup_batch_size=None,
+                global_batch_size=micro_batch_size,
+                micro_batch_size=micro_batch_size,
+                data_parallel_size=1,
+            )
             # For prompt tuned GPT models
             if self.use_soft_prompts:
                 if self.cfg.get('pipeline_model_parallel_size', 1) > 1:
@@ -1048,11 +1081,13 @@ class MegatronGPTModel(NLPModel):
                     eod_mask_loss=self.cfg.get('eod_mask_loss', False),
                 )
 
+            # we repeat attention mask to work with apex fwd/bwd function
+            attention_mask_repeat = torch.concat([attention_mask for _ in range(micro_batch_size)])
             if self.use_soft_prompts:
-                batch = [tokens, attention_mask, position_ids, prompt_ids]
+                batch = [tokens_cut, attention_mask_repeat, position_ids, prompt_ids]
             else:
-                batch = [tokens, attention_mask, position_ids]
-            tensor_shape = [tokens_cut.shape[1], 1, self.cfg.hidden_size]
+                batch = [tokens_cut, attention_mask_repeat, position_ids]
+            tensor_shape = [tokens_cut.shape[1], micro_batch_size, self.cfg.hidden_size]
             if self.cfg.get('pipeline_model_parallel_size', 1) > 1:
                 output_tensor = forward_backward_pipelining_without_interleaving(
                     forward_step_func=self.get_forward_output_only_func(),
