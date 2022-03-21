@@ -36,12 +36,14 @@ exp_manager:
     save_best_model: True
 
 model:
+  seed: 1234
+  buffer_size: 10_000
   restore_from_path: /home/jpilault/models/megatron_t5/t5_220m/megatron_t5--val_loss=1.54-step=415999-consumed_samples=851965952.0.nemo
   tensor_model_parallel_size: 1
 
   data:
     dir_path: '/home/jpilault/datasets/T0_prompted'
-    max_data_size: 500000  # from T0 paper (https://arxiv.org/abs/2110.08207)
+    max_sampling_size: 500000  # from T0 paper (https://arxiv.org/abs/2110.08207)
     train_ds:
       batch_size: 32
       shuffle: True

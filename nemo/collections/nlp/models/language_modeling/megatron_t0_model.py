@@ -15,24 +15,18 @@
 import re
 from typing import Dict, Optional
 
-import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from apex.transformer import tensor_parallel
+from apex.transformer import tensor_parallel, parallel_state
 from omegaconf.dictconfig import DictConfig
-from omegaconf import OmegaConf, open_dict
 from pytorch_lightning.trainer.trainer import Trainer
 
-from nemo.collections.nlp.data.language_modeling.t0_task_manager import (
-    DATA_ORG, t0_all_evaldt_names_subset,
-    get_data_paths_and_splits
+from nemo.collections.nlp.data.language_modeling.t0_dataset import (
+    T0DatasetBuilder, T0PrimeDatasetBuilder
 )
-from nemo.collections.nlp.data.language_modeling.t0_dataset import T0Dataset, T0PrimeDataset
 from nemo.collections.nlp.models.language_modeling.megatron.t5_model import t5_position_ids
-from nemo.collections.common.metrics.classification_accuracy import ExactStringMatchMetric
-from nemo.collections.common.data.dataset import ConcatDataset
+from nemo.collections.common.metrics.classification_accuracy import ExactStringPerCategoryMatchMetric
 from nemo.collections.nlp.models.language_modeling.megatron_glue_model import MegatronT5FineTuneModel
-from nemo.collections.nlp.models.language_modeling.megatron_t5_model import MegatronT5Model
 from nemo.collections.nlp.modules.common.prompt_encoder import PromptEncoder
 
 from nemo.collections.nlp.modules.common.megatron.utils import average_losses_across_data_parallel_group
@@ -49,7 +43,6 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         self.cfg = cfg
         self.acc_metric_dict = torch.nn.ModuleDict()
         self._reduced_loss_buffer = []
-
 
     def forward(
         self,
@@ -80,7 +73,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             return result
 
     def training_step(self, batch, batch_idx):
-        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, enc_dec_mask, guids, prompt_ids \
+        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, enc_dec_mask, task_ids, prompt_ids \
             = self.process_batch(batch)
 
         output_tensor, encoder_hidden_states = self(
@@ -89,7 +82,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
 
         loss = self.model.loss_func(loss_mask, output_tensor)
         self.log('train_loss', loss)
-        # Reduced loss for logging. This averages the loss across all workers unlike "loss" above which is specific to a DDP rank.
+        # Reduced loss for logging. Averages the loss across all workers unlike above which is specific to a DDP rank.
         reduced_loss = average_losses_across_data_parallel_group([loss])
         # cache reduced loss while accumulating gradients
         self._reduced_loss_buffer.append(reduced_loss[0])
@@ -105,10 +98,10 @@ class MegatronT0Model(MegatronT5FineTuneModel):
 
         return loss
 
-    def get_accuracy(self, predicted_token_ids, labels, guids, prompt_ids):
+    def get_accuracy(self, predicted_token_ids, labels, task_ids, prompt_ids):
         preds = predicted_token_ids.cpu().numpy().tolist()
         labels = labels.cpu().numpy().tolist()
-        for i, (pred, label, guid, prompt_id) in enumerate(zip(preds, labels, guids, prompt_ids)):
+        for i, (pred, label, guid, prompt_id) in enumerate(zip(preds, labels, task_ids, prompt_ids)):
             if self.model.tokenizer.eos_id in pred:
                 idx = pred.index(self.model.tokenizer.eos_id)
                 pred = pred[:idx]
@@ -118,20 +111,20 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             label = self.model.tokenizer.ids_to_text(label)
             key = f'task{guid.item()}_prompt{prompt_id.item()}'
             if not self.acc_metric_dict.__contains__(key):
-                self.acc_metric_dict[key] = ExactStringMatchMetric().to(self.device)
+                self.acc_metric_dict[key] = ExactStringPerCategoryMatchMetric().to(self.device)
             _ = self.acc_metric_dict[key](pred, label)
 
     def inference_step(self, batch, batch_idx):
         loss = self.model.validation_step(batch, batch_idx)
 
-        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, enc_dec_mask, guids, prompt_ids \
+        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, enc_dec_mask, task_ids, prompt_ids \
             = self.process_batch(batch)
 
         predicted_token_ids, log_probs = self.model.decode(
             tokens_enc=tokens_enc, enc_mask=enc_mask,
             num_tokens_to_generate=10  #TODO: hardcoded 10 is bad here
         )
-        self.get_accuracy(predicted_token_ids, labels, guids, prompt_ids)
+        self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
 
         return {'loss': loss}
 
@@ -174,80 +167,45 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             avg_test_acc.append(test_acc)
         self.log('val_acc', torch.mean(torch.stack(avg_test_acc)), prog_bar=True)
 
-    def get_dataset_list(self, split, seq_length):
-        if split == 'train':
-            data_dict = DATA_ORG[self.cfg.data.t0_type]
-        else:
-            data_dict = t0_all_evaldt_names_subset
-        dataset_dict = {}
-        for dt_name in data_dict.keys():
-            logging.info('Dataset name %s.' % dt_name)
-            subsets = data_dict[dt_name]
-            if not isinstance(subsets, list):
-                subsets = [subsets]
-            for subset in subsets:
-                logging.info('Subset name %s.' % subset)
-                file_name = "_%s_%s.jsonl" % (dt_name, "" if subset is None else subset)
-                _, data_paths = get_data_paths_and_splits(split, self.cfg.data.dir_path, file_name, dt_name)
-                for file_path in data_paths:
-                    dataset = T0Dataset(
-                        file_path,
-                        task_name=dt_name,
-                        subset=subset,
-                        tokenizer=self.model.tokenizer,
-                        max_seq_length=seq_length,
-                        max_samples=getattr(self.cfg.data, "max_samples", None)
-                    )
-                    #TODO: implement a better task manager
-                    dataset_dict["%s_%s" % (dt_name, "" if subset is None else subset)] = dataset
-        return dataset_dict
-
-    def get_sampling_probs(self, dataset_dict):
-        data_sizes = []
-        for dataset in dataset_dict:
-            data_sizes.append(min(len(dataset), self.cfg.data.max_data_size))
-        data_sizes = np.array(data_sizes)
-        sampling_probs = data_sizes / np.sum(data_sizes)
-        return sampling_probs.tolist()
+    def get_datasetbuilder(self, split, seq_length):
+        datasetbuilder = T0DatasetBuilder(
+            t0_type=self.cfg.data.t0_type,
+            dir_path=self.cfg.data.dir_path,
+            max_sampling_size=self.cfg.data.max_sampling_size,
+            split=split,
+            tokenizer=self.model.tokenizer,
+            max_seq_length=seq_length,
+            seed=self.cfg.seed,
+            buffer_size=self.cfg.data.buffer_size,
+            chunk_size=self.cfg.data.chunk_size,
+            use_cache=self.cfg.data.use_cache,
+            max_samples=getattr(self.cfg.data, "max_samples", None)
+        )
+        return datasetbuilder
 
     def build_train_valid_test_datasets(self):
-        # TODO: add cfg.data.t0_type to command args and only allow [t0_train, t0p_train, t0pp_train]:
         logging.info('Building train %s datasets.' % self.cfg.data.t0_type)
-        train_data_dict = self.get_dataset_list('train', self.cfg.data.train_ds.max_seq_length)
-        train_data_list = list(train_data_dict.values())
-        self._train_ds = ConcatDataset(
-            datasets=train_data_list,
-            shuffle=True,
-            sampling_probabilities=self.get_sampling_probs(train_data_list)
-        )
+        self._train_ds = self.get_datasetbuilder('train', self.cfg.data.train_ds.max_seq_length)
         logging.info('Building validation datasets.')
-        self._validation_ds = self.get_dataset_list('validation', self.cfg.data.validation_ds.max_seq_length)
+        self._validation_ds = self.get_datasetbuilder('validation', self.cfg.data.validation_ds.max_seq_length)
         logging.info('Building test datasets.')
-        self._test_ds = self.get_dataset_list('test', self.cfg.data.test_ds.max_seq_length)
+        self._test_ds = self.get_datasetbuilder('test', self.cfg.data.test_ds.max_seq_length)
 
         logging.info(f'Length of train dataset: {len(self._train_ds)}')
-        logging.info(f'Length of val dataset: {sum([len(dt) for dt in self._validation_ds])}')
-        logging.info(f'Length of test dataset: {sum([len(dt) for dt in self._test_ds])}')
+        logging.info(f'Length of val dataset: {len(self._validation_ds)}')
+        logging.info(f'Length of test dataset: {len(self._test_ds)}')
         logging.info(f'Finished building T0 datasets.')
         return self._train_ds, self._validation_ds, self._test_ds
 
-    def build_data_loader(self, dataset, batch_size, shuffle, num_workers, pin_memory):
+    def build_data_loader(self, dataset, collate_fn, batch_size, shuffle, num_workers, pin_memory):
         """Buld dataloader given an input dataset."""
-
         if dataset is None:
             return None
-
-        if hasattr(dataset, "collate_fn"):
-            collate_fn = dataset.collate_fn
-        else:
-            collate_fn = dataset.datasets[0].collate_fn
-
         # Torch dataloader.
         return DataLoader(
             dataset,
             collate_fn=collate_fn,
             batch_size=batch_size,
-            shuffle=shuffle,
             num_workers=num_workers,
             pin_memory=pin_memory,
             drop_last=False,
@@ -275,8 +233,9 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             else:
                 consumed_samples = 0
             self._train_dl = self.build_data_loader(
-                self._train_ds,
-                self.cfg.data.train_ds.batch_size,
+                self._train_ds.assemble_datasets(),
+                collate_fn=self._train_ds.collate_fn,
+                batch_size=self.cfg.data.train_ds.batch_size,
                 shuffle=False,
                 num_workers=self.cfg.data.train_ds.num_workers,
                 pin_memory=True,
@@ -285,27 +244,30 @@ class MegatronT0Model(MegatronT5FineTuneModel):
     def setup_validation_data(self, cfg):
         if hasattr(self, '_validation_ds'):
             consumed_samples = 0
-            self.validation_task_names = list(self._validation_ds.keys())
+            dataset_dict = self._validation_ds.assemble_datasets()
+            self.validation_task_names = list(dataset_dict.keys())
             self._validation_dl = [self.build_data_loader(
                 dataset,
-                self.cfg.data.validation_ds.batch_size,
+                collate_fn=self._validation_ds.collate_fn,
+                batch_size=self.cfg.data.validation_ds.batch_size,
                 shuffle=False,
                 num_workers=self.cfg.data.validation_ds.num_workers,
                 pin_memory=True,
-            ) for dataset in self._validation_ds.values()]
+            ) for dataset in dataset_dict.values()]
 
     def setup_test_data(self, cfg):
         if hasattr(self, '_test_ds'):
             consumed_samples = 0
-            self.test_task_names = list(self._test_ds.keys())
+            dataset_dict = self._test_ds.assemble_datasets()
+            self.test_task_names = list(dataset_dict.keys())
             self._test_dl = [self.build_data_loader(
                 dataset,
-                self.cfg.data.test_ds.batch_size,
+                collate_fn=self._test_ds.collate_fn,
+                batch_size=self.cfg.data.test_ds.batch_size,
                 shuffle=False,
                 num_workers=self.cfg.data.test_ds.num_workers,
                 pin_memory=True,
-            ) for dataset in self._test_ds.values()]
-
+            ) for dataset in dataset_dict.values()]
 
     def complete(self, request: Dict):
         #TODO: not sure if I should I keep this
@@ -361,7 +323,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         keys = [
             'text_enc', 'text_dec', 'template', 'labels',
             'loss_mask', 'enc_mask', 'dec_mask', 'enc_dec_mask',
-            'guids', 'prompt_ids'
+            'task_ids', 'prompt_ids'
         ]
         datatype = torch.int64
 
@@ -379,11 +341,11 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         enc_dec_mask = data_b['enc_dec_mask'] < 0.5
 
         # T0 specific
-        guids = data_b['guids'].long()
+        task_ids = data_b['task_ids'].long()
         prompt_ids = data_b['prompt_ids'].long()
 
         return tokens_enc, tokens_dec, loss_mask, labels, \
-               enc_mask, dec_mask, enc_dec_mask, guids, prompt_ids
+               enc_mask, dec_mask, enc_dec_mask, task_ids, prompt_ids
 
 
 class MegatronT0PrimeModel(MegatronT0Model):
@@ -404,9 +366,11 @@ class MegatronT0PrimeModel(MegatronT0Model):
         self.prompt_encoder = PromptEncoder(
             prompt_seq_len=self.prompt_seq_len,
             hidden_size=self.hidden_size,
-            lstm_dropout=cfg.prompt_encoder.dropout,
+            prompt_dropout=cfg.prompt_encoder.dropout,
             num_layers=cfg.prompt_encoder.num_layers,
-            reparametrize=cfg.prompt_encoder.reparametrize
+            reparametrize=cfg.prompt_encoder.reparametrize,
+            prompt_gen_type=cfg.prompt_encoder.prompt_gen_type,
+            trainer=trainer
         )
         self.embeddings = self.model.model.language_model.embedding.word_embeddings
         self.model.tokenizer.add_special_tokens({'additional_special_tokens': [cfg.pseudo_token]})
@@ -414,32 +378,33 @@ class MegatronT0PrimeModel(MegatronT0Model):
         self.pad_token_id = self.model.tokenizer.pad_id if self.model.tokenizer.pad_id is not None \
             else self.model.tokenizer.unk_id
 
-
     def embed_input(self, encoder_input_ids, prompt_input_ids):
         bz,seq_len = encoder_input_ids.shape
         queries_for_embedding = encoder_input_ids.clone()
 
         queries_for_embedding[(encoder_input_ids == self.pseudo_token_id)] = self.pad_token_id
         query_embeddings = self.embeddings(queries_for_embedding).clone().type(self.float_type)
-        if self.cfg.prompt_encoder.task_dependent:
-            template_embeddings = self.embeddings(prompt_input_ids)
+        if self.cfg.prompt_encoder.task_dependent and self.cfg.data.split_template:
+            prompt_condition = self.embeddings(prompt_input_ids)
+        elif self.cfg.prompt_encoder.task_dependent:
+            prompt_condition = query_embeddings
         else:
-            template_embeddings = None
+            prompt_condition = None
 
-        index = ((encoder_input_ids == self.pseudo_token_id)
-                     .nonzero().reshape((bz, -1, 2))[:, :, 1][:, :, None]
+        index = (
+            (encoder_input_ids == self.pseudo_token_id).nonzero().reshape((bz, -1, 2))[:, :, 1][:, :, None]
         )  # bz
         _, seq, _ = index.shape
         _, _, emb = query_embeddings.shape
         index = index.expand(bz, seq, emb)[:, :self.prompt_seq_len, :]
 
         if self.float_type == torch.float32:
-            replace_embeds = self.prompt_encoder(template_embeddings=template_embeddings)
+            replace_embeds = self.prompt_encoder(prompt_condition=prompt_condition)
         else:
             with torch.autocast(device_type="cuda", dtype=self.float_type):
-                replace_embeds = self.prompt_encoder(template_embeddings=template_embeddings)
+                replace_embeds = self.prompt_encoder(prompt_condition=prompt_condition)
 
-        if template_embeddings is None:
+        if prompt_condition is None:
             _, replace_seq, _ = replace_embeds.shape
             replace_embeds = replace_embeds.expand(bz, replace_seq, emb)
 
@@ -497,7 +462,7 @@ class MegatronT0PrimeModel(MegatronT0Model):
             return result
 
     def training_step(self, batch, batch_idx):
-        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, enc_dec_mask, guids, prompt_ids, tokens_prompt \
+        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, enc_dec_mask, task_ids, prompt_ids, tokens_prompt \
             = self.process_batch(batch)
 
         output_tensor, encoder_hidden_states = self(
@@ -526,47 +491,35 @@ class MegatronT0PrimeModel(MegatronT0Model):
     def inference_step(self, batch, batch_idx):
         loss = self.model.validation_step(batch, batch_idx)
 
-        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, enc_dec_mask, guids, prompt_ids, tokens_prompt \
+        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, enc_dec_mask, task_ids, prompt_ids, tokens_prompt \
             = self.process_batch(batch)
         encoder_input = self.embed_input(encoder_input_ids=tokens_enc, prompt_input_ids=tokens_prompt)
         predicted_token_ids, log_probs = self.model.decode(
             tokens_enc=tokens_enc, enc_mask=enc_mask, encoder_input=encoder_input,
             num_tokens_to_generate=10  #TODO: hardcoded 10 is bad here
         )
-        self.get_accuracy(predicted_token_ids, labels, guids, prompt_ids)
+        self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
 
         return {'loss': loss}
 
-    def get_dataset_list(self, split, seq_length):
-        if split == 'train':
-            data_dict = DATA_ORG[self.cfg.data.t0_type]
-        else:
-            data_dict = t0_all_evaldt_names_subset
-        dataset_dict = {}
-        for dt_name in data_dict.keys():
-            logging.info('Dataset name %s.' % dt_name)
-            subsets = data_dict[dt_name]
-            if not isinstance(subsets, list):
-                subsets = [subsets]
-            for subset in subsets:
-                logging.info('Subset name %s.' % subset)
-                file_name = "_%s_%s.jsonl" % (dt_name, "" if subset is None else subset)
-                _, data_paths = get_data_paths_and_splits(split, self.cfg.data.dir_path, file_name, dt_name)
-                for file_path in data_paths:
-                    dataset = T0PrimeDataset(
-                        file_path,
-                        task_name=dt_name,
-                        subset=subset,
-                        tokenizer=self.model.tokenizer,
-                        max_seq_length=seq_length,
-                        max_samples=getattr(self.cfg.data, "max_samples", None),
-                        prompt_token_id=self.pseudo_token_id,
-                        prompt_seq_len=self.prompt_seq_len,
-                        use_cache=self.cfg.data.use_cache
-                    )
-                    #TODO: implement a better task manager
-                    dataset_dict["%s_%s" % (dt_name, "" if subset is None else subset)] = dataset
-        return dataset_dict
+    def get_datasetbuilder(self, split, seq_length):
+        datasetbuilder = T0PrimeDatasetBuilder(
+            t0_type=self.cfg.data.t0_type,
+            dir_path=self.cfg.data.dir_path,
+            max_sampling_size=self.cfg.data.max_sampling_size,
+            split=split,
+            tokenizer=self.model.tokenizer,
+            max_seq_length=seq_length,
+            seed=self.cfg.seed,
+            buffer_size=self.cfg.data.buffer_size,
+            chunk_size=self.cfg.data.chunk_size,
+            use_cache=self.cfg.data.use_cache,
+            max_samples=getattr(self.cfg.data, "max_samples", None),
+            prompt_token_id=self.pseudo_token_id,
+            prompt_seq_len=self.prompt_seq_len,
+            split_template=self.cfg.data.split_template
+        )
+        return datasetbuilder
 
     def process_batch(self, batch):
         """Build the batch."""
@@ -574,7 +527,7 @@ class MegatronT0PrimeModel(MegatronT0Model):
         keys = [
             'text_enc', 'text_dec', 'template', 'labels',
             'loss_mask', 'enc_mask', 'dec_mask', 'enc_dec_mask',
-            'guids', 'prompt_ids'
+            'task_ids', 'prompt_ids'
         ]
         datatype = torch.int64
 
@@ -592,11 +545,11 @@ class MegatronT0PrimeModel(MegatronT0Model):
         enc_dec_mask = data_b['enc_dec_mask'] < 0.5
 
         # T0 specific
-        guids = data_b['guids'].long()
+        task_ids = data_b['task_ids'].long()
         prompt_ids = data_b['prompt_ids'].long()
 
         # T0' specific
         tokens_prompt = data_b['template'].long()
 
         return tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, \
-               enc_dec_mask, guids, prompt_ids, tokens_prompt
+               enc_dec_mask, task_ids, prompt_ids, tokens_prompt

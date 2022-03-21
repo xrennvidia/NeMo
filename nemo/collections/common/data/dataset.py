@@ -51,7 +51,8 @@ class ConcatDataset(IterableDataset):
         super().__init__()
 
         supported_sampling_techniques = ['temperature', 'random', 'round-robin']
-        self.datasets = datasets
+        self.datasets = [d.dataset for d in datasets]
+        self.collate_fn = datasets[0].collate_fn
         self.iterables = [None] * len(datasets)
         self.shuffle = shuffle
         self.global_rank = global_rank

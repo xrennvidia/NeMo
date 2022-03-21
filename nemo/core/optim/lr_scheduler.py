@@ -788,7 +788,10 @@ def prepare_lr_scheduler(
         num_workers = scheduler_config.get('t_num_workers')
 
         # Compute effective num max_steps
-        num_samples = len(train_dataloader.dataset)
+        try:
+            num_samples = len(train_dataloader.dataset)
+        except TypeError:
+            num_samples = train_dataloader.dataset.dataset_size
         # TODO: not sure if this will be the correct LR schedule for Megatron
         # we may need to override ModelPT setup_optimization
         if train_dataloader.batch_size is not None:
