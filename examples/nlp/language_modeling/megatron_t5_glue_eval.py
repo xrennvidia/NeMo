@@ -66,7 +66,19 @@ def main(cfg) -> None:
         if isinstance(callback, Timer):
             trainer.callbacks[idx] = StatelessTimer(cfg.trainer.max_time,)
 
-    model = MegatronT5GLUEModel.restore_from(restore_path=cfg.model.restore_from_finetuned_path, trainer=trainer)
+    # Get the T5 Base configuration.
+    t5_cfg = MegatronT5GLUEModel.restore_from(
+        restore_path=cfg.model.restore_from_finetuned_path, trainer=trainer, return_config=True
+    )
+
+    # Override the T5 configuration with the one from the config file.
+    OmegaConf.set_struct(t5_cfg, True)
+    with open_dict(t5_cfg):
+        t5_cfg.data.validation_ds = cfg.model.data.validation_ds
+
+    model = MegatronT5GLUEModel.restore_from(
+        restore_path=cfg.model.restore_from_finetuned_path, trainer=trainer, override_config_path=t5_cfg
+    )
     model.freeze()
 
     trainer.validate(model)

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from omegaconf.omegaconf import OmegaConf, open_dict
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.timer import Timer
 from pytorch_lightning.plugins.environments.torchelastic_environment import TorchElasticEnvironment
@@ -65,12 +66,21 @@ def main(cfg) -> None:
         if isinstance(callback, Timer):
             trainer.callbacks[idx] = StatelessTimer(cfg.trainer.max_time,)
 
-    model = MegatronXNlIModel.restore_from(restore_path=cfg.model.restore_from_finetuned_path, trainer=trainer)
-    model.freeze()
+    # Get the T5 Base configuration.
+    t5_cfg = MegatronXNlIModel.restore_from(
+        restore_path=cfg.model.restore_from_finetuned_path, trainer=trainer, return_config=True
+    )
 
-    # Hard overwrite eval languages
-    # TODO: find better way to do it
-    model.cfg.eval_languages = cfg.model.eval_languages
+    # Override the T5 configuration with the one from the config file.
+    OmegaConf.set_struct(t5_cfg, True)
+    with open_dict(t5_cfg):
+        t5_cfg.eval_languages = cfg.model.eval_languages
+        t5_cfg.data.test_ds = cfg.model.data.test_ds
+
+    model = MegatronXNlIModel.restore_from(
+        restore_path=cfg.model.restore_from_finetuned_path, trainer=trainer, override_config_path=t5_cfg
+    )
+    model.freeze()
 
     trainer.test(model)
 
