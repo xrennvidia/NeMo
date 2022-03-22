@@ -274,7 +274,7 @@ class T0DatasetBuilder(object):
         return features[choose_prompt]
 
     @staticmethod
-    def create_example(self, data, task_id, prompt_id):
+    def create_example(data, task_id, prompt_id):
         return InputPromptedExample(
             task_id=task_id,
             text=data['input'],
@@ -331,6 +331,8 @@ class T0DatasetBuilder(object):
         enc_query = torch.LongTensor(enc_query)
         dec_input = torch.LongTensor(dec_input)
         labels = torch.LongTensor(labels)
+        task_ids = torch.LongTensor(task_ids)
+        prompt_ids = torch.LongTensor(prompt_ids)
         loss_mask = torch.LongTensor(loss_mask)
 
         enc_mask = make_attention_mask_3d(enc_query, enc_query, self.tokenizer.pad_id).long()

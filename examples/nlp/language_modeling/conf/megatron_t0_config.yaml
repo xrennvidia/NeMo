@@ -37,15 +37,18 @@ exp_manager:
 
 model:
   seed: 1234
-  buffer_size: 10_000
   restore_from_path: /home/jpilault/models/megatron_t5/t5_220m/megatron_t5--val_loss=1.54-step=415999-consumed_samples=851965952.0.nemo
   tensor_model_parallel_size: 1
+  pseudo_token: '[PROMPT]' # pseudo prompt tokens
+  freeze: True
 
   data:
     dir_path: '/home/jpilault/datasets/T0_prompted'
     max_sampling_size: 500000  # from T0 paper (https://arxiv.org/abs/2110.08207)
+    buffer_size: 100
+    chunk_size: 10_000
     train_ds:
-      batch_size: 32
+      batch_size: 16
       shuffle: True
       num_workers: 0
       pin_memory: True
@@ -69,3 +72,12 @@ model:
     name: fused_adam
     lr: 5e-6
     weight_decay: 0.0
+    sched:
+      name: WarmupAnnealing
+      # Scheduler params
+      warmup_steps: null
+      warmup_ratio: 0.1
+      last_epoch: -1
+      # pytorch lightning args
+      monitor: val_loss
+      reduce_on_plateau: false

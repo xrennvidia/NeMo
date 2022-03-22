@@ -18,7 +18,7 @@ trainer:
 exp_manager:
   explicit_log_dir: null
   exp_dir: null  #TODO: does this allow me to specify which dict to save to
-  name: megatron_t0
+  name: megatron_t0_prime
   create_wandb_logger: False
   wandb_logger_kwargs:
     project: null

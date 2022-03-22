@@ -341,7 +341,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         """Build the batch."""
 
         keys = [
-            'text_enc', 'text_dec', 'template', 'labels',
+            'text_enc', 'text_dec', 'labels',
             'loss_mask', 'enc_mask', 'dec_mask', 'enc_dec_mask',
             'task_ids', 'prompt_ids'
         ]
