@@ -21,6 +21,7 @@ from apex.transformer import tensor_parallel, parallel_state
 from omegaconf.dictconfig import DictConfig
 from pytorch_lightning.trainer.trainer import Trainer
 
+from nemo.collections.nlp.data.language_modeling.t0_task_manager import get_task_name
 from nemo.collections.nlp.data.language_modeling.t0_dataset import (
     T0DatasetBuilder, T0PrimeDatasetBuilder
 )
@@ -41,7 +42,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
     def __init__(self, cfg: DictConfig, trainer: Trainer):
         super().__init__(cfg=cfg, trainer=trainer)
         self.cfg = cfg
-        self.acc_metric_dict = torch.nn.ModuleDict()
+        self.acc_metric_dict = {}
         self._reduced_loss_buffer = []
 
     def forward(
@@ -101,7 +102,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
     def get_accuracy(self, predicted_token_ids, labels, task_ids, prompt_ids):
         preds = predicted_token_ids.cpu().numpy().tolist()
         labels = labels.cpu().numpy().tolist()
-        for i, (pred, label, guid, prompt_id) in enumerate(zip(preds, labels, task_ids, prompt_ids)):
+        for i, (pred, label, task_id, prompt_id) in enumerate(zip(preds, labels, task_ids, prompt_ids)):
             if self.model.tokenizer.eos_id in pred:
                 idx = pred.index(self.model.tokenizer.eos_id)
                 pred = pred[:idx]
@@ -109,10 +110,13 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             label = [id for id in label if id not in self.model.tokenizer.additional_special_tokens_ids]
             pred = self.model.tokenizer.ids_to_text(pred)
             label = self.model.tokenizer.ids_to_text(label)
-            key = f'task{guid.item()}_prompt{prompt_id.item()}'
-            if not self.acc_metric_dict.__contains__(key):
-                self.acc_metric_dict[key] = ExactStringMatchMetric().to(self.device)
-            _ = self.acc_metric_dict[key](pred, label)
+            task_id = task_id.item()
+            prompt_id = prompt_id.item()
+            if not self.acc_metric_dict.__contains__(task_id):
+                self.acc_metric_dict[task_id] = {}
+            if not self.acc_metric_dict[task_id].__contains__(prompt_id):
+                self.acc_metric_dict[task_id][prompt_id] = ExactStringMatchMetric().to(self.device)
+            _ = self.acc_metric_dict[task_id][prompt_id](pred, label)
 
     def inference_step(self, batch, batch_idx):
         loss = self.model.validation_step(batch, batch_idx)
@@ -128,29 +132,41 @@ class MegatronT0Model(MegatronT5FineTuneModel):
 
         return {'loss': loss}
 
-    def inference_epoch_end(self, outputs):
+    def inference_epoch_end(self, outputs_list, task_names):
         """Uses exact match"""
-        losses = [x['loss'] for x in outputs]
-        averaged_loss = average_losses_across_data_parallel_group(losses)
-        for key in self.acc_metric_dict.keys():
-            accuracy = self.acc_metric_dict[key].compute()
-            self.acc_metric_dict[key].reset()
-            self.log(f'validation_acc_{key}', accuracy)
-        self.log('validation_loss', averaged_loss)
-        return averaged_loss[0], accuracy
+        accuracies_losses = {}
+        for task_name, outputs in zip(task_names, outputs_list):
+            loss = [x['loss'] for x in outputs]
+            averaged_loss = average_losses_across_data_parallel_group(loss)
+            accuracies_losses[task_name] = {'loss': averaged_loss[0]}
+        for task_id in self.acc_metric_dict.keys():
+            task_name = get_task_name(task_id)
+            assert task_name in accuracies_losses
+            accuracies_losses[task_name]['accuracies'] = {}
+            for prompt_id in self.acc_metric_dict[task_id].keys():
+                accuracy = self.acc_metric_dict[task_id][prompt_id].compute()
+                if torch.any(torch.isnan(accuracy)):
+                    continue
+                self.acc_metric_dict[task_id][prompt_id].reset()
+                accuracies_losses[task_name]['accuracies'][str(prompt_id)] = accuracy
+        return accuracies_losses
 
     def validation_step(self, batch, batch_idx, dataloader_idx):
         return self.inference_step(batch, batch_idx)
 
     def validation_epoch_end(self, outputs_list):
         avg_val_acc = []
-        for task_name, outputs in zip(self.validation_task_names, outputs_list):
-            val_loss, val_acc = self.inference_epoch_end(outputs)
-            self.log('val_loss_%s' % task_name, val_loss, prog_bar=True)
-            self.log('val_acc_%s' % task_name, val_acc, prog_bar=True)
-            logging.info(f'Validation loss for {task_name}: {val_loss}')
-            logging.info(f'Validation accuracy for {task_name}: {val_acc}')
-            avg_val_acc.append(val_acc)
+        val_accuracies_losses = self.inference_epoch_end(outputs_list, self.validation_task_names)
+        for task_name in val_accuracies_losses.keys():
+            loss = val_accuracies_losses[task_name]['loss']
+            self.log(f'val_loss_{task_name}', loss, prog_bar=True)
+            logging.info(f'Validation loss for {task_name}: {loss}')
+            accuracies = val_accuracies_losses[task_name]['accuracies']
+            avg_task_acc_list = list(accuracies.values())
+            avg_task_acc = torch.mean(torch.stack(avg_task_acc_list))
+            self.log(f'validation_acc_{task_name}', avg_task_acc, prog_bar=True)
+            logging.info(f'Validation accuracy for {task_name}: {avg_task_acc}')
+            avg_val_acc.extend(avg_task_acc_list)
         self.log('val_acc', torch.mean(torch.stack(avg_val_acc)), prog_bar=True)
 
     def test_step(self, batch, batch_idx, dataloader_idx):
@@ -158,14 +174,18 @@ class MegatronT0Model(MegatronT5FineTuneModel):
 
     def test_epoch_end(self, outputs_list):
         avg_test_acc = []
-        for task_name, outputs in zip(self.test_task_names ,outputs_list):
-            test_loss, test_acc = self.inference_epoch_end(outputs)
-            self.log('test_loss_%s' % task_name, test_loss, prog_bar=True)
-            self.log('test_acc_%s' % task_name, test_acc, prog_bar=True)
-            logging.info(f'Test loss for {task_name}: {test_loss}')
-            logging.info(f'Test accuracy for {task_name}: {test_acc}')
-            avg_test_acc.append(test_acc)
-        self.log('val_acc', torch.mean(torch.stack(avg_test_acc)), prog_bar=True)
+        test_accuracies_losses = self.inference_epoch_end(outputs_list, self.test_task_names)
+        for task_name in test_accuracies_losses.keys():
+            loss = test_accuracies_losses[task_name]['loss']
+            self.log(f'test_loss_{task_name}', loss, prog_bar=True)
+            logging.info(f'Test loss for {task_name}: {loss}')
+            accuracies = test_accuracies_losses[task_name]['accuracies']
+            avg_task_acc_list = list(accuracies.values())
+            avg_task_acc = torch.mean(torch.stack(avg_task_acc_list))
+            self.log(f'test_acc_{task_name}', avg_task_acc, prog_bar=True)
+            logging.info(f'Test accuracy for {task_name}: {avg_task_acc}')
+            avg_test_acc.extend(avg_task_acc_list)
+        self.log('test_acc', torch.mean(torch.stack(avg_test_acc)), prog_bar=True)
 
     def get_datasetbuilder(self, split, seq_length):
         datasetbuilder = T0DatasetBuilder(

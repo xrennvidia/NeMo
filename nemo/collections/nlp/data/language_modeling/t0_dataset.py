@@ -223,6 +223,7 @@ class T0DatasetBuilder(object):
         dataset = dataset['train'].map(task.map_fn, batched=False)
         dataset = dataset.with_format('torch')
         dataset.info.dataset_size = task.dataset_size
+        dataset.task = task
         return dataset
 
     def get_task(self, file_path, dt_name, subset):
@@ -233,7 +234,6 @@ class T0DatasetBuilder(object):
         return task
 
     def get_data_dict(self):
-        task_id = 0
         if self.split == 'train':
             data_dict = DATA_ORG[self.t0_type]
         else:
@@ -252,8 +252,8 @@ class T0DatasetBuilder(object):
                 _, data_paths = get_data_paths_and_splits(self.split, self.dir_path, file_name, dt_name)
                 for file_path in data_paths:
                     task = self.get_task(file_path, dt_name, subset)
-                    dataset_dict["%s_%s" % (dt_name, "" if subset is None else subset)] = self.get_dataset(task)
-                    task_id += 1
+                    task_name = "%s_%s" % (dt_name, "" if subset is None else subset)
+                    dataset_dict[task_name] = self.get_dataset(task)
         return dataset_dict
 
     def get_sampling_probs(self):
