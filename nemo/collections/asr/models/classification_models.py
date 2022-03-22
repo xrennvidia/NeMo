@@ -24,6 +24,7 @@ import torch
 from omegaconf import DictConfig, ListConfig, OmegaConf
 from pytorch_lightning import Trainer
 from torchmetrics.regression import MeanAbsoluteError, MeanSquaredError
+from torchmetrics import AUROC
 
 from nemo.collections.asr.data import audio_to_label_dataset
 from nemo.collections.asr.models.asr_model import ASRModel, ExportableEncDecModel
@@ -401,6 +402,8 @@ class EncDecClassificationModel(_EncDecBaseModel):
 
     def _setup_metrics(self):
         self._accuracy = TopKClassificationAccuracy(dist_sync_on_step=True)
+        # self._auroc = ClassificationAUROC(dist_sync_on_step=True)
+        self._auroc = AUROC(num_classes=2)
 
     @classmethod
     def list_available_models(cls) -> Optional[List[PretrainedModelInfo]]:
@@ -487,6 +490,11 @@ class EncDecClassificationModel(_EncDecBaseModel):
         topk_scores = self._accuracy.compute()
         self._accuracy.reset()
 
+        self._auroc.update(preds=logits, target=labels)
+        auroc = self._auroc.compute()
+        self._auroc.reset()
+        self.log('training_batch_auroc', auroc)
+
         for top_k, score in zip(self._accuracy.top_k, topk_scores):
             self.log('training_batch_accuracy_top@{}'.format(top_k), score)
 
@@ -500,6 +508,8 @@ class EncDecClassificationModel(_EncDecBaseModel):
         loss_value = self.loss(logits=logits, labels=labels)
         acc = self._accuracy(logits=logits, labels=labels)
         correct_counts, total_counts = self._accuracy.correct_counts_k, self._accuracy.total_counts_k
+        self._auroc.update(preds=logits, target=labels)
+
         return {
             'val_loss': loss_value,
             'val_correct_counts': correct_counts,
@@ -513,6 +523,7 @@ class EncDecClassificationModel(_EncDecBaseModel):
         loss_value = self.loss(logits=logits, labels=labels)
         acc = self._accuracy(logits=logits, labels=labels)
         correct_counts, total_counts = self._accuracy.correct_counts_k, self._accuracy.total_counts_k
+        self._auroc.update(preds=logits, target=labels)
         return {
             'test_loss': loss_value,
             'test_correct_counts': correct_counts,
@@ -530,7 +541,13 @@ class EncDecClassificationModel(_EncDecBaseModel):
         topk_scores = self._accuracy.compute()
         self._accuracy.reset()
 
-        tensorboard_log = {'val_loss': val_loss_mean}
+        auroc = self._auroc.compute()
+        self._auroc.reset()
+
+        tensorboard_log = {
+            'val_loss': val_loss_mean,
+            'val_auroc': auroc
+        }
         for top_k, score in zip(self._accuracy.top_k, topk_scores):
             tensorboard_log['val_epoch_top@{}'.format(top_k)] = score
 
@@ -546,7 +563,13 @@ class EncDecClassificationModel(_EncDecBaseModel):
         topk_scores = self._accuracy.compute()
         self._accuracy.reset()
 
-        tensorboard_log = {'test_loss': test_loss_mean}
+        auroc = self._auroc.compute()
+        self._auroc.reset()
+
+        tensorboard_log = {
+            'test_loss': test_loss_mean,
+            'test_auroc': auroc
+        }
         for top_k, score in zip(self._accuracy.top_k, topk_scores):
             tensorboard_log['test_epoch_top@{}'.format(top_k)] = score
 
