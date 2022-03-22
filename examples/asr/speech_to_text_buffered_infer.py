@@ -38,7 +38,7 @@ can_gpu = torch.cuda.is_available()
 
 
 def get_wer_feat(mfst, asr, frame_len, tokens_per_chunk, delay, vad_delay, preprocessor_cfg, model_stride_in_secs, device, 
-                vad=None, threshold=0.4, look_back=4, num_to_words=True):
+                vad=None, threshold=0.4, look_back=4, normalize_text=True, num_to_words=True):
     # Create a preprocessor to convert audio samples into raw features,
     # Normalization will be done per buffer in frame_bufferer
     # Do not normalize whatever the model's preprocessor setting is
@@ -84,12 +84,15 @@ def get_wer_feat(mfst, asr, frame_len, tokens_per_chunk, delay, vad_delay, prepr
                     total_duration_to_asr += duration
 
                 final_hyp = final_hyp[1:-1]
-                final_hyp = clean_label(final_hyp, num_to_words)
-                ref_clean = clean_label(row['text'], num_to_words)
+                ref = row['text']
+                if normalize_text:
+                    final_hyp = clean_label(final_hyp, num_to_words)
+                    ref = clean_label(ref, num_to_words)
 
                 # print(final_hyp)
                 hyps.append(final_hyp)
-                refs.append(ref_clean)
+                refs.append(ref)
+
                 total_durations_to_asr.append(total_duration_to_asr)
                 original_durations.append(row['duration'])
                 total_speech_segments.append(speech_segments)
@@ -99,11 +102,12 @@ def get_wer_feat(mfst, asr, frame_len, tokens_per_chunk, delay, vad_delay, prepr
                 asr.read_audio_file(row['audio_filepath'], offset=0, duration=None, 
                                     delay=delay, model_stride_in_secs=model_stride_in_secs)
                 hyp = asr.transcribe(tokens_per_chunk, delay)
-                hyp_clean = clean_label(hyp, num_to_words)
-                # print(hyp)
-                hyps.append(hyp_clean)
-                ref_clean = clean_label(row['text'], num_to_words)
-                refs.append(ref_clean)
+                ref = row['text']
+                if normalize_text:
+                    hyp = clean_label(hyp, num_to_words)
+                    ref = clean_label(ref, num_to_words)
+                hyps.append(hyp)
+                refs.append(ref)
                 
                 total_durations_to_asr.append(row['duration'])
                 speech_segments = "ALL"
@@ -167,7 +171,12 @@ def main():
         default=4,
         help="look back int",
     )
-
+    parser.add_argument(
+        "--normalize_text",
+        type=bool,
+        default=True,
+        help="whether to convet num to words when clean text",
+    )
     parser.add_argument(
         "--num_to_words",
         type=bool,
@@ -262,6 +271,7 @@ def main():
         frame_vad,
         args.threshold,
         args.look_back,
+        args.normalize_text,
         args.num_to_words
     )
     
