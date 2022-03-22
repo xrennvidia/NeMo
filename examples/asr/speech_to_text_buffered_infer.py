@@ -103,6 +103,7 @@ def get_wer_feat(mfst, asr, frame_len, tokens_per_chunk, delay, vad_delay, prepr
                                     delay=delay, model_stride_in_secs=model_stride_in_secs)
                 hyp = asr.transcribe(tokens_per_chunk, delay)
                 ref = row['text']
+
                 if normalize_text:
                     hyp = clean_label(hyp, num_to_words)
                     ref = clean_label(ref, num_to_words)
@@ -174,16 +175,15 @@ def main():
     parser.add_argument(
         "--normalize_text",
         type=bool,
-        default=True,
+        default=False,
         help="whether to convet num to words when clean text",
     )
     parser.add_argument(
         "--num_to_words",
         type=bool,
-        default=True,
+        default=False,
         help="whether to convet num to words when clean text",
     )
-
 
     args = parser.parse_args()
     torch.set_grad_enabled(False)
@@ -257,7 +257,7 @@ def main():
         total_buffer=args.total_buffer_in_secs, 
         batch_size=args.batch_size,
     )
-
+    
     hyps, refs, wer, total_durations_to_asr, total_speech_segments, total_streaming_vad_logits = get_wer_feat(
         args.test_manifest,
         frame_asr,
