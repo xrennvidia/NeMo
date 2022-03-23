@@ -1,0 +1,230 @@
+# Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+import torch
+
+from nemo.collections.nlp.data.language_modeling.megatron.megatron_dataset import MegatronDataset
+
+class MegatronNMTDataset(MegatronDataset):
+    """Machine Translation Dataset based on Megatron Dataset Utils."""
+
+    def __init__(
+        self,
+        src_dataset,
+        tgt_dataset,
+        start_index,
+        end_index,
+        max_encoder_seq_length,
+        max_decoder_seq_length,
+        tokenizer
+    ):
+        self.tokenizer = tokenizer
+        self.src_dataset = src_dataset
+        self.tgt_dataset = tgt_dataset
+        self.start_index = start_index
+        self.end_index = end_index
+        self.max_encoder_seq_length = max_encoder_seq_length
+        self.max_decoder_seq_length = max_decoder_seq_length
+
+    def train_valid_test_datast_provider(self):
+
+        def _load_data_prefix(data_prefix):
+            # Indexed dataset.
+            src_indexed_dataset = get_indexed_dataset_(data_prefix[0], data_impl, skip_warmup)
+            tgt_indexed_dataset = get_indexed_dataset_(data_prefix[1], data_impl, skip_warmup)
+            assert src_indexed_dataset.sizes.shape[0] == tgt_indexed_dataset.sizes.shape[0]
+            return src_indexed_dataset, tgt_indexed_dataset
+
+        _dataset_length = lambda dataset: dataset.sizes.shape[0]
+
+        def _print_stats(name, start, end):
+            print_rank_0('    {}:'.format(name))
+            print_rank_0('     sentence indices in [{}, {}) total of {} '
+                            'sentences'.format(start, end, end - start))
+
+        def build_named_dataset(name, data_prefix, start_index=0, end_index=0):
+            src_indexed_dataset, tgt_indexed_dataset = _load_data_prefix(data_prefix)
+            if not end_index:
+                end_index = _dataset_length(src_indexed_dataset) - 1
+            _print_stats(name, start_index, end_index)
+            dataset = Dataset(src_indexed_dataset, tgt_indexed_dataset, start_index,
+                                end_index, args.seq_length, args.decoder_seq_length)
+            return dataset
+
+        def split_and_build_dataset(split, data_prefix):
+            src_indexed_dataset, tgt_indexed_dataset = _load_data_prefix(data_prefix)
+            total_num_of_sentences = _dataset_length(src_indexed_dataset) - 1
+            splits = get_train_valid_test_split_(splits_string, total_num_of_sentences)
+            assert splits[0] < splits[1] < splits[2], \
+                "You need to have a train and valid dataset. Splits: {}".format(splits)
+
+            _print_stats('train', splits[0], splits[1])
+            train_dataset = Dataset(src_indexed_dataset, tgt_indexed_dataset,
+                                    splits[0], splits[1], args.seq_length,
+                                    args.decoder_seq_length)
+
+            _print_stats('valid', splits[1], splits[2])
+            valid_dataset = Dataset(src_indexed_dataset, tgt_indexed_dataset,
+                                    splits[1], splits[2], args.seq_length,
+                                    args.decoder_seq_length)
+            return train_dataset, valid_dataset
+
+        print_rank_0(' > dataset split:')
+        if args.train_data and args.valid_data:
+            train_dataset = build_named_dataset('train', args.train_data)
+            valid_dataset = build_named_dataset('valid', args.valid_data)
+        else:
+            assert args.split, "Must be able to split the data path; none provided."
+            assert args.data_path, "Must have a data path to split; none provided."
+            train_dataset, valid_dataset = split_and_build_dataset(args.split, args.data_path)
+
+        print_rank_0("decoder sequence length = {}".format(args.decoder_seq_length))
+
+        return train_dataset, valid_dataset, None
+
+    def __len__(self):
+        return self.end_index - self.start_index
+
+    def __getitem__(self, idx):
+        local_idx = idx + self.start_index
+        assert local_idx < self.end_index
+        
+        # Truncate input and output sequences to the maximum length
+        src_sent = self.src_dataset[local_idx]
+        src_tokens = [token for token in src_sent]
+        if len(src_tokens) > self.max_encoder_seq_length - 2:
+            src_tokens = src_tokens[:self.max_encoder_seq_length - 2]
+
+        tgt_sent = self.tgt_dataset[local_idx]
+        tgt_tokens = [token for token in tgt_sent]
+        if len(tgt_tokens) > self.max_decoder_seq_length - 2:
+            tgt_tokens = tgt_tokens[:self.max_decoder_seq_length - 2]
+
+        enc_ids, tokentypes_enc, enc_seq_length, dec_in_ids, \
+        dec_out_ids, dec_seq_length = \
+            build_tokens_types_from_ids(
+                src_tokens,
+                tgt_tokens,
+                self.max_seq_length,
+                self.decoder_seq_length,
+                self.tokenizer.pad,
+                self.tokenizer.bos,
+                self.tokenizer.eos)
+        return (enc_ids, tokentypes_enc, enc_seq_length,
+                dec_in_ids, dec_out_ids, dec_seq_length)
+
+    def round_to_nearest(self, length, modulo):
+        return (length + modulo - 1) // modulo * modulo
+
+    def _collate_fn(self, batch):
+        """Build collate function for data loader."""
+        _, _, enc_seq_lengths, _, _, dec_seq_lengths = zip(*batch)
+        max_enc_seq_len = self.round_to_nearest(max(enc_seq_lengths), 8)
+        max_dec_seq_len = self.round_to_nearest(max(dec_seq_lengths), 8)
+
+        batch_size = len(batch)
+        enc_ids = torch.zeros((batch_size, max_enc_seq_len), dtype=torch.int64)
+        tokentypes_enc = torch.zeros((batch_size, max_enc_seq_len), dtype=torch.int64)
+        dec_in_ids = torch.zeros((batch_size, max_dec_seq_len), dtype=torch.int64)
+        labels = torch.zeros((batch_size, max_dec_seq_len), dtype=torch.int64)
+        loss_mask = torch.zeros((batch_size, max_dec_seq_len), dtype=torch.int64)
+
+        for i in range(batch_size):
+            enc_seq_len = len(batch[i][0])
+            enc_ids[i] = torch.tensor(batch[i][0] + [0] * (max_enc_seq_len - enc_seq_len), dtype=torch.int64)
+            tokentypes_enc[i] = torch.tensor(batch[i][1] + [0] * (max_enc_seq_len - enc_seq_len), dtype=torch.int64)
+
+            dec_seq_len = len(batch[i][3])
+            dec_in_ids[i] = torch.tensor(batch[i][3] + [0] * (max_dec_seq_len - dec_seq_len), dtype=torch.int64)
+            labels[i] = torch.tensor(batch[i][4] + [0] * (max_dec_seq_len - dec_seq_len), dtype=torch.int64)
+            loss_mask[i] = torch.tensor([1] * dec_seq_len + [0] * (max_dec_seq_len - dec_seq_len), dtype=torch.int64)
+
+        enc_mask = make_attention_mask_3d(enc_ids, enc_ids)
+        enc_dec_mask = make_attention_mask_3d(dec_in_ids, enc_ids)
+        dec_mask = make_attention_mask_3d(dec_in_ids, dec_in_ids)
+        dec_mask = dec_mask * make_history_mask_3d(dec_in_ids)
+
+        sample = {
+            'text_enc': enc_ids,
+            'text_dec': dec_in_ids,
+            'types': tokentypes_enc,
+            'labels': labels,
+            'loss_mask': loss_mask,
+            'enc_mask': enc_mask,
+            'dec_mask': dec_mask,
+            'enc_dec_mask': enc_dec_mask,
+        }
+        return sample
+
+
+def build_tokens_types_from_text(src_text, trg_text,
+                                 tokenizer, max_seq_length,
+                                 decoder_seq_length):
+    """Build token types and paddings, trim if needed, and pad if needed."""
+
+    src_text_ids = tokenizer.tokenize(src_text)
+    trg_text_ids = None
+    if trg_text is not None:
+        trg_text_ids = tokenizer.tokenize(trg_text)
+
+    return build_tokens_types_from_ids(
+        src_text_ids, trg_text_ids,
+        max_seq_length, decoder_seq_length,
+        tokenizer.pad, tokenizer.bos,
+        tokenizer.eos
+    )
+
+
+def build_tokens_types_from_ids(
+    src_ids, trg_ids, max_seq_length,
+    decoder_seq_length, pad_id,
+    bos_id, eos_id
+):
+    """Build token types and paddings, trim if needed, and pad if needed."""
+
+    enc_ids = []
+    tokentypes_enc = []
+
+    # [BOS]
+    enc_ids.append(bos_id)
+    tokentypes_enc.append(0)
+
+    # A.
+    len_src = len(src_ids)
+    enc_ids.extend(src_ids)
+    tokentypes_enc.extend([0] * len_src)
+
+    # Cap the size.
+    if len(enc_ids) > max_seq_length - 1:
+        enc_ids = enc_ids[0: max_seq_length - 1]
+        tokentypes_enc = tokentypes_enc[0: max_seq_length - 1]
+
+    # [EOS].
+    enc_ids.append(eos_id)
+    tokentypes_enc.append(0)
+
+    # B.
+    # Not enforcing sequence length checking for target sequences
+    # if trg_ids is not None:
+    dec_in_ids, dec_out_ids = [bos_id], []
+    dec_in_ids.extend(trg_ids)
+    dec_out_ids.extend(trg_ids)
+
+    if len(dec_in_ids) > decoder_seq_length:
+        dec_in_ids = dec_in_ids[0: decoder_seq_length]
+        dec_out_ids = dec_out_ids[0: decoder_seq_length - 1]
+
+    dec_out_ids.append(eos_id)
+
+    return enc_ids, tokentypes_enc, len(enc_ids), dec_in_ids, \
+           dec_out_ids, len(dec_in_ids)
