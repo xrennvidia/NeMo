@@ -19,6 +19,7 @@ ft	foot
 %	percent
 hz	hertz
 kw	kilowatt
+kW	kilowatt
 hp	horsepower
 mg	milligram
 kg	kilogram
@@ -109,7 +110,11 @@ mm²	square millimeter
 mm2	square millimeter
 cm²	square centimeter
 cm2	square centimeter
+cm³	cubic centimeter
+cm3	cubic centimeter
 sq mi	square mile
+mi²	square mile
+mi2	square mile
 sq ft	square foot
 kpa	kilopascal
 cd	candela
