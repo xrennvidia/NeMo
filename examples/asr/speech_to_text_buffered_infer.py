@@ -38,7 +38,7 @@ can_gpu = torch.cuda.is_available()
 
 
 def get_wer_feat(mfst, asr, frame_len, tokens_per_chunk, delay, vad_delay, preprocessor_cfg, model_stride_in_secs, device, 
-                vad=None, threshold=0.4, look_back=4, normalize_text=True, num_to_words=True):
+                vad=None, threshold=0.4, look_back=4, normalize_text=False, num_to_words=False):
     # Create a preprocessor to convert audio samples into raw features,
     # Normalization will be done per buffer in frame_bufferer
     # Do not normalize whatever the model's preprocessor setting is
@@ -51,7 +51,7 @@ def get_wer_feat(mfst, asr, frame_len, tokens_per_chunk, delay, vad_delay, prepr
     original_durations = []
     total_speech_segments = []
     total_streaming_vad_logits = []
-
+    print("normalize_text", normalize_text)
     with open(mfst, "r") as mfst_f:
         for l in mfst_f:
             asr.reset()
