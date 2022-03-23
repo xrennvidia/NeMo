@@ -490,10 +490,10 @@ class EncDecClassificationModel(_EncDecBaseModel):
         topk_scores = self._accuracy.compute()
         self._accuracy.reset()
 
-        self._auroc.update(preds=logits, target=labels)
-        auroc = self._auroc.compute()
-        self._auroc.reset()
-        self.log('training_batch_auroc', auroc)
+        # self._auroc.update(preds=logits, target=labels)
+        # auroc = self._auroc.compute()
+        # self._auroc.reset()
+        # self.log('training_batch_auroc', auroc)
 
         for top_k, score in zip(self._accuracy.top_k, topk_scores):
             self.log('training_batch_accuracy_top@{}'.format(top_k), score)
