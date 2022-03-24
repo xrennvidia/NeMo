@@ -14,36 +14,41 @@
 import torch
 
 from nemo.collections.nlp.data.language_modeling.megatron.megatron_dataset import MegatronDataset
+from nemo.collections.nlp.data.language_modeling.megatron.dataset_utils import get_indexed_dataset_
 
 class MegatronNMTDataset(MegatronDataset):
     """Machine Translation Dataset based on Megatron Dataset Utils."""
 
     def __init__(
         self,
-        src_dataset,
-        tgt_dataset,
+        cfg,
+        trainer,
+        encoder_tokenizer,
+        decoder_tokenizer,
+        src_dataset_prefix,
+        tgt_dataset_prefix,
         start_index,
         end_index,
         max_encoder_seq_length,
         max_decoder_seq_length,
-        tokenizer
+        data_impl='mmap',
+        skip_warmup=True
     ):
-        self.tokenizer = tokenizer
-        self.src_dataset = src_dataset
-        self.tgt_dataset = tgt_dataset
+        super().__init__(cfg, trainer=trainer)
+        self.encoder_tokenizer = encoder_tokenizer
+        self.decoder_tokenizer = decoder_tokenizer
+        self.src_dataset_prefix = src_dataset_prefix
+        self.tgt_dataset_prefix = tgt_dataset_prefix
+        self.data_impl = data_impl
         self.start_index = start_index
         self.end_index = end_index
         self.max_encoder_seq_length = max_encoder_seq_length
         self.max_decoder_seq_length = max_decoder_seq_length
+        self.src_indexed_dataset = self._get_indexed_dataset(src_dataset_prefix, data_impl, skip_warmup)
 
-    def train_valid_test_datast_provider(self):
-
-        def _load_data_prefix(data_prefix):
-            # Indexed dataset.
-            src_indexed_dataset = get_indexed_dataset_(data_prefix[0], data_impl, skip_warmup)
-            tgt_indexed_dataset = get_indexed_dataset_(data_prefix[1], data_impl, skip_warmup)
-            assert src_indexed_dataset.sizes.shape[0] == tgt_indexed_dataset.sizes.shape[0]
-            return src_indexed_dataset, tgt_indexed_dataset
+    def _get_indexed_dataset(self, data_prefix, data_impl, skip_warmup):
+        indexed_dataset = get_indexed_dataset_(data_prefix[0], data_impl, skip_warmup)
+        return indexed_dataset
 
         _dataset_length = lambda dataset: dataset.sizes.shape[0]
 
