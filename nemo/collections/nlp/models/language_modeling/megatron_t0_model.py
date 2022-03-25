@@ -162,6 +162,8 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             self.log(f'val_loss_{task_name}', loss, prog_bar=True)
             logging.info(f'Validation loss for {task_name}: {loss}')
             accuracies = val_accuracies_losses[task_name]['accuracies']
+            for prompt_id in accuracies.keys():
+                self.log(f'validation_acc_{task_name}_{prompt_id}', accuracies[prompt_id], prog_bar=False)
             avg_task_acc_list = list(accuracies.values())
             avg_task_acc = torch.mean(torch.stack(avg_task_acc_list))
             self.log(f'validation_acc_{task_name}', avg_task_acc, prog_bar=True)
@@ -180,6 +182,8 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             self.log(f'test_loss_{task_name}', loss, prog_bar=True)
             logging.info(f'Test loss for {task_name}: {loss}')
             accuracies = test_accuracies_losses[task_name]['accuracies']
+            for prompt_id in accuracies.keys():
+                self.log(f'test_acc_{task_name}_{prompt_id}', accuracies[prompt_id], prog_bar=False)
             avg_task_acc_list = list(accuracies.values())
             avg_task_acc = torch.mean(torch.stack(avg_task_acc_list))
             self.log(f'test_acc_{task_name}', avg_task_acc, prog_bar=True)
@@ -203,20 +207,6 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         )
         return datasetbuilder
 
-    def build_train_valid_test_datasets(self):
-        logging.info('Building train %s datasets.' % self.cfg.data.t0_type)
-        self._train_ds = self.get_datasetbuilder('train', self.cfg.data.train_ds.max_seq_length)
-        logging.info('Building validation datasets.')
-        self._validation_ds = self.get_datasetbuilder('validation', self.cfg.data.validation_ds.max_seq_length)
-        logging.info('Building test datasets.')
-        self._test_ds = self.get_datasetbuilder('test', self.cfg.data.test_ds.max_seq_length)
-
-        logging.info(f'Length of train dataset: {len(self._train_ds)}')
-        logging.info(f'Length of val dataset: {len(self._validation_ds)}')
-        logging.info(f'Length of test dataset: {len(self._test_ds)}')
-        logging.info(f'Finished building T0 datasets.')
-        return self._train_ds, self._validation_ds, self._test_ds
-
     def build_data_loader(self, dataset, collate_fn, batch_size, shuffle, num_workers, pin_memory):
         """Buld dataloader given an input dataset."""
         if dataset is None:
@@ -231,19 +221,23 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             drop_last=False,
         )
 
-    def setup(self, stage=None):
+    def setup(self, stage: Optional[str] = None):
         """A PTL method to setup the training, validation and test datasets."""
         if stage == 'predict':
             return
-        #TODO: megatron_glue_model.py does not have this condition... why?
         if self._train_dl is not None and self._validation_dl is not None:
             return
-        self.build_train_valid_test_datasets()
-        self.setup_training_data(self.cfg.data)
-        self.setup_validation_data(self.cfg.data)
-        self.setup_test_data(self.cfg.data)
+        if stage in (None, 'fit'):
+            self.setup_training_data(self.cfg.data)
+            self.setup_validation_data(self.cfg.data)
+            logging.info(f'Finished building T0 train and evaluation datasets.')
+        if stage in (None, 'test'):
+            self.setup_test_data(self.cfg.data)
 
     def setup_training_data(self, cfg):
+        logging.info('Building train %s datasets.' % self.cfg.data.t0_type)
+        self._train_ds = self.get_datasetbuilder('train', self.cfg.data.train_ds.max_seq_length)
+        logging.info(f'Length of train dataset: {len(self._train_ds)}')
         if hasattr(self, '_train_ds'):
             resume_checkpoint_path = self.trainer.checkpoint_connector.resume_checkpoint_path
             if resume_checkpoint_path:
@@ -262,6 +256,9 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             )
 
     def setup_validation_data(self, cfg):
+        logging.info('Building validation datasets.')
+        self._validation_ds = self.get_datasetbuilder('validation', self.cfg.data.validation_ds.max_seq_length)
+        logging.info(f'Length of val dataset: {len(self._validation_ds)}')
         if hasattr(self, '_validation_ds'):
             consumed_samples = 0
             dataset_dict = self._validation_ds.assemble_datasets()
@@ -276,6 +273,9 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             ) for dataset in dataset_dict.values()]
 
     def setup_test_data(self, cfg):
+        logging.info('Building test datasets.')
+        self._test_ds = self.get_datasetbuilder('test', self.cfg.data.test_ds.max_seq_length)
+        logging.info(f'Length of test dataset: {len(self._test_ds)}')
         if hasattr(self, '_test_ds'):
             consumed_samples = 0
             dataset_dict = self._test_ds.assemble_datasets()
