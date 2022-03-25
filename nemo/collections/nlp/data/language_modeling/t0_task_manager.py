@@ -84,7 +84,7 @@ DATA_ORG = {
 
 
 # TODO: make this nicer
-task_ids_dict = {}
+task_name2ids_dict = {}
 id = 0
 for task_dict in [t0pp_traindt_names_subset, t0_all_evaldt_names_subset, t0_debug]:
     for data_name, subsets in task_dict.items():
@@ -92,10 +92,12 @@ for task_dict in [t0pp_traindt_names_subset, t0_all_evaldt_names_subset, t0_debu
             subsets = [subsets]
         for subset in subsets:
             subset = '' if subset is None else subset
-            task_name = "%s-%s" % (data_name, subset)
-            if task_name not in task_ids_dict:
-                task_ids_dict[task_name] = id
+            task_name = "%s_%s" % (data_name, subset)
+            if task_name not in task_name2ids_dict:
+                task_name2ids_dict[task_name] = id
                 id += 1
+
+task_ids2name_dict = {k: v for v, k in task_name2ids_dict.items()}
 
 
 def get_data_paths_and_splits(main_splits, data_dir, file_name, dt_name):
@@ -117,5 +119,9 @@ def get_data_paths_and_splits(main_splits, data_dir, file_name, dt_name):
 def get_task_id(task_name, subset):
     """Creates a uniques tasks id"""
     subset = '' if subset is None else subset
-    task_subset_name = "%s-%s" % (task_name, subset)
-    return task_ids_dict[task_subset_name]
+    task_subset_name = "%s_%s" % (task_name, subset)
+    return task_name2ids_dict[task_subset_name]
+
+
+def get_task_name(task_id):
+    return task_ids2name_dict[task_id]
