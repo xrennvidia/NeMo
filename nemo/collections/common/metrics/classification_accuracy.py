@@ -152,6 +152,7 @@ def compute_topk_accuracy(correct_counts_k, total_counts_k):
 
     return top_k_scores
 
+
 class ExactStringPerCategoryMatchMetric(Metric):
     def __init__(self, categories=[], dist_sync_on_step=False):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
@@ -162,6 +163,11 @@ class ExactStringPerCategoryMatchMetric(Metric):
         for category in categories:
             self.add_state(f"{category}_total", default=torch.tensor(0), dist_reduce_fx="sum")
             self.add_state(f"{category}_correct", default=torch.tensor(0), dist_reduce_fx="sum")
+
+    def add_category(self, category):
+        self.categories.add(category)
+        self.add_state(f"{category}_total", default=torch.tensor(0), dist_reduce_fx="sum")
+        self.add_state(f"{category}_correct", default=torch.tensor(0), dist_reduce_fx="sum")
 
     def update(self, pred: str, target: str, category: str = None):
         if pred == target:

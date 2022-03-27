@@ -335,10 +335,8 @@ class T0DatasetBuilder(object):
         prompt_ids = torch.LongTensor(prompt_ids)
         loss_mask = torch.LongTensor(loss_mask)
 
-        enc_mask = make_attention_mask_3d(enc_query, enc_query, self.tokenizer.pad_id).long()
-        dec_mask = make_attention_mask_3d(dec_input, dec_input, self.tokenizer.pad_id)
-        dec_mask = (dec_mask * make_history_mask_3d(dec_input)).long()
-        enc_dec_mask = make_attention_mask_3d(dec_input, enc_query, self.tokenizer.pad_id).long()
+        enc_mask = (enc_query != self.tokenizer.pad_id).long()
+        dec_mask = (dec_input != self.tokenizer.pad_id).long()
 
         return {
             'text_enc': enc_query,
@@ -347,19 +345,9 @@ class T0DatasetBuilder(object):
             'loss_mask': loss_mask,
             'enc_mask': enc_mask,
             'dec_mask': dec_mask,
-            'enc_dec_mask': enc_dec_mask,
             'task_ids': task_ids,
             'prompt_ids': prompt_ids
         }
-
-    def make_history_mask_3d(self, block):
-        batch, length = block.shape
-        arange = np.arange(length)
-        history_mask = (arange[None,] <= arange[:, None])[
-            None,
-        ]
-        history_mask = np.repeat(history_mask, batch, 0)
-        return history_mask
 
 
 class T0PrimeDatasetBuilder(T0DatasetBuilder):
@@ -501,10 +489,8 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
         prompt_ids = torch.LongTensor(prompt_ids)
         loss_mask = torch.LongTensor(loss_mask)
 
-        enc_mask = make_attention_mask_3d(enc_query, enc_query, self.tokenizer.pad_id).long()
-        dec_mask = make_attention_mask_3d(dec_input, dec_input, self.tokenizer.pad_id)
-        dec_mask = (dec_mask * make_history_mask_3d(dec_input)).long()
-        enc_dec_mask = make_attention_mask_3d(dec_input, enc_query, self.tokenizer.pad_id).long()
+        enc_mask = (enc_query != self.tokenizer.pad_id).long()
+        dec_mask = (dec_input != self.tokenizer.pad_id).long()
 
         return {
             'text_enc': enc_query,
@@ -514,7 +500,6 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
             'loss_mask': loss_mask,
             'enc_mask': enc_mask,
             'dec_mask': dec_mask,
-            'enc_dec_mask': enc_dec_mask,
             'task_ids': task_ids,
             'prompt_ids': prompt_ids
         }

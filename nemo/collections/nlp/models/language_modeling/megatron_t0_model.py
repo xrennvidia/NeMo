@@ -13,24 +13,28 @@
 # limitations under the License.
 
 import re
+from operator import itemgetter
 from typing import Dict, Optional
 
 import torch
 from torch.utils.data import DataLoader
-from apex.transformer import tensor_parallel, parallel_state
+from apex.transformer import tensor_parallel
 from omegaconf.dictconfig import DictConfig
 from pytorch_lightning.trainer.trainer import Trainer
 
 from nemo.collections.nlp.data.language_modeling.t0_task_manager import get_task_name
 from nemo.collections.nlp.data.language_modeling.t0_dataset import (
-    T0DatasetBuilder, T0PrimeDatasetBuilder
+    T0DatasetBuilder,
+    T0PrimeDatasetBuilder
 )
-from nemo.collections.nlp.models.language_modeling.megatron.t5_model import t5_position_ids
 from nemo.collections.common.metrics.classification_accuracy import ExactStringPerCategoryMatchMetric
 from nemo.collections.nlp.models.language_modeling.megatron_glue_model import MegatronT5FineTuneModel
 from nemo.collections.nlp.modules.common.prompt_encoder import PromptEncoder
 
-from nemo.collections.nlp.modules.common.megatron.utils import average_losses_across_data_parallel_group
+from nemo.collections.nlp.modules.common.megatron.utils import (
+    average_losses_across_data_parallel_group,
+    build_position_ids
+)
 from nemo.utils import logging
 
 
@@ -42,46 +46,25 @@ class MegatronT0Model(MegatronT5FineTuneModel):
     def __init__(self, cfg: DictConfig, trainer: Trainer):
         super().__init__(cfg=cfg, trainer=trainer)
         self.cfg = cfg
+        self.decoder_seq_length = cfg.get('decoder_seq_length', 10)
         self.acc_metric_dict = {}
         self._reduced_loss_buffer = []
 
-    def forward(
-        self,
-        encoder_input_ids,
-        decoder_input_ids,
-        encoder_attn_mask,
-        decoder_attn_mask,
-        encoder_decoder_attn_mask,
-        tokentype_ids=None,
-        lm_labels=None,
-        enc_hidden_states=None,
-        output_enc_hidden_only=False,
-    ):
-        result = self.model(
-            encoder_input_ids=encoder_input_ids,
-            decoder_input_ids=decoder_input_ids,
-            encoder_attn_mask=encoder_attn_mask,
-            decoder_attn_mask=decoder_attn_mask,
-            encoder_decoder_attn_mask=encoder_decoder_attn_mask,
-            tokentype_ids=tokentype_ids,
-            lm_labels=lm_labels,
-            enc_hidden_states=enc_hidden_states,
-            output_enc_hidden_only=output_enc_hidden_only,
-        )
-        if not output_enc_hidden_only:
-            return result[0], result[1]
-        else:
-            return result
-
-    def training_step(self, batch, batch_idx):
-        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, enc_dec_mask, task_ids, prompt_ids \
+    def get_loss(self, batch):
+        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids \
             = self.process_batch(batch)
 
-        output_tensor, encoder_hidden_states = self(
-            tokens_enc, tokens_dec, enc_mask, dec_mask, enc_dec_mask, tokentype_ids=None, lm_labels=labels
-        )
+        tokens_loss = itemgetter("tokens_loss")(self.model(
+            encoder_input_ids=tokens_enc, decoder_input_ids=tokens_dec,
+            encoder_attn_mask=enc_mask, decoder_attn_mask=dec_mask,
+            tokentype_ids=None, lm_labels=labels
+        ))
+        return loss_mask, tokens_loss
 
-        loss = self.model.loss_func(loss_mask, output_tensor)
+    def training_step(self, batch, batch_idx):
+
+        loss_mask, tokens_loss = self.get_loss(batch)
+        loss = self.model.loss_func(loss_mask, tokens_loss)
         self.log('train_loss', loss)
         # Reduced loss for logging. Averages the loss across all workers unlike above which is specific to a DDP rank.
         reduced_loss = average_losses_across_data_parallel_group([loss])
@@ -113,18 +96,20 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             task_id = task_id.item()
             prompt_id = prompt_id.item()
             if not self.acc_metric_dict.__contains__(task_id):
-                self.acc_metric_dict[task_id] = ExactStringPerCategoryMatchMetric().to(self.device)
+                self.acc_metric_dict[task_id] = ExactStringPerCategoryMatchMetric()
+            self.acc_metric_dict[task_id].add_category(prompt_id)
+            self.acc_metric_dict[task_id].to(self.device)
             _ = self.acc_metric_dict[task_id](pred, label, prompt_id)
 
     def inference_step(self, batch, batch_idx):
         loss = self.model.validation_step(batch, batch_idx)
 
-        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, enc_dec_mask, task_ids, prompt_ids \
+        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids \
             = self.process_batch(batch)
 
         predicted_token_ids, log_probs = self.model.decode(
             tokens_enc=tokens_enc, enc_mask=enc_mask,
-            num_tokens_to_generate=10  #TODO: hardcoded 10 is bad here
+            num_tokens_to_generate=self.decoder_seq_length
         )
         self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
 
@@ -142,12 +127,12 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             assert task_name in accuracies_losses
             accuracies_losses[task_name]['accuracies'] = {}
             accuracies = self.acc_metric_dict[task_id].compute()
-            for prompt_id in self.acc_metric_dict[task_id].keys():
-                accuracy = self.acc_metric_dict[task_id][prompt_id].compute()
+            for prompt_id in self.acc_metric_dict[task_id].categories:
+                accuracy = accuracies[prompt_id]
                 if torch.any(torch.isnan(accuracy)):
                     continue
-                self.acc_metric_dict[task_id][prompt_id].reset()
                 accuracies_losses[task_name]['accuracies'][str(prompt_id)] = accuracy
+            self.acc_metric_dict[task_id].reset()
         return accuracies_losses
 
     def validation_step(self, batch, batch_idx, dataloader_idx):
@@ -288,50 +273,6 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                 pin_memory=True,
             ) for dataset in dataset_dict.values()]
 
-    def complete(self, request: Dict):
-        #TODO: not sure if I should I keep this
-        """
-            Autoregressively invokes language model in the inference mode
-        Args:	
-            request: Dictionary with the following fields
-                * prompt: a string which text the model should complete.
-                * tokens_to_generate: how many tokens to generate while doing prompt completion.
-        Returns:	
-            response: A python dictionary with the following fields
-                * prompt: original text of the prompt
-                * tokenized_prompt: list of (str) tokens from prompt
-                * completion: a python dictionary with the following subfields:
-                    * tokens: a list of triples (token, token_id, log_prob) comprising completion
-                    * text: completion text (as a single string)
-                
-        """
-        response = {}
-        self.freeze()
-        # naive greedy slow loop
-        # TODO: add option for BeamSearchDecoder
-
-        response['prompt'] = request['prompt'][0]
-        response['completion'] = {}
-        tokens_enc = request['masked_sample']
-
-        response['masked_input'] = ' '.join(self.model.tokenizer.ids_to_tokens(tokens_enc[0]))
-        enc_mask = self.make_inference_attention_mask_3d(tokens_enc, tokens_enc, self.tokenizer.pad_id)
-        enc_mask = enc_mask < 0.5
-
-        predicted_tokens_ids, log_probs = self.decode(tokens_enc, enc_mask, int(request['tokens_to_generate']))
-        predicted_tokens_ids = predicted_tokens_ids.cpu().numpy()[0].tolist()
-        log_probs = log_probs.cpu().numpy()[0].tolist()
-        if self.model.tokenizer.eos_id in predicted_tokens_ids:
-            idx = predicted_tokens_ids.index(self.model.tokenizer.eos_id)
-            predicted_tokens_ids = predicted_tokens_ids[:idx]
-        else:
-            predicted_tokens_ids = [id for id in predicted_tokens_ids if id != self.model.tokenizer.pad_id]
-        predicted_tokens_dec = self.mdoel.tokenizer.ids_to_tokens(predicted_tokens_ids)
-        response['completion']['text'] = self.model.tokenizer.tokens_to_text(predicted_tokens_dec)
-        response['completion']['tokens'] = list(zip(predicted_tokens_ids, predicted_tokens_dec, log_probs))
-        self.unfreeze()
-        return response
-
     @classmethod
     def list_available_models(cls) -> Optional[Dict[str, str]]:
         pass
@@ -341,7 +282,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
 
         keys = [
             'text_enc', 'text_dec', 'labels',
-            'loss_mask', 'enc_mask', 'dec_mask', 'enc_dec_mask',
+            'loss_mask', 'enc_mask', 'dec_mask',
             'task_ids', 'prompt_ids'
         ]
         datatype = torch.int64
@@ -357,14 +298,13 @@ class MegatronT0Model(MegatronT5FineTuneModel):
 
         enc_mask = data_b['enc_mask'] < 0.5
         dec_mask = data_b['dec_mask'] < 0.5
-        enc_dec_mask = data_b['enc_dec_mask'] < 0.5
 
         # T0 specific
         task_ids = data_b['task_ids'].long()
         prompt_ids = data_b['prompt_ids'].long()
 
         return tokens_enc, tokens_dec, loss_mask, labels, \
-               enc_mask, dec_mask, enc_dec_mask, task_ids, prompt_ids
+               enc_mask, dec_mask, task_ids, prompt_ids
 
 
 class MegatronT0PrimeModel(MegatronT0Model):
@@ -391,31 +331,37 @@ class MegatronT0PrimeModel(MegatronT0Model):
             prompt_gen_type=cfg.prompt_encoder.prompt_gen_type,
             trainer=trainer
         )
-        self.embeddings = self.model.model.language_model.embedding.word_embeddings
+        self.word_embeddings = self.model.model.language_model.embedding.word_embeddings
+        self.position_embeddings = self.model.enc_dec_model.encoder_embedding.position_embeddings
         self.model.tokenizer.add_special_tokens({'additional_special_tokens': [cfg.pseudo_token]})
         self.pseudo_token_id = self.model.tokenizer.token_to_id(cfg.pseudo_token)
         self.pad_token_id = self.model.tokenizer.pad_id if self.model.tokenizer.pad_id is not None \
             else self.model.tokenizer.unk_id
 
-    def embed_input(self, encoder_input_ids, prompt_input_ids):
-        bz,seq_len = encoder_input_ids.shape
-        queries_for_embedding = encoder_input_ids.clone()
+    def embed_input(self, enc_input_id, prompt_input_ids):
+        """
+        This method will replace the virtual tokens in the enc_input_id with
+        embeddings calculated from `prompt_encoder`. If the `prompt_input_ids` is
+        not None, the computed virtual token embeddings are depenedent on it.
+        The virtual token placeholders has the token_id `self.pseudo_token_id`.
+        params:
+            enc_input_id: the input token ids
+            prompt_input_ids: the task specific template token ids
+        returns:
+            the token embedding for the LM model.
+        """
+        bz, seq_len = enc_input_id.shape
+        queries_for_embedding = enc_input_id.clone()
 
-        queries_for_embedding[(encoder_input_ids == self.pseudo_token_id)] = self.pad_token_id
-        query_embeddings = self.embeddings(queries_for_embedding).clone().type(self.float_type)
+        queries_for_embedding[(enc_input_id == self.pseudo_token_id)] = self.pad_token_id
+        query_embeddings = self.word_embeddings(queries_for_embedding).clone().type(self.float_type)
+
         if self.cfg.prompt_encoder.task_dependent and self.cfg.data.split_template:
-            prompt_condition = self.embeddings(prompt_input_ids)
+            prompt_condition = self.word_embeddings(prompt_input_ids)
         elif self.cfg.prompt_encoder.task_dependent:
             prompt_condition = query_embeddings
         else:
             prompt_condition = None
-
-        index = (
-            (encoder_input_ids == self.pseudo_token_id).nonzero().reshape((bz, -1, 2))[:, :, 1][:, :, None]
-        )  # bz
-        _, seq, _ = index.shape
-        _, _, emb = query_embeddings.shape
-        index = index.expand(bz, seq, emb)[:, :self.prompt_seq_len, :]
 
         if self.float_type == torch.float32:
             replace_embeds = self.prompt_encoder(prompt_condition=prompt_condition)
@@ -423,99 +369,46 @@ class MegatronT0PrimeModel(MegatronT0Model):
             with torch.autocast(device_type="cuda", dtype=self.float_type):
                 replace_embeds = self.prompt_encoder(prompt_condition=prompt_condition)
 
+        index = (
+            (enc_input_id == self.pseudo_token_id).nonzero().reshape((bz, -1, 2))[:, :, 1][:, :, None]
+        )
+        _, seq, _ = index.shape
+        _, _, emb = query_embeddings.shape
+        index = index.expand(bz, seq, emb)[:, :self.prompt_seq_len, :]
+
         if prompt_condition is None:
             _, replace_seq, _ = replace_embeds.shape
             replace_embeds = replace_embeds.expand(bz, replace_seq, emb)
 
         query_embeddings.scatter_(1, index, replace_embeds)
 
-        encoder_position_ids = t5_position_ids(encoder_input_ids)
-        position_embeddings = self.model.model.language_model.embedding.position_embeddings(encoder_position_ids)
+        encoder_position_ids = build_position_ids(enc_input_id)
+        position_embeddings = self.position_embeddings(encoder_position_ids)
         return query_embeddings + position_embeddings
 
-    def forward(
-        self,
-        encoder_input_ids,
-        decoder_input_ids,
-        prompt_input_ids,
-        encoder_attn_mask,
-        decoder_attn_mask,
-        encoder_decoder_attn_mask,
-        tokentype_ids=None,
-        lm_labels=None,
-        enc_hidden_states=None,
-        output_enc_hidden_only=False,
-    ):
-        encoder_input = self.embed_input(encoder_input_ids, prompt_input_ids)
-
-        if self.float_type == torch.float32:
-            result = self.model(
-                encoder_input_ids=encoder_input_ids,
-                decoder_input_ids=decoder_input_ids,
-                encoder_attn_mask=encoder_attn_mask,
-                decoder_attn_mask=decoder_attn_mask,
-                encoder_decoder_attn_mask=encoder_decoder_attn_mask,
-                tokentype_ids=tokentype_ids,
-                lm_labels=lm_labels,
-                enc_hidden_states=enc_hidden_states,
-                output_enc_hidden_only=output_enc_hidden_only,
-                encoder_input=encoder_input
-            )
-        else:
-            with torch.autocast(device_type="cuda", dtype=self.float_type):
-                result = self.model(
-                    encoder_input_ids=encoder_input_ids,
-                    decoder_input_ids=decoder_input_ids,
-                    encoder_attn_mask=encoder_attn_mask,
-                    decoder_attn_mask=decoder_attn_mask,
-                    encoder_decoder_attn_mask=encoder_decoder_attn_mask,
-                    tokentype_ids=tokentype_ids,
-                    lm_labels=lm_labels,
-                    enc_hidden_states=enc_hidden_states,
-                    output_enc_hidden_only=output_enc_hidden_only,
-                    encoder_input=encoder_input
-                )
-        if not output_enc_hidden_only:
-            return result[0], result[1]
-        else:
-            return result
-
-    def training_step(self, batch, batch_idx):
-        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, enc_dec_mask, task_ids, prompt_ids, tokens_prompt \
+    def get_loss(self, batch):
+        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids, tokens_prompt \
             = self.process_batch(batch)
 
-        output_tensor, encoder_hidden_states = self(
-            tokens_enc, tokens_dec, tokens_prompt,
-            enc_mask, dec_mask, enc_dec_mask, tokentype_ids=None, lm_labels=labels
-        )
+        encoder_input = self.embed_input(tokens_enc, tokens_prompt)
+        tokens_loss = itemgetter("tokens_loss")(self.model(
+            encoder_input_ids=None, decoder_input_ids=tokens_dec,
+            encoder_attn_mask=enc_mask, decoder_attn_mask=dec_mask,
+            tokentype_ids=None, lm_labels=labels,
+            enc_input=encoder_input
+        ))
 
-        loss = self.model.loss_func(loss_mask, output_tensor)
-        self.log('train_loss', loss)
-        # Reduced loss for logging. This averages the loss across all workers unlike "loss" above which is specific to a DDP rank.
-        reduced_loss = average_losses_across_data_parallel_group([loss])
-        # cache reduced loss while accumulating gradients
-        self._reduced_loss_buffer.append(reduced_loss[0])
-
-        if (batch_idx + 1) % self.trainer.accumulate_grad_batches == 0:
-            # Reduced loss for logging.
-            average_reduced_loss = sum(self._reduced_loss_buffer) / len(self._reduced_loss_buffer)
-            self.log('reduced_train_loss', average_reduced_loss, prog_bar=True)
-            lr = self._optimizer.param_groups[0]['lr']
-            self.log('lr', lr)
-            self.log('global_step', self.trainer.global_step, prog_bar=True)
-            self._reduced_loss_buffer = []
-
-        return loss
+        return loss_mask, tokens_loss
 
     def inference_step(self, batch, batch_idx):
         loss = self.model.validation_step(batch, batch_idx)
 
-        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, enc_dec_mask, task_ids, prompt_ids, tokens_prompt \
+        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids, tokens_prompt \
             = self.process_batch(batch)
-        encoder_input = self.embed_input(encoder_input_ids=tokens_enc, prompt_input_ids=tokens_prompt)
+        encoder_input = self.embed_input(enc_input_id=tokens_enc, prompt_input_ids=tokens_prompt)
         predicted_token_ids, log_probs = self.model.decode(
             tokens_enc=tokens_enc, enc_mask=enc_mask, encoder_input=encoder_input,
-            num_tokens_to_generate=10  #TODO: hardcoded 10 is bad here
+            num_tokens_to_generate=self.decoder_seq_length
         )
         self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
 
@@ -545,7 +438,7 @@ class MegatronT0PrimeModel(MegatronT0Model):
 
         keys = [
             'text_enc', 'text_dec', 'template', 'labels',
-            'loss_mask', 'enc_mask', 'dec_mask', 'enc_dec_mask',
+            'loss_mask', 'enc_mask', 'dec_mask',
             'task_ids', 'prompt_ids'
         ]
         datatype = torch.int64
@@ -561,7 +454,6 @@ class MegatronT0PrimeModel(MegatronT0Model):
 
         enc_mask = data_b['enc_mask'] < 0.5
         dec_mask = data_b['dec_mask'] < 0.5
-        enc_dec_mask = data_b['enc_dec_mask'] < 0.5
 
         # T0 specific
         task_ids = data_b['task_ids'].long()
@@ -571,4 +463,4 @@ class MegatronT0PrimeModel(MegatronT0Model):
         tokens_prompt = data_b['template'].long()
 
         return tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, \
-               enc_dec_mask, task_ids, prompt_ids, tokens_prompt
+               task_ids, prompt_ids, tokens_prompt
