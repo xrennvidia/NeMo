@@ -154,33 +154,36 @@ class ClassifyFst(GraphFst):
             cardinal_or_date_final = plurals._priority_union(date_graph, cardinal_graph, NEMO_SIGMA)
             cardinal_or_date_final = pynini.compose(cardinal_or_date_final, (v_cardinal_graph | v_date_graph))
 
+            sem_w = 1
+            word_w = 100
+            punct_w = 2
             classify_and_verbalize = (
-                pynutil.add_weight(time_final, 1.1)
-                | pynutil.add_weight(pynini.compose(decimal_graph, v_decimal_graph), 1.1)
-                | pynutil.add_weight(pynini.compose(measure_graph, v_measure_graph), 1.1)
-                | pynutil.add_weight(pynini.compose(ordinal_graph, v_ordinal_graph), 1.1)
-                | pynutil.add_weight(pynini.compose(telephone_graph, v_telephone_graph), 1.1)
-                | pynutil.add_weight(pynini.compose(electronic_graph, v_electronic_graph), 1.1)
-                | pynutil.add_weight(pynini.compose(fraction_graph, v_fraction_graph), 1.1)
-                | pynutil.add_weight(pynini.compose(money_graph, v_money_graph), 1.1)
-                | pynutil.add_weight(cardinal_or_date_final, 1.1)
-                | pynutil.add_weight(whitelist_graph, 1.1)
+                pynutil.add_weight(time_final, sem_w)
+                | pynutil.add_weight(pynini.compose(decimal_graph, v_decimal_graph), sem_w)
+                | pynutil.add_weight(pynini.compose(measure_graph, v_measure_graph), sem_w)
+                | pynutil.add_weight(pynini.compose(ordinal_graph, v_ordinal_graph), sem_w)
+                | pynutil.add_weight(pynini.compose(telephone_graph, v_telephone_graph), sem_w)
+                | pynutil.add_weight(pynini.compose(electronic_graph, v_electronic_graph), sem_w)
+                | pynutil.add_weight(pynini.compose(fraction_graph, v_fraction_graph), sem_w)
+                | pynutil.add_weight(pynini.compose(money_graph, v_money_graph), sem_w)
+                | pynutil.add_weight(cardinal_or_date_final, sem_w)
+                | pynutil.add_weight(whitelist_graph, sem_w)
             ).optimize()
 
             roman_graph = RomanFst(deterministic=deterministic).fst
             # the weight matches the word_graph weight for "I" cases in long sentences with multiple semiotic tokens
-            classify_and_verbalize |= pynutil.add_weight(pynini.compose(roman_graph, v_roman_graph), 1.1)
+            classify_and_verbalize |= pynutil.add_weight(pynini.compose(roman_graph, v_roman_graph), sem_w)
 
             date_final = pynini.compose(date_graph, v_date_graph)
             range_graph = RangeFst(
                 time=time_final, cardinal=cardinal_tagger, date=date_final, deterministic=deterministic
             ).fst
             v_range_graph = vRangeFst(deterministic=deterministic).fst
-            classify_and_verbalize |= pynutil.add_weight(pynini.compose(range_graph, v_range_graph), 1.1)
+            classify_and_verbalize |= pynutil.add_weight(pynini.compose(range_graph, v_range_graph), sem_w)
             classify_and_verbalize = pynutil.insert("< ") + classify_and_verbalize + pynutil.insert(" >")
-            classify_and_verbalize |= pynutil.add_weight(word_graph, 100)
+            classify_and_verbalize |= pynutil.add_weight(word_graph, word_w)
 
-            punct_only = pynutil.add_weight(punct_graph, weight=2.1)
+            punct_only = pynutil.add_weight(punct_graph, weight=punct_w)
             punct = pynini.closure(
                 pynini.compose(pynini.closure(NEMO_WHITE_SPACE, 1), delete_extra_space)
                 | (pynutil.insert(" ") + punct_only),
