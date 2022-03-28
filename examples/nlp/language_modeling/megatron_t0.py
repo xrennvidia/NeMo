@@ -87,6 +87,7 @@ def main(cfg) -> None:
     # hydra interpolation does not work here as the interpolation key is lost when PTL saves hparams
     with open_dict(cfg):
         cfg.model.precision = cfg.trainer.precision
+
     model = MegatronT0Model(cfg.model, trainer)
     trainer.fit(model)
     trainer.test(model)

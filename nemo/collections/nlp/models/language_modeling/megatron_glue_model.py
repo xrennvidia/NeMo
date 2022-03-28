@@ -61,6 +61,7 @@ class MegatronT5FineTuneModel(NLPModel):
         )
         OmegaConf.set_struct(t5_cfg, True)
         with open_dict(t5_cfg):
+            t5_cfg.precision = cfg.precision
             t5_cfg.masked_softmax_fusion = False
             t5_cfg.megatron_amp_O2 = self.megatron_amp_o2
 
