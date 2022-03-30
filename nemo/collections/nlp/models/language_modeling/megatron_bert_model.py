@@ -18,7 +18,6 @@ from typing import Any, Dict, Optional
 
 import torch
 import torch.nn.functional as F
-from apex.transformer import parallel_state, tensor_parallel
 from omegaconf.dictconfig import DictConfig
 from pytorch_lightning.trainer.trainer import Trainer
 
@@ -33,7 +32,16 @@ from nemo.collections.nlp.modules.common.megatron.clip_grads import clip_grad_no
 from nemo.collections.nlp.modules.common.megatron.megatron_init import initialize_model_parallel_for_nemo
 from nemo.collections.nlp.modules.common.megatron.utils import average_losses_across_data_parallel_group
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
+from nemo.core.classes.common import PretrainedModelInfo
+from nemo.core.neural_types import ChannelType, MaskType, NeuralType
 from nemo.utils import AppState, logging
+
+try:
+    from apex.transformer import parallel_state, tensor_parallel
+
+    HAVE_APEX = True
+except (ImportError, ModuleNotFoundError):
+    HAVE_APEX = False
 
 
 class MegatronBertModel(NLPModel):
@@ -42,6 +50,10 @@ class MegatronBertModel(NLPModel):
     """
 
     def __init__(self, cfg: DictConfig, trainer: Trainer):
+        if not HAVE_APEX:
+            raise ImportError(
+                "Apex was not found. Please see the NeMo README for installation instructions: https://github.com/NVIDIA/NeMo#megatron-gpt."
+            )
         super().__init__(cfg, trainer=trainer)
         self.cfg = cfg
 
@@ -55,6 +67,9 @@ class MegatronBertModel(NLPModel):
         self._reduced_loss_buffer = []
         self._reduced_lm_loss_buffer = []
         self._reduced_sop_loss_buffer = []
+
+        # not saved as part of nemo model graph but required during export to ONNX
+        input_names = ['input_ids', 'attention_mask', 'token_type_ids']
 
         initialize_model_parallel_for_nemo(
             world_size=trainer.world_size,
@@ -104,6 +119,8 @@ class MegatronBertModel(NLPModel):
             activations_checkpoint_method=cfg.get('activations_checkpoint_method', None),
             activations_checkpoint_num_layers=cfg.get('activations_checkpoint_num_layers', 1),
             layernorm_epsilon=cfg.get('layernorm_epsilon', 1e-5),
+            masked_softmax_fusion=cfg.get('masked_softmax_fusion', False),
+            bias_gelu_fusion=cfg.get('bias_gelu_fusion', False),
             onnx_safe=cfg.get('onnx_safe', False),
             add_binary_head=cfg.bert_binary_head,
         )
@@ -145,7 +162,11 @@ class MegatronBertModel(NLPModel):
             lr = self._optimizer.param_groups[0]['lr']
             self.log('lr', lr)
             self.log('global_step', self.trainer.global_step, prog_bar=True)
-            self.log('consumed_samples', self.compute_consumed_samples(self.trainer.global_step), prog_bar=True)
+            self.log(
+                'consumed_samples',
+                self.compute_consumed_samples(self.trainer.global_step - self.init_global_step),
+                prog_bar=True,
+            )
             self._reduced_loss_buffer = []
             self._reduced_lm_loss_buffer = []
             self._reduced_sop_loss_buffer = []
@@ -170,7 +191,7 @@ class MegatronBertModel(NLPModel):
     def validation_epoch_end(self, outputs):
         averaged_loss = torch.stack(outputs).mean()
         self.log('val_loss', averaged_loss, prog_bar=True)
-        self.log('consumed_samples', self.compute_consumed_samples(self.trainer.global_step))
+        self.log('consumed_samples', self.compute_consumed_samples(self.trainer.global_step - self.init_global_step))
 
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)
@@ -296,6 +317,19 @@ class MegatronBertModel(NLPModel):
         )
 
     def setup(self, stage=None):
+        resume_checkpoint_path = self.trainer.checkpoint_connector.resume_from_checkpoint_fit_path
+        if resume_checkpoint_path:
+            try:
+                init_consumed_samples = int(
+                    float(re.findall(r"consumed_samples\=([0-9]+.[0-9]+)", resume_checkpoint_path)[0])
+                )
+            except (ValueError, TypeError):
+                logging.warning("Cannot parse the checkpoint file to get the consumed samples. assume it is zero.")
+                init_consumed_samples = 0
+        else:
+            init_consumed_samples = 0
+        self.init_consumed_samples = init_consumed_samples
+
         if stage == 'predict':
             return
         # TODO: consider adding a ModelPT guard to check if model is being restored.
@@ -307,13 +341,7 @@ class MegatronBertModel(NLPModel):
 
     def setup_training_data(self, cfg):
         if hasattr(self, '_train_ds'):
-            resume_checkpoint_path = self.trainer.checkpoint_connector.resume_from_checkpoint_fit_path
-            if resume_checkpoint_path:
-                consumed_samples = int(
-                    float(re.findall(r"consumed_samples\=([0-9]+.[0-9]+)", resume_checkpoint_path)[0])
-                )
-            else:
-                consumed_samples = 0
+            consumed_samples = self.compute_consumed_samples(0)
             logging.info(
                 f'Setting up train dataloader with len(len(self._train_ds)): {len(self._train_ds)} and consumed samples: {consumed_samples}'
             )
@@ -335,10 +363,16 @@ class MegatronBertModel(NLPModel):
             )
             self._test_dl = self.build_pretraining_data_loader(self._test_ds, consumed_samples)
 
-    def compute_consumed_samples(self, global_step):
+    def on_pretrain_routine_start(self) -> None:
+        # keep a copy of init_global_step
+        self.init_global_step = self.trainer.global_step
+        return super().on_pretrain_routine_start()
+
+    def compute_consumed_samples(self, steps_since_resume=0):
         app_state = AppState()
         consumed_samples = (
-            global_step
+            self.init_consumed_samples
+            + steps_since_resume
             * app_state.data_parallel_size
             * self.cfg.micro_batch_size
             * self.trainer.accumulate_grad_batches
@@ -360,8 +394,40 @@ class MegatronBertModel(NLPModel):
         parameters = self.model.parameters()
         clip_grad_norm_fp32(parameters=parameters, max_norm=clip_val)
 
-    def list_available_models(self):
-        return None
+    @classmethod
+    def list_available_models(cls) -> Optional[PretrainedModelInfo]:
+        """
+        This method returns a list of pre-trained model which can be instantiated directly from NVIDIA's NGC cloud.
+        Returns:
+            List of available pre-trained models.
+        """
+        result = []
+        for vocab in ['cased', 'uncased']:
+            result.append(
+                PretrainedModelInfo(
+                    pretrained_model_name=f"megatron_bert_345m_{vocab}",
+                    location=f"https://api.ngc.nvidia.com/v2/models/nvidia/nemo/megatron_bert_345m_{vocab}/versions/1/files/megatron_bert_345m_{vocab}.nemo",
+                    description=f"345M parameter BERT Megatron model with {vocab} vocab.",
+                )
+            )
+        for vocab_size in ['50k', '30k']:
+            for vocab in ['cased', 'uncased']:
+                result.append(
+                    PretrainedModelInfo(
+                        pretrained_model_name=f"biomegatron345m_biovocab_{vocab_size}_{vocab}",
+                        location=f"https://api.ngc.nvidia.com/v2/models/nvidia/nemo/biomegatron345m_biovocab_{vocab_size}_{vocab}/versions/1/files/BioMegatron345m-biovocab-{vocab_size}_{vocab}.nemo",
+                        description="Megatron 345m parameters model with biomedical vocabulary ({vocab_size} size) {vocab}, pre-trained on PubMed biomedical text corpus.",
+                    )
+                )
+        for vocab in ['cased', 'uncased']:
+            result.append(
+                PretrainedModelInfo(
+                    pretrained_model_name=f"biomegatron345m{vocab}",
+                    location=f"https://api.ngc.nvidia.com/v2/models/nvidia/nemo/megatron_bert_345m_{vocab}/versions/1/files/megatron_bert_345m_{vocab}.nemo",
+                    description=f"Megatron pretrained on {vocab} biomedical dataset PubMed with 345 million parameters.",
+                )
+            )
+        return result
 
     def _vocab_size_with_padding(self, orig_vocab_size, make_vocab_size_divisible_by, tensor_model_parallel_size):
         """Pad vocab size so it is divisible by model parallel size and
@@ -402,3 +468,27 @@ class MegatronBertModel(NLPModel):
         else:
             # Not a Nvidia container. Dependency check is on users
             pass
+
+    # Required for ONNX export
+    @property
+    def input_types(self) -> Optional[Dict[str, NeuralType]]:
+        return {
+            "input_ids": NeuralType(('B', 'T'), ChannelType()),
+            "attention_mask": NeuralType(('B', 'T'), MaskType(), optional=True),
+            "token_type_ids": NeuralType(('B', 'T'), ChannelType(), optional=True),
+        }
+
+    # Required for ONNX export
+    def input_example(self, max_batch=1, max_dim=256):
+        """
+        Generates input examples for tracing etc.
+        Returns:
+            A tuple of input examples.
+        """
+        sample = next(self.parameters())
+        sz = (max_batch, max_dim)
+        input_ids = torch.randint(low=0, high=2048, size=sz, device=sample.device)
+        token_type_ids = torch.randint(low=0, high=1, size=sz, device=sample.device)
+        attention_mask = torch.randint(low=0, high=1, size=sz, device=sample.device)
+        input_dict = {"input_ids": input_ids, "attention_mask": attention_mask, "token_type_ids": token_type_ids}
+        return tuple([input_dict])
