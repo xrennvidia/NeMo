@@ -836,7 +836,6 @@ class T5G2PDataset(Dataset):
             graphemes_batch, padding='longest', max_length=self.max_source_len, truncation=True, return_tensors='pt',
         )
         input_ids, attention_mask = input_encoding.input_ids, input_encoding.attention_mask
-
         # Encode targets (phonemes)
         target_encoding = self.tokenizer(
             phonemes_batch, padding='longest', max_length=self.max_target_len, truncation=True,
@@ -904,7 +903,11 @@ class CTCG2PDataset(Dataset):
                     continue
                 """
                 # TODO: change pred_text to something more sensible in manifest
-                if len(item["text"]) < len(item["pred_text"].split()):
+                if (
+                    len(item["text"]) < len(item["pred_text"].split())
+                    or len(item["text"]) > max_source_len
+                    or len(item["pred_text"]) > max_target_len
+                ):
                     num_removed += 1
                     continue
                 target = self.map(item["pred_text"])
@@ -928,13 +931,59 @@ class CTCG2PDataset(Dataset):
         return tokens
 
     def _collate_fn(self, batch):
+        """
+        from nemo.collections.common.tokenizers import TokenizerSpec
+        if isinstance(self.tokenizer, TokenizerSpec):
+            input_ids, attention_mask = self.__get_input_ids(graphemes_batch, pad_token=0, return_mask=True)
+            labels = self.__get_input_ids(graphemes_batch, pad_token=-100, return_mask=False)
+            input_ids = torch.tensor(input_ids)
+            attention_mask = torch.tensor(attention_mask)
+            labels = torch.tensor(labels)
+        else:
+            # Encode inputs (graphemes)
+            input_encoding = self.tokenizer(
+                graphemes_batch, padding='longest', max_length=self.max_source_len, truncation=True, return_tensors='pt',
+            )
+            input_ids, attention_mask = input_encoding.input_ids, input_encoding.attention_mask
+
+            # Encode targets (phonemes)
+            target_encoding = self.tokenizer(
+                phonemes_batch, padding='longest', max_length=self.max_target_len, truncation=True,
+            )
+            labels = target_encoding.input_ids
+
+            # Need to replace padding tokens w/ -100 for loss to ignore them
+            labels = [
+                [(label if label != self.tokenizer.pad_token_id else -100) for label in labels_example]
+                for labels_example in labels
+            ]
+            labels = torch.tensor(labels)
+
+        :param batch:
+        :return:
+        """
         graphemes_batch = [entry["graphemes"] for entry in batch]
-        # Encode inputs (graphemes)
-        input_encoding = self.tokenizer(
-            graphemes_batch, padding='longest', max_length=self.max_source_len, truncation=True, return_tensors="pt"
-        )
-        input_ids, attention_mask = input_encoding.input_ids, input_encoding.attention_mask
-        input_len = torch.sum(attention_mask, 1)
+
+        from nemo.collections.common.tokenizers import TokenizerSpec
+
+        if isinstance(self.tokenizer, TokenizerSpec):
+            input_ids = [self.tokenizer.text_to_ids(sentence) for sentence in graphemes_batch]
+            input_ids_len = [len(entry) for entry in input_ids]
+            max_len = max(input_ids_len)
+            input_ids = [entry + [0] * (max_len - entry_len) for entry, entry_len in zip(input_ids, input_ids_len)]
+            attention_mask = [[1] * entry_len + [0] * (max_len - entry_len) for entry_len in input_ids_len]
+            input_ids = torch.tensor(input_ids)
+            attention_mask = torch.tensor(attention_mask)
+        else:
+            # Encode inputs (graphemes)
+            input_encoding = self.tokenizer(
+                graphemes_batch,
+                padding='longest',
+                max_length=self.max_source_len,
+                truncation=True,
+                return_tensors="pt",
+            )
+            input_ids, attention_mask = input_encoding.input_ids, input_encoding.attention_mask
 
         # Encode targets (phonemes)
         targets = [torch.tensor(entry["target"]) for entry in batch]
@@ -949,4 +998,6 @@ class CTCG2PDataset(Dataset):
 
         padded_targets = torch.stack(padded_targets)
         target_lengths = torch.stack(target_lengths)
+
+        input_len = torch.sum(attention_mask, 1)
         return (input_ids, attention_mask, input_len, padded_targets, target_lengths)

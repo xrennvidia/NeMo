@@ -1,0 +1,134 @@
+name: G2PCTC
+
+# Dataset info
+train_dataset: ???
+validation_dataset: ???
+do_testing: False
+pretrained_model: null # .nemo
+
+model:
+  model_name: "conformer"
+  dropout: null
+  max_source_len: 512
+#  max_target_len: 730
+
+  embedding:
+    d_model: 300
+  encoder:
+    _target_: nemo.collections.asr.modules.ConformerEncoder
+    feat_in: ${model.embedding.d_model}
+    feat_out: -1 # you may set it if you need different output size other than the default d_model
+    n_layers: 16
+    d_model: 256
+
+    # Sub-sampling params
+    subsampling: striding # vggnet or striding, vggnet may give better results but needs more memory
+    subsampling_factor: 4 # must be power of 2
+    subsampling_conv_channels: -1 # set to -1 to make it equal to the d_model
+
+    # Feed forward module's params
+    ff_expansion_factor: 4
+
+    # Multi-headed Attention Module's params
+    self_attention_model: rel_pos # rel_pos or abs_pos
+    n_heads: 8 # may need to be lower for smaller d_models
+    # [left, right] specifies the number of steps to be seen from left and right of each step in self-attention
+    att_context_size: [ -1, -1 ] # -1 means unlimited context
+    xscaling: true # scales up the input embeddings by sqrt(d_model)
+    untie_biases: true # unties the biases of the TransformerXL layers
+    pos_emb_max_len: 5000
+
+    # Convolution module's params
+    conv_kernel_size: 31
+    conv_norm_type: 'batch_norm' # batch_norm or layer_norm
+
+    ### regularization
+    dropout: 0.1 # The dropout used in most of the Conformer Modules
+    dropout_emb: 0.0 # The dropout used for embeddings
+    dropout_att: 0.1 # The dropout for multi-headed attention modules
+
+  decoder:
+    _target_: nemo.collections.asr.modules.ConvASRDecoder
+    feat_in: null # will be filled during training based on encoder model dim
+    num_classes: 69
+    vocabulary: [ "AA0", "AA1", "AA2", "AE0", "AE1", "AE2", "AH0", "AH1", "AH2", "AO0", "AO1", "AO2", "AW0", "AW1",
+                  "AW2", "AY0", "AY1", "AY2", "B", "CH", "D", "DH", "EH0", "EH1", "EH2", "ER0", "ER1", "ER2", "EY0",
+                  "EY1", "EY2", "F", "G", "HH", "IH0", "IH1", "IH2", "IY0", "IY1", "IY2", "JH", "K", "L", "M", "N",
+                  "NG", "OW0", "OW1", "OW2", "OY0", "OY1", "OY2", "P", "R", "S", "SH", "T", "TH", "UH0", "UH1", "UH2",
+                  "UW0", "UW1", "UW2", "V", "W", "Y", "Z", "ZH" ]
+
+  #  decoder:
+  #    _target_: nemo.collections.asr.modules.ConvASRDecoder
+  #    feat_in: null
+  #    num_classes: -1
+  #    vocabulary: ${model.labels}
+  train_ds:
+    dataset:
+      #_target_: "nemo.collections.tts.data.datalayers.T5G2PDataset"
+      manifest_filepath: ${train_dataset}
+    dataloader_params:
+      drop_last: false
+      shuffle: true
+      batch_size: 32 #32
+      num_workers: 4
+
+  validation_ds:
+    dataset:
+      #_target_: "nemo.collections.tts.data.datalayers.T5G2PDataset"
+      manifest_filepath: ${validation_dataset}
+    dataloader_params:
+      drop_last: false
+      shuffle: false
+      batch_size: 32 #64
+      num_workers: 4
+
+  test_ds:
+    dataset:
+      #_target_: "nemo.collections.tts.data.datalayers.T5G2PDataset"
+      manifest_filepath: none
+    dataloader_params:
+      drop_last: false
+      shuffle: false
+      batch_size: 32 #64
+      num_workers: 4
+
+  optim:
+    name: adamw
+    lr: 2e-4
+    weight_decay: 0.01
+    # scheduler setup
+    sched:
+      name: WarmupAnnealing
+
+      # pytorch lightning args
+      monitor: val_token_precision
+      reduce_on_plateau: false
+
+      # scheduler config override
+      warmup_steps: null
+      warmup_ratio: 0.1
+      last_epoch: -1
+
+trainer:
+  gpus: 1 # number of gpus
+  max_epochs: 5
+  num_nodes: 1
+  accelerator: ddp
+  accumulate_grad_batches: 1
+  checkpoint_callback: False  # Provided by exp_manager
+  logger: False  # Provided by exp_manager
+  flush_logs_every_n_steps: 1000
+  log_every_n_steps: 200
+  check_val_every_n_epoch: 1
+
+exp_manager:
+  exp_dir: null
+  name: ${name}
+  create_tensorboard_logger: True
+  create_checkpoint_callback: True
+  checkpoint_callback_params:
+    save_top_k: 3
+    monitor: "val_loss"
+    mode: "min"
+    save_best_model: true
+    always_save_nemo: true

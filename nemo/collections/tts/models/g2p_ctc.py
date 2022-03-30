@@ -20,14 +20,16 @@ from typing import Any, Dict, List, Optional
 
 import torch
 from hydra.utils import instantiate
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
 from pytorch_lightning import Trainer
-from transformers import AutoModel, AutoTokenizer, AutoConfig
+from torch import nn
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from nemo.collections.asr.losses.ctc import CTCLoss
 from nemo.collections.asr.metrics.wer import word_error_rate
 from nemo.collections.asr.models import EncDecCTCModel
 from nemo.collections.asr.models.asr_model import ASRModel, ExportableEncDecModel
+from nemo.collections.common.tokenizers.char_tokenizer import CharTokenizer
 from nemo.collections.tts.data.datalayers import CTCG2PDataset
 from nemo.core.classes.common import PretrainedModelInfo, typecheck
 from nemo.core.classes.modelPT import ModelPT
@@ -65,13 +67,59 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
         if trainer is not None:
             self.world_size = trainer.num_nodes * trainer.num_gpus
 
-        # Load appropriate tokenizer from HuggingFace
-        self.model_name = cfg.model_name
-        print(f"----------> Using model: {self.model_name}")
-        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        if "t5" in cfg.model_name.lower():
+            self.mode = "t5"
+        elif "conformer" in cfg.model_name.lower():
+            self.mode = "conformer"
+        else:
+            raise ValueError(f"'T5' or 'Conformer' name must be added to 'model.model_name'")
 
-        self.max_source_len = cfg.get("max_source_len", self._tokenizer.model_max_length)
-        self.max_target_len = cfg.get("max_target_len", self._tokenizer.model_max_length)
+        if self.mode == "t5":
+            ### T5
+            # Load appropriate tokenizer from HuggingFace
+            print(f"----------> Using model: {cfg.model_name}")
+            self._tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
+
+            self.max_source_len = cfg.get("max_source_len", self._tokenizer.model_max_length)
+            self.max_target_len = cfg.get("max_target_len", self._tokenizer.model_max_length)
+        else:
+            chars = [
+                " ",
+                "a",
+                "b",
+                "c",
+                "d",
+                "e",
+                "f",
+                "g",
+                "h",
+                "i",
+                "j",
+                "k",
+                "l",
+                "m",
+                "n",
+                "o",
+                "p",
+                "q",
+                "r",
+                "s",
+                "t",
+                "u",
+                "v",
+                "w",
+                "x",
+                "y",
+                "z",
+                "'",
+            ]
+            vocab_file = "/tmp/char_vocab.txt"
+            with open(vocab_file, "w") as f:
+                [f.write(f'"{ch}"\n') for ch in chars]
+
+            self._tokenizer = CharTokenizer(vocab_file=vocab_file)
+            self.max_source_len = cfg.get("max_source_len", 128)
+            self.max_target_len = cfg.get("max_target_len", 128)
 
         # Ensure passed cfg is compliant with schema
         schema = OmegaConf.structured(CTCG2PConfig)
@@ -87,15 +135,28 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
         self.labels_id2tkn = {i: l for i, l in enumerate(cfg.decoder.vocabulary)}
         super().__init__(cfg, trainer)
 
-        # Load pretrained T5 model from HuggingFace
-        config = AutoConfig.from_pretrained(self.model_name)
+        if self.mode == "t5":
+            config = AutoConfig.from_pretrained(cfg.model_name)
+            if self._cfg.dropout is not None:
+                config.dropout_rate = self._cfg.dropout
+                print(f"\nDROPOUT: {config.dropout_rate}")
+                self.encoder = AutoModel.from_pretrained(cfg.model_name, config=config).encoder
+                # add encoder hidden dim size to the config
+                self._cfg.decoder.feat_in = self.encoder.config.d_model
+        else:
+            self.embedding = nn.Embedding(
+                embedding_dim=cfg.embedding.d_model, num_embeddings=self._tokenizer.vocab_size, padding_idx=0
+            )
+            # setup encoder after init()
+            self.encoder = EncDecCTCModel.from_config_dict(self._cfg.encoder)
+            with open_dict(self._cfg):
+                if "feat_in" not in self._cfg.decoder or (
+                    not self._cfg.decoder.feat_in and hasattr(self.encoder, '_feat_out')
+                ):
+                    self._cfg.decoder.feat_in = self.encoder._feat_out
+                if "feat_in" not in self._cfg.decoder or not self._cfg.decoder.feat_in:
+                    raise ValueError("param feat_in of the decoder's config is not set!")
 
-        if self._cfg.dropout is not None:
-            config.dropout_rate = self._cfg.dropout
-        print(f"\nDROPOUT: {config.dropout_rate}")
-        self.encoder = AutoModel.from_pretrained(self.model_name,  config=config).encoder
-        # add encoder hidden dim size to the config
-        self._cfg.decoder.feat_in = self.encoder.config.d_model
         self.decoder = EncDecCTCModel.from_config_dict(self._cfg.decoder)
         self.loss = CTCLoss(
             num_classes=self.decoder.num_classes_with_blank - 1,
@@ -104,22 +165,32 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
         )
 
     # @typecheck()
-    def forward(self, input_ids, attention_mask):
-        hidden_states = self.encoder(input_ids=input_ids, attention_mask=attention_mask)[0]
-        # hidden_states = [B, seq_len, hid_dim]
-        # swap seq_len and hid_dim dimensions
-        hidden_states = hidden_states.transpose(1, 2)
+    def forward(self, input_ids, attention_mask, input_len):
+        if self.mode == "t5":
+            encoded_input = self.encoder(input_ids=input_ids, attention_mask=attention_mask)[0]
+            encoded_len = torch.sum(attention_mask, 1)
+            # encoded_input = [B, seq_len, hid_dim]
+            # swap seq_len and hid_dim dimensions to get [B, hid_dim, seq_len]
+            encoded_input = encoded_input.transpose(1, 2)
+        else:
+            input_embedding = self.embedding(input_ids)
+            input_embedding = input_embedding.transpose(1, 2)
+            encoded_input, encoded_len = self.encoder(audio_signal=input_embedding, length=input_len)
 
-        log_probs = self.decoder(encoder_output=hidden_states)
+        log_probs = self.decoder(encoder_output=encoded_input)
         greedy_predictions = log_probs.argmax(dim=-1, keepdim=False)
-        return log_probs, greedy_predictions
+        return log_probs, greedy_predictions, encoded_len
 
     # ===== Training Functions ===== #
     def training_step(self, batch, batch_idx):
         input_ids, attention_mask, input_len, targets, target_lengths = batch
-        log_probs, predictions = self.forward(input_ids=input_ids, attention_mask=attention_mask)
-        input_len = torch.sum(attention_mask, 1)
-        loss = self.loss(log_probs=log_probs, targets=targets, input_lengths=input_len, target_lengths=target_lengths)
+        log_probs, predictions, encoded_len = self.forward(
+            input_ids=input_ids, attention_mask=attention_mask, input_len=input_len
+        )
+
+        loss = self.loss(
+            log_probs=log_probs, targets=targets, input_lengths=encoded_len, target_lengths=target_lengths
+        )
         self.log("train_loss", loss)
         return loss
 
@@ -130,16 +201,17 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
     def validation_step(self, batch, batch_idx, split="val"):
         input_ids, attention_mask, input_len, targets, target_lengths = batch
 
-        log_probs, greedy_predictions = self.forward(input_ids=input_ids, attention_mask=attention_mask)
-        input_len = torch.sum(attention_mask, 1)
+        log_probs, greedy_predictions, encoded_len = self.forward(
+            input_ids=input_ids, attention_mask=attention_mask, input_len=input_len
+        )
         val_loss = self.loss(
-            log_probs=log_probs, targets=targets, input_lengths=input_len, target_lengths=target_lengths
+            log_probs=log_probs, targets=targets, input_lengths=encoded_len, target_lengths=target_lengths
         )
 
         preds_str = self.ctc_decoder_predictions_tensor(greedy_predictions.tolist())
         targets_str = [self.decode_ids_to_str(t) for t in targets.tolist()]
-
         per = word_error_rate(hypotheses=preds_str, references=targets_str)
+
         self.log(f"{split}_loss", val_loss)
         return {f"{split}_loss": val_loss, "per": per}
 
@@ -206,7 +278,6 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
         avg_per = sum([x["per"] for x in outputs]) / len(outputs)
         self.log(f"{split}_per", avg_per)
         logging.info(f"---------------> PER: {round(avg_per*100, 2)}%")
-
 
     def test_epoch_end(self, outputs):
         self.validation_epoch_end(outputs, split="test")
