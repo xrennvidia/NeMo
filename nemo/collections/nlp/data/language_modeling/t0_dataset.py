@@ -39,7 +39,6 @@ from datasets.iterable_dataset import (
     BufferShuffledExamplesIterable,
     _BaseExamplesIterable
 )
-from nemo.utils.app_state import AppState
 from nemo.collections.common.tokenizers.tokenizer_spec import TokenizerSpec
 from nemo.collections.nlp.data.language_modeling.t0_task_manager import (
     DATA_ORG, t0_all_evaldt_names_subset,
@@ -55,6 +54,13 @@ from nemo.core.neural_types import NeuralType
 from nemo.utils import logging
 
 T_co = TypeVar('T_co', covariant=True)
+
+
+try:
+    from apex.transformer import parallel_state
+    HAVE_APEX = True
+except (ImportError, ModuleNotFoundError):
+    HAVE_APEX = False
 
 
 class Task(object):
@@ -172,9 +178,10 @@ class T0DatasetBuilder(object):
     def assemble_datasets(self):
         if self.split == 'train':
             datasets_list = list(self.datasets.values())
-            datasets = BlendableDataset(
-                datasets_list,
-                self.get_sampling_probs()
+            datasets = interleave_datasets(
+                datasets=datasets_list,
+                probabilities=self.get_sampling_probs(),
+                seed=self.seed
             )
             return datasets
         else:
@@ -182,8 +189,8 @@ class T0DatasetBuilder(object):
 
     def get_dataset(self, task):
         features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
-        app_state = AppState()
-        if app_state.local_rank > 0:
+        rank = parallel_state.get_data_parallel_rank()
+        if rank > 0:
             logging.info('Waiting for main process to perform the mapping')
             torch.distributed.barrier()
         if os.path.isdir(features_dir) and self.use_cache:
@@ -202,7 +209,8 @@ class T0DatasetBuilder(object):
                 remove_columns=original_column_names,
             )
             dataset.save_to_disk(os.path.join(self.dir_path, self.split, f'features_{task.task_id}'))
-        if app_state.local_rank == 0:
+            dataset = load_from_disk(features_dir)
+        if rank == 0:
             logging.info('Loading results from the main process')
             torch.distributed.barrier()
         dataset.info.dataset_size = task.dataset_size

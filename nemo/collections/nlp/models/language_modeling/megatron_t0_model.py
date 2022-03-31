@@ -38,6 +38,15 @@ from nemo.collections.nlp.modules.common.megatron.utils import (
 from nemo.utils import logging
 
 
+try:
+    from apex.transformer import parallel_state
+    from apex.transformer.pipeline_parallel.schedules.common import _get_params_for_weight_decay_optimization
+
+    HAVE_APEX = True
+except (ImportError, ModuleNotFoundError):
+    HAVE_APEX = False
+
+
 class MegatronT0Model(MegatronT5FineTuneModel):
     """
     Megatron t0 multitask fine tuning model
@@ -195,11 +204,17 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         """Buld dataloader given an input dataset."""
         if dataset is None:
             return None
-        # Torch dataloader.
+
+        rank = parallel_state.get_data_parallel_rank()
+        world_size = parallel_state.get_data_parallel_world_size()
+        sampler = torch.utils.data.distributed.DistributedSampler(
+            dataset, num_replicas=world_size, rank=rank, shuffle=shuffle
+        )
         return DataLoader(
             dataset,
             collate_fn=collate_fn,
             batch_size=batch_size,
+            sampler=sampler,
             num_workers=self.cfg.data.num_workers,
             pin_memory=pin_memory,
             drop_last=False,
@@ -234,7 +249,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                 self._train_ds.assemble_datasets(),
                 collate_fn=self._train_ds.collate_fn,
                 batch_size=self.cfg.data.train_ds.batch_size,
-                shuffle=False,
+                shuffle=True,
                 pin_memory=True,
             )
 

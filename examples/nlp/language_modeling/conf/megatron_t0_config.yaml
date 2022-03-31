@@ -1,7 +1,7 @@
 name: megatron_t0
 
 trainer:
-  gpus: 1
+  gpus: 2
   num_nodes: 1
   accelerator: ddp
   precision: 16
