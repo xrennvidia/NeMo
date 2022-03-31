@@ -1187,7 +1187,7 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
         embed_len = torch.tensor(speaker_embedding.shape[0]).long()
 
         f, fl = features, torch.tensor(features.shape[0]).long()
-        t, tl = self.manifest_processor.process_text(index)
+        t, tl = self.manifest_processor.process_text_by_id(index)
 
         if self.return_sample_id:
             output = f, fl, torch.tensor(t).long(), torch.tensor(tl).long(), speaker_embedding, embed_len, index
