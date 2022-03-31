@@ -196,6 +196,7 @@ class ASRManifestProcessor:
         bos_id: Optional[int] = None,
         eos_id: Optional[int] = None,
         pad_id: int = 0,
+        index_by_file_id: bool = False,
         *args,
         **kwargs,
     ):
@@ -206,6 +207,7 @@ class ASRManifestProcessor:
             min_duration=min_duration,
             max_duration=max_duration,
             max_number=max_utts,
+            index_by_file_id=index_by_file_id,
             *args,
             **kwargs,
         )
