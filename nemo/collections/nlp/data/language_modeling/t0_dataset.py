@@ -17,6 +17,7 @@
 # Some code of this file was adapted from the HuggingFace library available at
 # https://github.com/huggingface/transformers
 
+import os
 import mmap
 import itertools
 from copy import deepcopy
@@ -26,13 +27,19 @@ import torch
 from torch.utils.data import IterableDataset
 from apex.transformer import parallel_state
 import numpy as np
-from datasets import load_dataset, set_caching_enabled, interleave_datasets
+from datasets import (
+    load_dataset,
+    load_from_disk,
+    set_caching_enabled,
+    interleave_datasets
+)
 from datasets.iterable_dataset import (
     RandomlyCyclingMultiSourcesExamplesIterable,
     MappedExamplesIterable,
     BufferShuffledExamplesIterable,
     _BaseExamplesIterable
 )
+from nemo.utils.app_state import AppState
 from nemo.collections.common.tokenizers.tokenizer_spec import TokenizerSpec
 from nemo.collections.nlp.data.language_modeling.t0_task_manager import (
     DATA_ORG, t0_all_evaldt_names_subset,
@@ -43,10 +50,7 @@ from nemo.collections.nlp.data.language_modeling.t0_task_manager import (
     TEMPLATE_CHUNK_NAME,
     ORIG_TXT_CHUNK_NAME
 )
-from nemo.collections.nlp.data.language_modeling.megatron.t5_dataset import (
-    make_attention_mask_3d,
-    make_history_mask_3d,
-)
+from nemo.collections.nlp.data.language_modeling.megatron.blendable_dataset import BlendableDataset
 from nemo.core.neural_types import NeuralType
 from nemo.utils import logging
 
@@ -70,14 +74,15 @@ class Task(object):
         return lines
 
     def map_fn(self, multi_prompted_ex):
-        features = []
+        features = {}
         for prompt_type, data in multi_prompted_ex.items():
             if data is None:
-                continue
+                data = {'input': None, 'output': None}
             self.prompt_id[prompt_type] = self.prompt_id.get(prompt_type, len(self.prompt_id) + 1)
             example = self.create_example(data, self.task_id, self.prompt_id[prompt_type])
             feature_dicts = self.tokenize(example)
-            features.append(feature_dicts)
+            feature_dicts = {f'{k}_{self.prompt_id[prompt_type]}': v for k, v in feature_dicts.items()}
+            features.update(feature_dicts)
         return features
 
 
@@ -132,7 +137,8 @@ class T0DatasetBuilder(object):
             chunk_size: int = 40 << 20,
             use_cache: bool = True,
             extension: str = 'json',
-            max_samples: int = None
+            max_samples: int = None,
+            num_proc: int = None,
     ):
         """
         Processes T0 dataset
@@ -147,6 +153,7 @@ class T0DatasetBuilder(object):
             buffer_size: size of the buffer, chunks of data to suffle
             use_cache: whether to use data cache
             max_samples: limit size of dataset (not implemented)
+            num_proc: number of processes to load data
         """
         self.t0_type = t0_type
         self.dir_path = dir_path
@@ -161,67 +168,54 @@ class T0DatasetBuilder(object):
         self.use_cache = use_cache
         self.extension = extension
         self.max_samples = max_samples
+        self.num_proc = num_proc if num_proc > 0 else None
         self.tasks = []
-        set_caching_enabled(use_cache)
+        self.empty_prompt_token_id = -1
         self.datasets = self.get_data_dict()
-
-    def update_ex_iterable(self, dataset):
-        """This hacks MappedExamplesIterable and RandomlyCyclingMultiSourcesExamplesIterable"""
-        if isinstance(dataset, dict):
-            for key, torch_iter in dataset.items():
-                mapped_itr = torch_iter._ex_iterable
-                update_itr = MyMappedExamplesIterable(
-                    ex_iterable=mapped_itr.ex_iterable,
-                    function=mapped_itr.function,
-                    batched=mapped_itr.batched,
-                    batch_size=mapped_itr.batch_size
-                )
-                dataset[key]._ex_iterable = update_itr
-        else:
-            rand_multisrc_iter = dataset._ex_iterable
-            assert isinstance(rand_multisrc_iter, RandomlyCyclingMultiSourcesExamplesIterable)
-            updated_buffered_itr = []
-            for buffered_itr in rand_multisrc_iter.ex_iterables:
-                assert isinstance(buffered_itr, BufferShuffledExamplesIterable)
-                mapped_itr = buffered_itr.ex_iterable
-                update_itr = MyMappedExamplesIterable(
-                    ex_iterable=mapped_itr.ex_iterable,
-                    function=mapped_itr.function,
-                    batched=mapped_itr.batched,
-                    batch_size=mapped_itr.batch_size,
-                    output_function=True
-                )
-                buffered_itr.ex_iterable = update_itr
-                updated_buffered_itr.append(buffered_itr)
-            dataset._ex_iterable = MyRandomlyCyclingMultiSourcesExamplesIterable(
-                ex_iterables=updated_buffered_itr,
-                generator=rand_multisrc_iter.generator,
-                probabilities=rand_multisrc_iter.probabilities
-            )
-        return dataset
 
     def assemble_datasets(self):
         if self.split == 'train':
             datasets_list = list(self.datasets.values())
-            datasets_list = [d.shuffle(buffer_size=self.buffer_size, seed=self.seed) for d in datasets_list]
-            datasets = interleave_datasets(
-                datasets=datasets_list,
-                probabilities=self.get_sampling_probs(),
-                seed=self.seed
+            datasets = BlendableDataset(
+                datasets_list,
+                self.get_sampling_probs()
             )
-            datasets.info.dataset_size = len(self)
-            datasets = self.update_ex_iterable(datasets)
-            datasets = datasets.with_format('torch')
             return datasets
         else:
-            return self.update_ex_iterable(self.datasets)
+            return self.datasets
 
     def get_dataset(self, task):
+        '''
         dataset = load_dataset(
             self.extension, data_files=task.file_path, streaming=True, chunksize=self.chunk_size
         )
         dataset = dataset['train'].map(task.map_fn, batched=False)
         dataset = dataset.with_format('torch')
+        '''
+        features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
+        app_state = AppState()
+        if app_state.local_rank > 0:
+            logging.info('Waiting for main process to perform the mapping')
+            torch.distributed.barrier()
+        if os.path.isdir(features_dir) and self.use_cache:
+            dataset = load_from_disk(features_dir)
+        else:
+            dataset = load_dataset(
+                self.extension, data_files=task.file_path, split='train'
+            )
+            if self.max_samples is not None:
+                dataset = dataset.select(range(min(len(dataset), self.max_samples)))
+            original_column_names = dataset.column_names
+            dataset = dataset.map(
+                task.map_fn,
+                batched=False,
+                num_proc=self.num_proc,
+                remove_columns=original_column_names,
+            )
+            dataset.save_to_disk(os.path.join(self.dir_path, self.split, f'features_{task.task_id}'))
+        if app_state.local_rank == 0:
+            logging.info('Loading results from the main process')
+            torch.distributed.barrier()
         dataset.info.dataset_size = task.dataset_size
         dataset.task = task
         return dataset
@@ -267,11 +261,23 @@ class T0DatasetBuilder(object):
     def __len__(self):
         return sum(d.dataset_size for d in self.datasets.values())
 
-    @staticmethod
-    def choose_template(features):
-        num_prompts = len(features)
-        choose_prompt = np.random.randint(0, num_prompts)
-        return features[choose_prompt]
+    def choose_template(self, features):
+        available_prompts = []
+        for data_name in features.keys():
+            if data_name.startswith("text_enc") and (
+                features[data_name] is not None and
+                not np.any(np.array(features[data_name]) == self.empty_prompt_token_id)
+            ):
+                available_prompts.append(data_name.split("_")[-1])
+        prompt_num = np.random.choice(available_prompts)
+        chosen_features = {
+            'text_enc': features[f'text_enc_{prompt_num}'],
+            'text_dec': features[f'text_dec_{prompt_num}'],
+            'labels': features[f'labels_{prompt_num}'],
+            'task_id': features[f'task_id_{prompt_num}'],
+            'prompt_id': features[f'prompt_id_{prompt_num}']
+        }
+        return chosen_features
 
     @staticmethod
     def create_example(data, task_id, prompt_id):
@@ -290,18 +296,23 @@ class T0DatasetBuilder(object):
         return self.collate_fn2(new_batch)
 
     def tokenize(self, example):
-        enc_query = self.tokenizer.text_to_ids(example.input_text)
-        if len(enc_query) > self.max_query_length:
-            enc_query = enc_query[: self.max_query_length]
-        dec_query = (
-                [self.tokenizer.cls_id]
-                + self.tokenizer.text_to_ids(example.label)
-                + [self.tokenizer.eos_id]
-        )
-        if len(dec_query) > self.max_query_length_decoder + 1:
-            dec_query = dec_query[: self.max_query_length_decoder + 1]
-        dec_input = dec_query[:-1]
-        labels = dec_query[1:]
+        if example.input_text is None:
+            enc_query = [self.empty_prompt_token_id]
+            dec_input = [self.empty_prompt_token_id]
+            labels = [self.empty_prompt_token_id]
+        else:
+            enc_query = self.tokenizer.text_to_ids(example.input_text)
+            if len(enc_query) > self.max_query_length:
+                enc_query = enc_query[: self.max_query_length]
+            dec_query = (
+                    [self.tokenizer.cls_id]
+                    + self.tokenizer.text_to_ids(example.label)
+                    + [self.tokenizer.eos_id]
+            )
+            if len(dec_query) > self.max_query_length_decoder + 1:
+                dec_query = dec_query[: self.max_query_length_decoder + 1]
+            dec_input = dec_query[:-1]
+            labels = dec_query[1:]
         task_id = [example.task_id]
         prompt_id = [example.prompt_id]
         return {

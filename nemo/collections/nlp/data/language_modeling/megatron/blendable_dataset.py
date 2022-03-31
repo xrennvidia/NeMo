@@ -76,4 +76,4 @@ class BlendableDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         dataset_idx = self.dataset_index[idx]
         sample_idx = self.dataset_sample_index[idx]
-        return self.datasets[dataset_idx][sample_idx]
+        return self.datasets[int(dataset_idx)][int(sample_idx)]

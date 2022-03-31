@@ -1,7 +1,7 @@
 name: megatron_t0
 
 trainer:
-  gpus: 2
+  gpus: 1
   num_nodes: 1
   accelerator: ddp
   precision: 16
@@ -51,24 +51,22 @@ model:
     max_sampling_size: 500000  # from T0 paper (https://arxiv.org/abs/2110.08207)
     buffer_size: 100
     chunk_size: 10_000
+    num_workers: 24
     train_ds:
       batch_size: 16
       shuffle: True
-      num_workers: 0
       pin_memory: True
       max_seq_length: 512
 
     validation_ds:
       batch_size: 32
       shuffle: False
-      num_workers: 0
       pin_memory: True
       max_seq_length: 512
 
     test_ds:
       batch_size: 32
       shuffle: False
-      num_workers: 0
       pin_memory: True
       max_seq_length: 512
 

@@ -1,6 +1,7 @@
 import glob
 import json
 from tqdm import tqdm
+from copy import copy
 from datasets import load_dataset
 
 
@@ -39,6 +40,7 @@ def reformat_json(file_list):
 
 
 def remove_none(file_list):
+    # removes template names that have None values
     for file in tqdm(file_list):
         name = file.split("/")[-1]
         new_file = new_dir + name
@@ -56,6 +58,28 @@ def remove_none(file_list):
                     fw.write('\n')
 
 
+def add_empty_fields(file_list):
+    # reverses remove_none() by adding template names with None as values
+    for file in tqdm(file_list):
+        name = file.split("/")[-1]
+        new_file = new_dir + name
+        data = []
+        prompt_names = set()
+        with open(file, "r") as fr:
+            for line in fr:
+                json_line = json.loads(line)
+                data.append(json_line)
+                prompt_names.update(set(json_line.keys()))
+
+        with open(new_file, "w") as fw:
+            base_json_format = {k: {'input': None, 'output': None, 'chunked_idx': None} for k in list(prompt_names)}
+            for dt in data:
+                new_jsonline = copy(base_json_format)
+                new_jsonline.update(dt)
+                fw.write(json.dumps(new_jsonline))
+                fw.write('\n')
+
+
 def check_outputs(file_list):
     for file in tqdm(file_list):
         with open(file, "r") as fr:
@@ -68,12 +92,13 @@ def check_outputs(file_list):
 
 
 if __name__ == '__main__':
-    old_dir = "/home/jpilault/datasets/T0_prompted/validation/"
-    new_dir = "/home/jpilault/datasets/T0_prompted/validation_new/"
+    old_dir = "/home/jpilault/datasets/T0_prompted/debug_old/"
+    new_dir = "/home/jpilault/datasets/T0_prompted/debug/"
 
     file_list = glob.glob(old_dir + "*")
 
-    remove_none(file_list)
+    add_empty_fields(file_list)
+    #remove_none(file_list)
     #reformat_json(file_list)
     #check_outputs(file_list)
     #create_test_json(new_dir)

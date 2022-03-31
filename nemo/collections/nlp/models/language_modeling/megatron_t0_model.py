@@ -89,17 +89,19 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             if self.model.tokenizer.eos_id in pred:
                 idx = pred.index(self.model.tokenizer.eos_id)
                 pred = pred[:idx]
-            pred = [id for id in pred if id not in self.model.tokenizer.additional_special_tokens_ids]
-            label = [id for id in label if id not in self.model.tokenizer.additional_special_tokens_ids]
+            if hasattr(self.model.tokenizer, 'special_token_to_id'):
+                pred = [id for id in pred if id not in self.model.tokenizer.additional_special_tokens_ids]
+                label = [id for id in label if id not in self.model.tokenizer.additional_special_tokens_ids]
             pred = self.model.tokenizer.ids_to_text(pred)
             label = self.model.tokenizer.ids_to_text(label)
+
             task_id = task_id.item()
             prompt_id = prompt_id.item()
             if not self.acc_metric_dict.__contains__(task_id):
-                self.acc_metric_dict[task_id] = ExactStringPerCategoryMatchMetric()
-            self.acc_metric_dict[task_id].add_category(prompt_id)
-            self.acc_metric_dict[task_id].to(self.device)
-            _ = self.acc_metric_dict[task_id](pred, label, prompt_id)
+                self.acc_metric_dict[task_id] = {}
+            if not self.acc_metric_dict[task_id].__contains__(prompt_id):
+                self.acc_metric_dict[task_id][prompt_id] = ExactStringPerCategoryMatchMetric().to(self.device)
+            _ = self.acc_metric_dict[task_id][prompt_id](pred, label)
 
     def inference_step(self, batch, batch_idx):
         loss = self.model.validation_step(batch, batch_idx)
@@ -126,13 +128,12 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             task_name = get_task_name(task_id)
             assert task_name in accuracies_losses
             accuracies_losses[task_name]['accuracies'] = {}
-            accuracies = self.acc_metric_dict[task_id].compute()
-            for prompt_id in self.acc_metric_dict[task_id].categories:
-                accuracy = accuracies[prompt_id]
+            for prompt_id in self.acc_metric_dict[task_id].keys():
+                accuracy = self.acc_metric_dict[task_id][prompt_id].compute()['acc']
                 if torch.any(torch.isnan(accuracy)):
                     continue
                 accuracies_losses[task_name]['accuracies'][str(prompt_id)] = accuracy
-            self.acc_metric_dict[task_id].reset()
+                self.acc_metric_dict[task_id][prompt_id].reset()
         return accuracies_losses
 
     def validation_step(self, batch, batch_idx, dataloader_idx):
@@ -187,11 +188,12 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             buffer_size=self.cfg.data.buffer_size,
             chunk_size=self.cfg.data.chunk_size,
             use_cache=self.cfg.data.use_cache,
-            max_samples=getattr(self.cfg.data, "max_samples", None)
+            max_samples=getattr(self.cfg.data, "max_samples", None),
+            num_proc=self.cfg.data.num_workers
         )
         return datasetbuilder
 
-    def build_data_loader(self, dataset, collate_fn, batch_size, shuffle, num_workers, pin_memory):
+    def build_data_loader(self, dataset, collate_fn, batch_size, shuffle, pin_memory):
         """Buld dataloader given an input dataset."""
         if dataset is None:
             return None
@@ -200,7 +202,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             dataset,
             collate_fn=collate_fn,
             batch_size=batch_size,
-            num_workers=num_workers,
+            num_workers=self.cfg.data.num_workers,
             pin_memory=pin_memory,
             drop_last=False,
         )
@@ -235,7 +237,6 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                 collate_fn=self._train_ds.collate_fn,
                 batch_size=self.cfg.data.train_ds.batch_size,
                 shuffle=False,
-                num_workers=self.cfg.data.train_ds.num_workers,
                 pin_memory=True,
             )
 
@@ -252,7 +253,6 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                 collate_fn=self._validation_ds.collate_fn,
                 batch_size=self.cfg.data.validation_ds.batch_size,
                 shuffle=False,
-                num_workers=self.cfg.data.validation_ds.num_workers,
                 pin_memory=True,
             ) for dataset in dataset_dict.values()]
 
@@ -269,7 +269,6 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                 collate_fn=self._test_ds.collate_fn,
                 batch_size=self.cfg.data.test_ds.batch_size,
                 shuffle=False,
-                num_workers=self.cfg.data.test_ds.num_workers,
                 pin_memory=True,
             ) for dataset in dataset_dict.values()]
 
@@ -296,8 +295,8 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         labels = data_b['labels'].long()
         loss_mask = data_b['loss_mask'].float()
 
-        enc_mask = data_b['enc_mask'] < 0.5
-        dec_mask = data_b['dec_mask'] < 0.5
+        enc_mask = data_b['enc_mask']
+        dec_mask = data_b['dec_mask']
 
         # T0 specific
         task_ids = data_b['task_ids'].long()
@@ -452,8 +451,8 @@ class MegatronT0PrimeModel(MegatronT0Model):
         labels = data_b['labels'].long()
         loss_mask = data_b['loss_mask'].float()
 
-        enc_mask = data_b['enc_mask'] < 0.5
-        dec_mask = data_b['dec_mask'] < 0.5
+        enc_mask = data_b['enc_mask']
+        dec_mask = data_b['dec_mask']
 
         # T0 specific
         task_ids = data_b['task_ids'].long()
