@@ -15,20 +15,32 @@
 """BERT model."""
 
 import torch
-from apex.transformer import parallel_state, tensor_parallel
-from apex.transformer.enums import AttnMaskType
-from apex.transformer.tensor_parallel.layers import set_tensor_model_parallel_attributes
 
-from nemo.collections.nlp.modules.common.megatron.language_model import get_language_model, parallel_lm_logits
+from nemo.collections.nlp.modules.common.megatron.language_model import get_language_model
 from nemo.collections.nlp.modules.common.megatron.module import MegatronModule
 from nemo.collections.nlp.modules.common.megatron.transformer import get_layer_norm
 from nemo.collections.nlp.modules.common.megatron.utils import (
+    ApexGuardDefaults,
+    build_position_ids,
     erf_gelu,
     get_linear_layer,
     init_method_normal,
     openai_gelu,
+    parallel_lm_logits,
     scaled_init_method_normal,
 )
+from nemo.utils import logging
+
+try:
+    from apex.transformer import parallel_state, tensor_parallel
+    from apex.transformer.enums import AttnMaskType
+    from apex.transformer.tensor_parallel.layers import set_tensor_model_parallel_attributes
+
+    HAVE_APEX = True
+except (ImportError, ModuleNotFoundError):
+    HAVE_APEX = False
+    # fake missing classes with None attributes
+    AttnMaskType = ApexGuardDefaults()
 
 
 def bert_extended_attention_mask(attention_mask):
@@ -46,15 +58,6 @@ def bert_extended_attention_mask(attention_mask):
     extended_attention_mask = extended_attention_mask < 0.5
 
     return extended_attention_mask
-
-
-def bert_position_ids(token_ids):
-    # Create position ids
-    seq_length = token_ids.size(1)
-    position_ids = torch.arange(seq_length, dtype=torch.long, device=token_ids.device)
-    position_ids = position_ids.unsqueeze(0).expand_as(token_ids)
-
-    return position_ids
 
 
 class BertLMHead(MegatronModule):
@@ -141,6 +144,7 @@ class BertModel(MegatronModule):
         activations_checkpoint_method=None,
         activations_checkpoint_num_layers=1,
         layernorm_epsilon=1e-5,
+        masked_softmax_fusion=False,
         bias_gelu_fusion=True,
         openai_gelu=False,
         onnx_safe=False,
@@ -181,6 +185,7 @@ class BertModel(MegatronModule):
             activations_checkpoint_method=activations_checkpoint_method,
             activations_checkpoint_num_layers=activations_checkpoint_num_layers,
             layernorm_epsilon=layernorm_epsilon,
+            masked_softmax_fusion=masked_softmax_fusion,
             bias_gelu_fusion=bias_gelu_fusion,
             openai_gelu=openai_gelu,
             onnx_safe=onnx_safe,
@@ -214,7 +219,7 @@ class BertModel(MegatronModule):
 
         extended_attention_mask = bert_extended_attention_mask(attention_mask)
         input_ids = bert_model_input
-        position_ids = bert_position_ids(input_ids)
+        position_ids = build_position_ids(input_ids)
 
         lm_output = self.language_model(input_ids, position_ids, extended_attention_mask, tokentype_ids=tokentype_ids)
 

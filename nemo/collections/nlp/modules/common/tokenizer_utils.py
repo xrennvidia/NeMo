@@ -20,6 +20,8 @@ import nemo
 from nemo.collections.common.tokenizers.bytelevel_tokenizers import ByteLevelTokenizer
 from nemo.collections.common.tokenizers.char_tokenizer import CharTokenizer
 from nemo.collections.common.tokenizers.huggingface.auto_tokenizer import AutoTokenizer
+from nemo.collections.common.tokenizers.regex_tokenizer import RegExTokenizer
+from nemo.collections.common.tokenizers.tabular_tokenizer import TabularTokenizer
 from nemo.collections.common.tokenizers.word_tokenizer import WordTokenizer
 from nemo.collections.common.tokenizers.youtokentome_tokenizer import YouTokenToMeTokenizer
 from nemo.collections.nlp.modules.common.huggingface.huggingface_utils import get_huggingface_pretrained_lm_models_list
@@ -99,7 +101,9 @@ def get_tokenizer(
 
     if 'megatron' in tokenizer_name:
         if not HAVE_APEX:
-            raise RuntimeError("Apex required to use megatron.")
+            raise ImportError(
+                "Apex was not found. Please see the NeMo README for installation instructions: https://github.com/NVIDIA/NeMo#megatron-gpt."
+            )
         if vocab_file is None:
             vocab_file = nemo.collections.nlp.modules.common.megatron.megatron_utils.get_megatron_vocab_file(
                 tokenizer_name
@@ -119,6 +123,8 @@ def get_tokenizer(
         return WordTokenizer(vocab_file=vocab_file, **special_tokens_dict)
     elif tokenizer_name == 'char':
         return CharTokenizer(vocab_file=vocab_file, **special_tokens_dict)
+    elif tokenizer_name == 'regex':
+        return RegExTokenizer().load_tokenizer(tokenizer_model)
 
     logging.info(
         f"Getting HuggingFace AutoTokenizer with pretrained_model_name: {tokenizer_name}, vocab_file: {vocab_file}, "
@@ -144,6 +150,7 @@ def get_nmt_tokenizer(
     bpe_dropout: Optional[float] = 0.0,
     r2l: Optional[bool] = False,
     legacy: Optional[bool] = False,
+    delimiter: Optional[str] = None,
 ):
     """
     Args:
@@ -185,6 +192,9 @@ def get_nmt_tokenizer(
     elif library == 'byte-level':
         logging.info(f'Using byte-level tokenization')
         return ByteLevelTokenizer(special_tokens_dict)
+    elif library == 'regex':
+        logging.info(f'Using regex tokenization')
+        return RegExTokenizer().load_tokenizer(tokenizer_model)
     elif library == 'megatron':
         if model_name in megatron_tokenizer_model_map:
             model_name = megatron_tokenizer_model_map[model_name]
@@ -192,6 +202,8 @@ def get_nmt_tokenizer(
             f'Getting Megatron tokenizer for pretrained model name: {model_name} and custom vocab file: {vocab_file}'
         )
         return get_tokenizer(tokenizer_name=model_name, vocab_file=vocab_file, merges_file=merges_file)
+    elif library == 'tabular':
+        return TabularTokenizer(vocab_file, delimiter=delimiter)
     else:
         raise NotImplementedError(
             'Currently we only support "yttm", "huggingface", "sentencepiece", "megatron", and "byte-level" tokenizer'

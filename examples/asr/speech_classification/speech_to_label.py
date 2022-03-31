@@ -33,8 +33,9 @@ python speech_to_label.py \
     # (Optional: --config-path=<path to dir of configs> --config-name=<name of config without .yaml>) \
     model.train_ds.manifest_filepath="<path to train manifest>" \
     model.validation_ds.manifest_filepath=["<path to val manifest>","<path to test manifest>"] \
-    trainer.gpus=2 \
-    trainer.accelerator="ddp" \
+    trainer.devices=2 \
+    trainer.accelerator="gpu" \
+    strategy="ddp" \
     trainer.max_epochs=200 \
     exp_manager.create_wandb_logger=True \
     exp_manager.wandb_logger_kwargs.name="MatchboxNet-3x1x64-v1" \
@@ -66,8 +67,9 @@ python speech_to_label.py \
     --config-name=<name of config without .yaml e.g. "matchboxnet_3x1x64_vad"> \
     model.train_ds.manifest_filepath="<path to train manifest>" \
     model.validation_ds.manifest_filepath=["<path to val manifest>","<path to test manifest>"] \
-    trainer.gpus=2 \
-    trainer.accelerator="ddp" \
+    trainer.devices=2 \
+    trainer.accelerator="gpu" \
+    strategy="ddp" \
     trainer.max_epochs=200 \
     exp_manager.create_wandb_logger=True \
     exp_manager.wandb_logger_kwargs.name="MatchboxNet-3x1x64-vad" \
@@ -93,8 +95,9 @@ python speech_to_label.py \
     model.train_ds.tarred_audio_filepaths=<path to train tarred audio dataset e.g. audio_{0..2}.tar> \
     +model.train_ds.num_worker=<num_shards used generating tarred dataset> \
     model.validation_ds.manifest_filepath=<path to validation audio_manifest.json>\
-    trainer.gpus=2 \
-    trainer.accelerator="ddp" \
+    trainer.devices=2 \
+    trainer.accelerator="gpu" \
+    strategy="ddp" \ \
     trainer.max_epochs=200 \
     exp_manager.create_wandb_logger=True \
     exp_manager.wandb_logger_kwargs.name="MatchboxNet-3x1x64-vad" \
@@ -136,8 +139,6 @@ def main(cfg):
     trainer.fit(asr_model)
 
     if hasattr(cfg.model, 'test_ds') and cfg.model.test_ds.manifest_filepath is not None:
-        gpu = 1 if cfg.trainer.gpus != 0 else 0
-        trainer = pl.Trainer(gpus=gpu)
         if asr_model.prepare_test(trainer):
             trainer.test(asr_model)
 

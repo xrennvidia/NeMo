@@ -20,7 +20,8 @@ Basic run (on CPU for 50 epochs):
         # (Optional: --config-path=<path to dir of configs> --config-name=<name of config without .yaml>) \
         model.train_ds.manifest_filepath="<path to manifest file>" \
         model.validation_ds.manifest_filepath="<path to manifest file>" \
-        trainer.gpus=0 \
+        trainer.devices=1 \
+        trainer.accelerator='cpu' \
         trainer.max_epochs=50
 
 
@@ -37,7 +38,7 @@ Override some args of optimizer:
     # (Optional: --config-path=<path to dir of configs> --config-name=<name of config without .yaml>) \
     model.train_ds.manifest_filepath="./an4/train_manifest.json" \
     model.validation_ds.manifest_filepath="./an4/test_manifest.json" \
-    trainer.gpus=2 \
+    trainer.devices=2 \
     trainer.max_epochs=2 \
     model.optim.args.betas=[0.8,0.5] \
     model.optim.args.weight_decay=0.0001
@@ -47,7 +48,7 @@ Override optimizer entirely
     # (Optional: --config-path=<path to dir of configs> --config-name=<name of config without .yaml>) \
     model.train_ds.manifest_filepath="./an4/train_manifest.json" \
     model.validation_ds.manifest_filepath="./an4/test_manifest.json" \
-    trainer.gpus=2 \
+    trainer.devices=2 \
     trainer.max_epochs=2 \
     model.optim.name=adamw \
     model.optim.lr=0.001 \
@@ -90,15 +91,8 @@ def main(cfg):
     trainer.fit(asr_model)
 
     if hasattr(cfg.model, 'test_ds') and cfg.model.test_ds.manifest_filepath is not None:
-        gpu = 1 if cfg.trainer.gpus != 0 else 0
-        test_trainer = pl.Trainer(
-            gpus=gpu,
-            precision=trainer.precision,
-            amp_level=trainer.accelerator_connector.amp_level,
-            amp_backend=cfg.trainer.get("amp_backend", "native"),
-        )
-        if asr_model.prepare_test(test_trainer):
-            test_trainer.test(asr_model)
+        if asr_model.prepare_test(trainer):
+            trainer.test(asr_model)
 
 
 if __name__ == '__main__':
