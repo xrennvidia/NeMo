@@ -877,6 +877,9 @@ class CTCG2PDataset(Dataset):
         # TODO: docstring
         super().__init__()
 
+        if not os.path.exists(manifest_filepath):
+            raise ValueError(f"{manifest_filepath} not found")
+
         self.tokenizer = tokenizer
         self.max_source_len = max_source_len
         self.max_target_len = max_target_len

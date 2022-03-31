@@ -118,8 +118,8 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
                 [f.write(f'"{ch}"\n') for ch in chars]
 
             self._tokenizer = CharTokenizer(vocab_file=vocab_file)
-            self.max_source_len = cfg.get("max_source_len", 128)
-            self.max_target_len = cfg.get("max_target_len", 128)
+            self.max_source_len = cfg.get("max_source_len", 512)
+            self.max_target_len = cfg.get("max_target_len", 512)
 
         # Ensure passed cfg is compliant with schema
         schema = OmegaConf.structured(CTCG2PConfig)
