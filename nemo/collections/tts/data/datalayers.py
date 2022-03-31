@@ -888,6 +888,7 @@ class CTCG2PDataset(Dataset):
         if not os.path.exists(manifest_filepath):
             raise ValueError(f"{manifest_filepath} not found")
 
+        self.manifest = manifest_filepath
         self.tokenizer = tokenizer
         self.max_source_len = max_source_len
         self.max_target_len = max_target_len
@@ -923,7 +924,7 @@ class CTCG2PDataset(Dataset):
                     continue
                 target = self.map(item["pred_text"])
                 target_len = len(target)
-                self.data.append({"graphemes": item["text"], "target": target, "target_len": target_len})
+                self.data.append({"graphemes": item["text"], "phonemes": item["pred_text"], "target": target, "target_len": target_len})
 
         # print(f"=======> Filtered {num_filtered} entries.")
         logging.info(f"Removed {num_removed} examples from {manifest_filepath}")
@@ -932,6 +933,7 @@ class CTCG2PDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, index):
+        print(f'------> {self.manifest} -- {index}')
         return self.data[index]
 
     def map(self, text: str) -> List[int]:

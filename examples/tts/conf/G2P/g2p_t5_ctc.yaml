@@ -14,7 +14,7 @@ model:
 
   decoder:
     _target_: nemo.collections.asr.modules.ConvASRDecoder
-    feat_in: none # will be filled during training based on encoder model dim
+    feat_in: null # will be filled during training based on encoder model dim
     num_classes: 69
     vocabulary: ["AA0", "AA1", "AA2", "AE0", "AE1", "AE2", "AH0", "AH1", "AH2", "AO0", "AO1", "AO2", "AW0", "AW1",
                  "AW2", "AY0", "AY1", "AY2", "B", "CH", "D", "DH", "EH0", "EH1", "EH2", "ER0", "ER1", "ER2", "EY0",

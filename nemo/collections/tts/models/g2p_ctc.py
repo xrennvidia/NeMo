@@ -140,8 +140,9 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
             if self._cfg.dropout is not None:
                 config.dropout_rate = self._cfg.dropout
                 print(f"\nDROPOUT: {config.dropout_rate}")
-                self.encoder = AutoModel.from_pretrained(cfg.model_name, config=config).encoder
-                # add encoder hidden dim size to the config
+            self.encoder = AutoModel.from_pretrained(cfg.model_name, config=config).encoder
+            # add encoder hidden dim size to the config
+            if self.cfg.decoder.feat_in is None:
                 self._cfg.decoder.feat_in = self.encoder.config.d_model
         else:
             self.embedding = nn.Embedding(
@@ -179,14 +180,18 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
 
         log_probs = self.decoder(encoder_output=encoded_input)
         greedy_predictions = log_probs.argmax(dim=-1, keepdim=False)
+        import pdb;
+        pdb.set_trace()
         return log_probs, greedy_predictions, encoded_len
 
     # ===== Training Functions ===== #
     def training_step(self, batch, batch_idx):
         input_ids, attention_mask, input_len, targets, target_lengths = batch
+
         log_probs, predictions, encoded_len = self.forward(
             input_ids=input_ids, attention_mask=attention_mask, input_len=input_len
         )
+
 
         loss = self.loss(
             log_probs=log_probs, targets=targets, input_lengths=encoded_len, target_lengths=target_lengths
