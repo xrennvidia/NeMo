@@ -133,8 +133,6 @@ class T0DatasetBuilder(object):
             max_seq_length: int,
             max_seq_length_decoder: int = 128,
             seed: int = 43,
-            buffer_size: int = 10_000,
-            chunk_size: int = 40 << 20,
             use_cache: bool = True,
             extension: str = 'json',
             max_samples: int = None,
@@ -163,8 +161,6 @@ class T0DatasetBuilder(object):
         self.max_query_length = max_seq_length
         self.max_query_length_decoder = max_seq_length_decoder
         self.seed = seed
-        self.buffer_size = buffer_size
-        self.chunk_size = chunk_size
         self.use_cache = use_cache
         self.extension = extension
         self.max_samples = max_samples
@@ -185,13 +181,6 @@ class T0DatasetBuilder(object):
             return self.datasets
 
     def get_dataset(self, task):
-        '''
-        dataset = load_dataset(
-            self.extension, data_files=task.file_path, streaming=True, chunksize=self.chunk_size
-        )
-        dataset = dataset['train'].map(task.map_fn, batched=False)
-        dataset = dataset.with_format('torch')
-        '''
         features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
         app_state = AppState()
         if app_state.local_rank > 0:
@@ -380,8 +369,6 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
             prompt_seq_len: int,
             max_seq_length_decoder: int = 128,
             seed: int = 43,
-            buffer_size: int = 10_000,
-            chunk_size: int = 40 << 20,
             use_cache: bool = True,
             extension: str = 'json',
             max_samples: int = None,
@@ -397,7 +384,6 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
             tokenizer: such as AutoTokenizer
             max_seq_length: max sequence length minus 2 for [CLS] and [SEP]
             max_seq_length_decoder: max sequence length
-            buffer_size: size of the buffer, chunks of data to suffle
             use_cache: whether to use data cache
             max_samples: limit size of dataset (not implemented)
             prompt_token_id: tokenizer id for [PROMPT] token
@@ -409,7 +395,7 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
         self.split_template = split_template
         super().__init__(
             t0_type, dir_path, max_sampling_size, split, tokenizer, max_seq_length, max_seq_length_decoder,
-            seed, buffer_size, chunk_size, use_cache, extension, max_samples
+            seed, use_cache, extension, max_samples
         )
 
     @staticmethod
