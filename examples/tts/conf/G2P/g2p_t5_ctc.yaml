@@ -87,8 +87,7 @@ exp_manager:
   create_tensorboard_logger: True
   create_checkpoint_callback: True
   checkpoint_callback_params:
-    save_top_k: 3
     monitor: "val_loss"
     mode: "min"
+    save_top_k: 3
     save_best_model: true
-    always_save_nemo: true
