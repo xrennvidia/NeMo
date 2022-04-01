@@ -924,7 +924,14 @@ class CTCG2PDataset(Dataset):
                     continue
                 target = self.map(item["pred_text"])
                 target_len = len(target)
-                self.data.append({"graphemes": item["text"], "phonemes": item["pred_text"], "target": target, "target_len": target_len})
+                self.data.append(
+                    {
+                        "graphemes": item["text"],
+                        "phonemes": item["pred_text"],
+                        "target": target,
+                        "target_len": target_len,
+                    }
+                )
 
         # print(f"=======> Filtered {num_filtered} entries.")
         logging.info(f"Removed {num_removed} examples from {manifest_filepath}")
@@ -933,7 +940,6 @@ class CTCG2PDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, index):
-        print(f'------> {self.manifest} -- {index}')
         return self.data[index]
 
     def map(self, text: str) -> List[int]:
