@@ -20,6 +20,7 @@
 import os
 import mmap
 from typing import Dict, Optional, List, Iterator, TypeVar, Callable
+from multiprocessing import Lock
 
 import torch
 import numpy as np
@@ -44,7 +45,7 @@ from nemo.core.neural_types import NeuralType
 from nemo.utils import logging
 
 T_co = TypeVar('T_co', covariant=True)
-
+mutex = Lock()
 
 try:
     from apex.transformer import parallel_state
@@ -206,8 +207,10 @@ class T0DatasetBuilder(object):
             torch.distributed.barrier()
         else:
             torch.distributed.barrier()
-        logging.info('Loading results from the main process.')
-        dataset = load_from_disk(features_dir)
+
+        with mutex:
+            logging.info('Loading results from the main process.')
+            dataset = load_from_disk(features_dir)
         dataset.info.dataset_size = task.dataset_size
         dataset.task = task
         return dataset
