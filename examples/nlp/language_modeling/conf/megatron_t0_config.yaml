@@ -51,19 +51,19 @@ model:
     max_sampling_size: 500000  # from T0 paper (https://arxiv.org/abs/2110.08207)
     num_workers: 24
     train_ds:
-      batch_size: 16
+      batch_size: 2
       shuffle: True
       pin_memory: True
       max_seq_length: 512
 
     validation_ds:
-      batch_size: 32
+      batch_size: 8
       shuffle: False
-      pin_memory: True
+      pin_memory: Truwe
       max_seq_length: 512
 
     test_ds:
-      batch_size: 32
+      batch_size: 8
       shuffle: False
       pin_memory: True
       max_seq_length: 512

@@ -19,6 +19,7 @@
 
 import os
 import mmap
+import time
 from typing import Dict, Optional, List, Iterator, TypeVar, Callable
 
 import torch
@@ -184,8 +185,11 @@ class T0DatasetBuilder(object):
 
     def get_dataset(self, task):
         features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
+        logging.info('Getting rank info.')
         rank = parallel_state.get_data_parallel_rank()
-        torch.cuda.synchronize()
+        logging.info(f'Global rank is {rank}')
+        logging.info('Node rank is' + os.environ.get('NODE_RANK', 0))
+        logging.info('Local rank is' + os.environ.get('LOCAL_RANK', 0))
         if rank == 0:
             if not os.path.isdir(features_dir) or not self.use_cache:
                 logging.info('Waiting for main process to perform the mapping and preprocessing.')
@@ -208,6 +212,7 @@ class T0DatasetBuilder(object):
         else:
             logging.info('Loading results from the main process.')
             torch.distributed.barrier()
+            time.sleep(rank * 10)
             dataset = load_from_disk(features_dir)
         dataset.info.dataset_size = task.dataset_size
         dataset.task = task
