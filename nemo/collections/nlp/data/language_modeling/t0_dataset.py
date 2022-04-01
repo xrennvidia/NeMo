@@ -19,7 +19,6 @@
 
 import os
 import mmap
-import time
 from typing import Dict, Optional, List, Iterator, TypeVar, Callable
 
 import torch
@@ -186,12 +185,8 @@ class T0DatasetBuilder(object):
 
     def get_dataset(self, task):
         features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
-        logging.info('Getting rank info.')
         app_state = AppState()
         rank = app_state.global_rank
-        logging.info(f'Global rank is {rank}')
-        logging.info('Node rank is' + str(os.environ.get('NODE_RANK', 0)))
-        logging.info('Local rank is' + str(os.environ.get('LOCAL_RANK', 0)))
         if rank == 0:
             if not os.path.isdir(features_dir) or not self.use_cache:
                 logging.info('Waiting for main process to perform the mapping and preprocessing.')
@@ -208,14 +203,11 @@ class T0DatasetBuilder(object):
                     remove_columns=original_column_names,
                 )
                 dataset.save_to_disk(features_dir)
-            logging.info('Loading results in main process.')
-            dataset = load_from_disk(features_dir)
             torch.distributed.barrier()
         else:
-            logging.info('Loading results from the main process.')
             torch.distributed.barrier()
-            time.sleep(rank * 10)
-            dataset = load_from_disk(features_dir)
+        logging.info('Loading results from the main process.')
+        dataset = load_from_disk(features_dir)
         dataset.info.dataset_size = task.dataset_size
         dataset.task = task
         return dataset
@@ -243,10 +235,8 @@ class T0DatasetBuilder(object):
                 if "/" in dt_name:
                     dt_name = dt_name.split("/")[-1]
                 file_name = "_%s_%s.jsonl" % (dt_name, "" if subset is None else subset)
-                logging.info('get_data_paths_and_splits')
                 _, data_paths = get_data_paths_and_splits(self.split, self.dir_path, file_name, dt_name)
                 for file_path in data_paths:
-                    logging.info('get_task')
                     task = self.get_task(file_path, dt_name, subset)
                     task_name = "%s_%s" % (dt_name, "" if subset is None else subset)
 
