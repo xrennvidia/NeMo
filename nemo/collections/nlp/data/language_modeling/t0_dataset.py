@@ -19,25 +19,15 @@
 
 import os
 import mmap
-import itertools
-from copy import deepcopy
 from typing import Dict, Optional, List, Iterator, TypeVar, Callable
 
 import torch
-from torch.utils.data import IterableDataset
-from apex.transformer import parallel_state
 import numpy as np
 from datasets import (
     load_dataset,
     load_from_disk,
     set_caching_enabled,
     interleave_datasets
-)
-from datasets.iterable_dataset import (
-    RandomlyCyclingMultiSourcesExamplesIterable,
-    MappedExamplesIterable,
-    BufferShuffledExamplesIterable,
-    _BaseExamplesIterable
 )
 from nemo.collections.common.tokenizers.tokenizer_spec import TokenizerSpec
 from nemo.collections.nlp.data.language_modeling.t0_task_manager import (
@@ -49,7 +39,6 @@ from nemo.collections.nlp.data.language_modeling.t0_task_manager import (
     TEMPLATE_CHUNK_NAME,
     ORIG_TXT_CHUNK_NAME
 )
-from nemo.collections.nlp.data.language_modeling.megatron.blendable_dataset import BlendableDataset
 from nemo.core.neural_types import NeuralType
 from nemo.utils import logging
 
@@ -143,6 +132,8 @@ class T0DatasetBuilder(object):
             extension: str = 'json',
             max_samples: int = None,
             num_proc: int = None,
+            num_gpus: int = None,
+            num_nodes: int = 1
     ):
         """
         Processes T0 dataset
@@ -171,8 +162,12 @@ class T0DatasetBuilder(object):
         self.extension = extension
         self.max_samples = max_samples
         self.num_proc = num_proc if num_proc > 0 else None
+        self.num_gpus = num_gpus
+        self.num_nodes = num_nodes
         self.tasks = []
         self.empty_prompt_token_id = -1
+        self.world_size = parallel_state.get_data_parallel_world_size()
+        self.num_ranks_per_node = self.world_size // num_nodes
         self.datasets = self.get_data_dict()
 
     def assemble_datasets(self):
@@ -190,29 +185,29 @@ class T0DatasetBuilder(object):
     def get_dataset(self, task):
         features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
         rank = parallel_state.get_data_parallel_rank()
-        if rank > 0:
-            logging.info('Waiting for main process to perform the mapping')
-            torch.distributed.barrier()
-        if os.path.isdir(features_dir) and self.use_cache:
-            dataset = load_from_disk(features_dir)
-        else:
-            dataset = load_dataset(
-                self.extension, data_files=task.file_path, split='train'
-            )
-            if self.max_samples is not None:
-                dataset = dataset.select(range(min(len(dataset), self.max_samples)))
-            original_column_names = dataset.column_names
-            dataset = dataset.map(
-                task.map_fn,
-                batched=False,
-                num_proc=self.num_proc,
-                remove_columns=original_column_names,
-            )
-            dataset.save_to_disk(os.path.join(self.dir_path, self.split, f'features_{task.task_id}'))
-            dataset = load_from_disk(features_dir)
         if rank == 0:
-            logging.info('Loading results from the main process')
+            if not os.path.isdir(features_dir) or not self.use_cache:
+                logging.info('Waiting for main process to perform the mapping and preprocessing.')
+                dataset = load_dataset(
+                    self.extension, data_files=task.file_path, split='train'
+                )
+                if self.max_samples is not None:
+                    dataset = dataset.select(range(min(len(dataset), self.max_samples)))
+                original_column_names = dataset.column_names
+                dataset = dataset.map(
+                    task.map_fn,
+                    batched=False,
+                    num_proc=self.num_proc,
+                    remove_columns=original_column_names,
+                )
+                dataset.save_to_disk(features_dir)
+            logging.info('Loading results in main process.')
+            dataset = load_from_disk(features_dir)
             torch.distributed.barrier()
+        else:
+            logging.info('Loading results from the main process.')
+            torch.distributed.barrier()
+            dataset = load_from_disk(features_dir)
         dataset.info.dataset_size = task.dataset_size
         dataset.task = task
         return dataset
@@ -380,6 +375,9 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
             use_cache: bool = True,
             extension: str = 'json',
             max_samples: int = None,
+            num_proc: int = None,
+            num_gpus: int = None,
+            num_nodes: int = None,
             split_template: bool = True,
     ):
         """
@@ -403,7 +401,7 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
         self.split_template = split_template
         super().__init__(
             t0_type, dir_path, max_sampling_size, split, tokenizer, max_seq_length, max_seq_length_decoder,
-            seed, use_cache, extension, max_samples
+            seed, use_cache, extension, max_samples, num_proc, num_gpus, num_nodes
         )
 
     @staticmethod
@@ -508,84 +506,3 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
             'task_ids': task_ids,
             'prompt_ids': prompt_ids
         }
-
-
-class MyRandomlyCyclingMultiSourcesExamplesIterable(RandomlyCyclingMultiSourcesExamplesIterable):
-    """Same as RandomlyCyclingMultiSourcesExamplesIterable but iter accounts for multiple workers/GPUs."""
-    def __init__(self, ex_iterables, generator: np.random.Generator, probabilities: Optional[List[float]] = None):
-        super().__init__(ex_iterables, generator, probabilities)
-        self.rank = parallel_state.get_data_parallel_rank()
-        self.world_size = parallel_state.get_data_parallel_world_size()
-
-    def __iter__(self):
-        #TODO include model parallel case
-        rng = deepcopy(self.generator)
-        worker_info = torch.utils.data.get_worker_info()
-        total_workers_per_process = 1 if worker_info is None else worker_info.num_workers
-        worker_id = (0 if worker_info is None else worker_info.id) + total_workers_per_process * self.rank
-        total_workers = total_workers_per_process * self.world_size
-        iterators = [iter(ex_iterable) for ex_iterable in self.ex_iterables]
-        iterators = [itertools.islice(itr, worker_id, None, total_workers) for itr in iterators]
-        iterators = [itertools.tee(itr) for itr in iterators]
-        # this is an infinite iterator that randomly samples the index of the source to pick examples from
-        indices_iterator = self._iter_random_indices(rng, len(iterators), p=self.probabilities)
-        expected_itr_idx = [i for i, p in enumerate(self.probabilities) if 0 < p < 1]
-        finished_itr_idx = []
-        for i in indices_iterator:
-            try:  # let's pick one example from the iterator at index i
-                key, example, func = next(iterators[i][0])
-                yield key, func(example)
-            except StopIteration:  # if we ran out of examples on this iterator, break the main for loop
-                if i not in finished_itr_idx:
-                    finished_itr_idx.append(i)
-                    finished_itr_idx.sort()
-                if finished_itr_idx == expected_itr_idx:
-                    break
-                else:
-                    iterators[i] = itertools.tee(iterators[i][1])
-
-    def shuffle_data_sources(self, generator: np.random.Generator) -> "MyRandomlyCyclingMultiSourcesExamplesIterable":
-        """Shuffle the data sources of each wrapped examples iterable."""
-        ex_iterables = [ex_iterable.shuffle_data_sources(generator) for ex_iterable in self.ex_iterables]
-        return MyRandomlyCyclingMultiSourcesExamplesIterable(
-            ex_iterables, generator=generator, probabilities=self.probabilities
-        )
-
-
-class MyMappedExamplesIterable(MappedExamplesIterable):
-    def __init__(
-            self,
-            ex_iterable: _BaseExamplesIterable,
-            function: Callable,
-            with_indices: bool = False,
-            input_columns: Optional[List[str]] = None,
-            batched: bool = False,
-            batch_size: int = 1000,
-            remove_columns: Optional[List[str]] = None,
-            output_function: Optional[bool] = False
-    ):
-        super().__init__(
-            ex_iterable, function, with_indices, input_columns, batched, batch_size, remove_columns
-        )
-        self.output_function = output_function
-
-    def __iter__(self):
-        assert not self.batched, "Current implementation does handle batched examples. " \
-                               "Use hugginface's dataset.MappedExamplesIterable instead."
-        iterator = iter(self.ex_iterable)
-        for key, example in iterator:
-            # If not batched, apply the transform and yield the example directly
-            if self.output_function:
-                yield key, example, self.function
-            else:
-                yield key, self.function(example)
-
-    def shuffle_data_sources(self, seed: Optional[int]) -> "MyMappedExamplesIterable":
-        """Shuffle the wrapped examples iterable."""
-        return MyMappedExamplesIterable(
-            self.ex_iterable.shuffle_data_sources(seed),
-            function=self.function,
-            batched=self.batched,
-            batch_size=self.batch_size,
-        )
-
