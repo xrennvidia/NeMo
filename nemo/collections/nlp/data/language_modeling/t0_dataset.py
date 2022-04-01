@@ -188,8 +188,8 @@ class T0DatasetBuilder(object):
         logging.info('Getting rank info.')
         rank = parallel_state.get_data_parallel_rank()
         logging.info(f'Global rank is {rank}')
-        logging.info('Node rank is' + os.environ.get('NODE_RANK', 0))
-        logging.info('Local rank is' + os.environ.get('LOCAL_RANK', 0))
+        logging.info('Node rank is' + str(os.environ.get('NODE_RANK', 0)))
+        logging.info('Local rank is' + str(os.environ.get('LOCAL_RANK', 0)))
         if rank == 0:
             if not os.path.isdir(features_dir) or not self.use_cache:
                 logging.info('Waiting for main process to perform the mapping and preprocessing.')
