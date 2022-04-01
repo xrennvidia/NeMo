@@ -30,6 +30,7 @@ from datasets import (
     set_caching_enabled,
     interleave_datasets
 )
+from nemo.utils.app_state import AppState
 from nemo.collections.common.tokenizers.tokenizer_spec import TokenizerSpec
 from nemo.collections.nlp.data.language_modeling.t0_task_manager import (
     DATA_ORG, t0_all_evaldt_names_subset,
@@ -186,7 +187,8 @@ class T0DatasetBuilder(object):
     def get_dataset(self, task):
         features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
         logging.info('Getting rank info.')
-        rank = parallel_state.get_data_parallel_rank()
+        app_state = AppState()
+        rank = app_state.global_rank
         logging.info(f'Global rank is {rank}')
         logging.info('Node rank is' + str(os.environ.get('NODE_RANK', 0)))
         logging.info('Local rank is' + str(os.environ.get('LOCAL_RANK', 0)))
@@ -241,10 +243,13 @@ class T0DatasetBuilder(object):
                 if "/" in dt_name:
                     dt_name = dt_name.split("/")[-1]
                 file_name = "_%s_%s.jsonl" % (dt_name, "" if subset is None else subset)
+                logging.info('get_data_paths_and_splits')
                 _, data_paths = get_data_paths_and_splits(self.split, self.dir_path, file_name, dt_name)
                 for file_path in data_paths:
+                    logging.info('get_task')
                     task = self.get_task(file_path, dt_name, subset)
                     task_name = "%s_%s" % (dt_name, "" if subset is None else subset)
+
                     dataset_dict[task_name] = self.get_dataset(task)
         return dataset_dict
 
