@@ -185,6 +185,7 @@ class T0DatasetBuilder(object):
     def get_dataset(self, task):
         features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
         rank = parallel_state.get_data_parallel_rank()
+        torch.cuda.synchronize()
         if rank == 0:
             if not os.path.isdir(features_dir) or not self.use_cache:
                 logging.info('Waiting for main process to perform the mapping and preprocessing.')
