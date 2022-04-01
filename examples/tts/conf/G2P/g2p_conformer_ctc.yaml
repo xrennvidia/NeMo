@@ -94,20 +94,22 @@ model:
 
   optim:
     name: adamw
-    lr: 2e-4
-    weight_decay: 0.01
+    lr: 2.0
+    # optimizer arguments
+    betas: [ 0.9, 0.98 ]
+    # less necessity for weight_decay as we already have large augmentations with SpecAug
+    # you may need weight_decay for large models, stable AMP training, small datasets, or when lower augmentations are used
+    # weight decay of 0.0 with lr of 2.0 also works fine
+    weight_decay: 1e-3
+
     # scheduler setup
     sched:
-      name: WarmupAnnealing
-
-      # pytorch lightning args
-      monitor: val_token_precision
-      reduce_on_plateau: false
-
+      name: NoamAnnealing
+      d_model: ${model.encoder.d_model}
       # scheduler config override
-      warmup_steps: null
-      warmup_ratio: 0.1
-      last_epoch: -1
+      warmup_steps: 10000
+      warmup_ratio: null
+      min_lr: 1e-6
 
 trainer:
   devices: 1 # number of gpus
@@ -119,7 +121,7 @@ trainer:
   enable_checkpointing: False  # Provided by exp_manager
   logger: False  # Provided by exp_manager
 #  flush_logs_every_n_steps: 1000
-  log_every_n_steps: 10
+  log_every_n_steps: 200
   check_val_every_n_epoch: 1
 
 exp_manager:
