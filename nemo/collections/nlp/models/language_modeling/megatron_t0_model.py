@@ -196,7 +196,9 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             seed=self.cfg.seed,
             use_cache=self.cfg.data.use_cache,
             max_samples=getattr(self.cfg.data, "max_samples", None),
-            num_proc=self.cfg.data.num_workers
+            num_proc=self.cfg.data.num_workers,
+            num_nodes=self.trainer.num_nodes,
+            num_gpus=self.trainer.gpus
         )
         return datasetbuilder
 

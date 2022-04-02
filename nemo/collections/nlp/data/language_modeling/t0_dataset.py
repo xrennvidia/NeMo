@@ -168,8 +168,6 @@ class T0DatasetBuilder(object):
         self.num_nodes = num_nodes
         self.tasks = []
         self.empty_prompt_token_id = -1
-        self.world_size = parallel_state.get_data_parallel_world_size()
-        self.num_ranks_per_node = self.world_size // num_nodes
         self.datasets = self.get_data_dict()
 
     def assemble_datasets(self):
@@ -185,11 +183,14 @@ class T0DatasetBuilder(object):
             return self.datasets
 
     def get_dataset(self, task):
-        features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
+        features_dir = {
+            node_id: os.path.join(self.dir_path, self.split, f'features_{task.task_id}_n{node_id}')
+            for node_id in range(0, self.num_nodes)
+        }
         app_state = AppState()
         rank = app_state.global_rank
         if rank == 0:
-            if not os.path.isdir(features_dir) or not self.use_cache:
+            if not os.path.isdir(features_dir[0]) or not self.use_cache:
                 logging.info('Waiting for main process to perform the mapping and preprocessing.')
                 dataset = load_dataset(
                     self.extension, data_files=task.file_path, split='train'
@@ -203,14 +204,15 @@ class T0DatasetBuilder(object):
                     num_proc=self.num_proc,
                     remove_columns=original_column_names,
                 )
-                dataset.save_to_disk(features_dir)
+                for node_id in range(0, self.num_nodes):
+                    dataset.save_to_disk(features_dir[node_id])
             torch.distributed.barrier()
         else:
             torch.distributed.barrier()
 
-        with mutex:
-            logging.info('Loading results from the main process.')
-            dataset = load_from_disk(features_dir)
+        #with mutex:
+        logging.info('Loading results from the main process.')
+        dataset = load_from_disk(features_dir[rank//self.num_gpus])
         dataset.info.dataset_size = task.dataset_size
         dataset.task = task
         return dataset
