@@ -206,7 +206,7 @@ class T0DatasetBuilder(object):
             torch.distributed.barrier()
         else:
             torch.distributed.barrier()
-        logging.info('Finished waiting for main process.')
+        logging.info('Finished waiting for main process in map_dataset().')
 
     def distribute_dataset(self, rank, world_size, features_dir):
         if rank == 0:
@@ -225,7 +225,7 @@ class T0DatasetBuilder(object):
                 )
                 new_features_dir = os.path.join(features_dir, f'rank_{r}')
                 rank_dataset.save_to_disk(new_features_dir)
-            logging.info('Finished waiting for main process.')
+            logging.info('Finished waiting for main process in distribute_dataset().')
 
     def get_dataset(self, task):
         features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
