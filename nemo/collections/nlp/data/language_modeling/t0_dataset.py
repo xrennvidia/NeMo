@@ -208,22 +208,22 @@ class T0DatasetBuilder(object):
             torch.distributed.barrier()
         logging.info('Finished waiting for main process in map_dataset().')
 
-    def distribute_dataset(self, rank, world_size, features_dir):
+    def distribute_dataset(self, rank, features_dir):
         if rank == 0:
             logging.info('Waiting for main process to distribute data.')
             dataset = load_from_disk(features_dir)
             table = dataset.data
             start = 0
-            for r in range(world_size):
-                rank_table = table.slice(offset=start, length=math.ceil(len(table)/world_size))
-                start += len(table)//world_size
+            for node in range(self.num_nodes):
+                rank_table = table.slice(offset=start, length=math.ceil(len(table)/self.num_nodes))
+                start += len(table)//self.num_nodes
                 rank_dataset = arrow_dataset.Dataset(
                     arrow_table=rank_table,
                     info=dataset.info,
                     split=dataset.split,
                     fingerprint=dataset._fingerprint,
                 )
-                new_features_dir = os.path.join(features_dir, f'rank_{r}')
+                new_features_dir = os.path.join(features_dir, f'rank_{node}')
                 rank_dataset.save_to_disk(new_features_dir)
             logging.info('Finished waiting for main process in distribute_dataset().')
 
@@ -232,15 +232,15 @@ class T0DatasetBuilder(object):
         app_state = AppState()
         rank = app_state.global_rank
         world_size = app_state.world_size
+        node = rank // self.num_gpus
         if not os.path.isdir(features_dir) or not self.use_cache:
             self.map_dataset(task, rank, features_dir)
-        if world_size > 1 and self.distribute_datasets:
-            existing_rank_folders = glob.glob(features_dir + '/rank*')
-            if len(existing_rank_folders) != world_size:
-                self.distribute_dataset(rank, world_size, features_dir)
-            logging.info(f'Applying barrier to {rank}.')
+        if self.num_nodes > 1 and self.distribute_datasets:
+            existing_node_folders = glob.glob(features_dir + '/node*')
+            if len(existing_node_folders) != self.num_nodes:
+                self.distribute_dataset(rank, features_dir)
             torch.distributed.barrier()
-            features_dir = os.path.join(features_dir, f'rank_{rank}')
+            features_dir = os.path.join(features_dir, f'node_{node}')
         logging.info('Loading results from the main process %s.' % features_dir)
         dataset = load_from_disk(features_dir)
         dataset.task = task
