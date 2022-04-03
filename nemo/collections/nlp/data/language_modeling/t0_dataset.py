@@ -61,7 +61,7 @@ class Task(object):
         self.file_path = file_path
         self.task_id = get_task_id(dt_name, subset)
         self.prompt_id = {}
-        self.dataset_size = self.mapcount()
+        #self.dataset_size = self.mapcount()
 
     def mapcount(self):
         f = open(self.file_path, "r+")
@@ -234,17 +234,15 @@ class T0DatasetBuilder(object):
         world_size = app_state.world_size
         if not os.path.isdir(features_dir) or not self.use_cache:
             self.map_dataset(task, rank, features_dir)
-        logging.info('Before if statement for datasets distribution.')
         if world_size > 1 and self.distribute_datasets:
             existing_rank_folders = glob.glob(features_dir + '/rank*')
             if len(existing_rank_folders) != world_size:
                 self.distribute_dataset(rank, world_size, features_dir)
-            logging.info(f'Applying barrier to {rank} at end of if statement.')
+            logging.info(f'Applying barrier to {rank}.')
             torch.distributed.barrier()
             features_dir = os.path.join(features_dir, f'rank_{rank}')
         logging.info('Loading results from the main process %s.' % features_dir)
         dataset = load_from_disk(features_dir)
-        dataset.info.dataset_size = task.dataset_size
         dataset.task = task
         return dataset
 
@@ -275,7 +273,6 @@ class T0DatasetBuilder(object):
                 for file_path in data_paths:
                     task = self.get_task(file_path, dt_name, subset)
                     task_name = "%s_%s" % (dt_name, "" if subset is None else subset)
-                    logging.info('Before get_dataset')
                     dataset_dict[task_name] = self.get_dataset(task)
         return dataset_dict
 
@@ -285,13 +282,13 @@ class T0DatasetBuilder(object):
         world_size = app_state.world_size
         for dataset in self.datasets.values():
             max_sampling_size = self.max_sampling_size//(world_size if self.distribute_datasets else 1)
-            sampling_data_sizes.append(min(dataset.dataset_size, max_sampling_size))
+            sampling_data_sizes.append(min(len(dataset), max_sampling_size))
         sampling_data_sizes = np.array(sampling_data_sizes)
         sampling_probs = sampling_data_sizes / np.sum(sampling_data_sizes)
         return sampling_probs.tolist()
 
     def __len__(self):
-        return sum(d.dataset_size for d in self.datasets.values())
+        return sum(len(dataset) for dataset in self.datasets.values())
 
     def choose_template(self, features):
         available_prompts = []
