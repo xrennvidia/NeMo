@@ -238,8 +238,8 @@ class T0DatasetBuilder(object):
             existing_rank_folders = glob.glob(features_dir + '/rank*')
             if len(existing_rank_folders) != world_size:
                 self.distribute_dataset(rank, world_size, features_dir)
-            with mutex:
-                features_dir = os.path.join(features_dir, f'rank_{rank}')
+            torch.distributed.barrier()
+            features_dir = os.path.join(features_dir, f'rank_{rank}')
         logging.info('Loading results from the main process %s.' % features_dir)
         dataset = load_from_disk(features_dir)
         dataset.info.dataset_size = task.dataset_size
@@ -273,7 +273,6 @@ class T0DatasetBuilder(object):
                 for file_path in data_paths:
                     task = self.get_task(file_path, dt_name, subset)
                     task_name = "%s_%s" % (dt_name, "" if subset is None else subset)
-
                     dataset_dict[task_name] = self.get_dataset(task)
         return dataset_dict
 
