@@ -188,8 +188,8 @@ class T0DatasetBuilder(object):
             return self.datasets
 
     def map_dataset(self, task, rank, features_dir):
+        logging.info('Waiting for main process to perform the mapping/preprocessing.')
         if rank == 0:
-            logging.info('Waiting for main process to perform the mapping/preprocessing.')
             dataset = load_dataset(
                 self.extension, data_files=task.file_path, split='train'
             )
@@ -204,9 +204,9 @@ class T0DatasetBuilder(object):
             )
             dataset.save_to_disk(features_dir)
             torch.distributed.barrier()
-            logging.info('Finished waiting for main process.')
         else:
             torch.distributed.barrier()
+        logging.info('Finished waiting for main process.')
 
     def distribute_dataset(self, rank, world_size, features_dir):
         if rank == 0:
@@ -275,6 +275,7 @@ class T0DatasetBuilder(object):
                 for file_path in data_paths:
                     task = self.get_task(file_path, dt_name, subset)
                     task_name = "%s_%s" % (dt_name, "" if subset is None else subset)
+                    logging.info('Before get_dataset')
                     dataset_dict[task_name] = self.get_dataset(task)
         return dataset_dict
 
