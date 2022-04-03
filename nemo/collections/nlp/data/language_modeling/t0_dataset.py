@@ -215,16 +215,16 @@ class T0DatasetBuilder(object):
             table = dataset.data
             start = 0
             for node in range(self.num_nodes):
-                rank_table = table.slice(offset=start, length=math.ceil(len(table)/self.num_nodes))
+                node_table = table.slice(offset=start, length=math.ceil(len(table)/self.num_nodes))
                 start += len(table)//self.num_nodes
-                rank_dataset = arrow_dataset.Dataset(
-                    arrow_table=rank_table,
+                node_dataset = arrow_dataset.Dataset(
+                    arrow_table=node_table,
                     info=dataset.info,
                     split=dataset.split,
                     fingerprint=dataset._fingerprint,
                 )
-                new_features_dir = os.path.join(features_dir, f'rank_{node}')
-                rank_dataset.save_to_disk(new_features_dir)
+                new_features_dir = os.path.join(features_dir, f'node_{node}')
+                node_dataset.save_to_disk(new_features_dir)
             logging.info('Finished waiting for main process in distribute_dataset().')
 
     def get_dataset(self, task):
