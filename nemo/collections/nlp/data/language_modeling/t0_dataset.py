@@ -234,10 +234,12 @@ class T0DatasetBuilder(object):
         world_size = app_state.world_size
         if not os.path.isdir(features_dir) or not self.use_cache:
             self.map_dataset(task, rank, features_dir)
+        logging.info('Before if statement for datasets distribution.')
         if world_size > 1 and self.distribute_datasets:
             existing_rank_folders = glob.glob(features_dir + '/rank*')
             if len(existing_rank_folders) != world_size:
                 self.distribute_dataset(rank, world_size, features_dir)
+            logging.info(f'Applying barrier to {rank} at end of if statement.')
             torch.distributed.barrier()
             features_dir = os.path.join(features_dir, f'rank_{rank}')
         logging.info('Loading results from the main process %s.' % features_dir)
