@@ -16,9 +16,10 @@
 
 # Some code of this file was adapted from the HuggingFace library available at
 # https://github.com/huggingface/transformers
-
+import math
 import os
 import mmap
+import glob
 from typing import Dict, Optional, List, Iterator, TypeVar, Callable
 from multiprocessing import Lock
 
@@ -28,7 +29,8 @@ from datasets import (
     load_dataset,
     load_from_disk,
     set_caching_enabled,
-    interleave_datasets
+    interleave_datasets,
+    arrow_dataset
 )
 from nemo.utils.app_state import AppState
 from nemo.collections.common.tokenizers.tokenizer_spec import TokenizerSpec
@@ -131,6 +133,7 @@ class T0DatasetBuilder(object):
             max_seq_length_decoder: int = 128,
             seed: int = 43,
             use_cache: bool = True,
+            distribute_datasets: bool = False,
             extension: str = 'json',
             max_samples: int = None,
             num_proc: int = None,
@@ -161,6 +164,7 @@ class T0DatasetBuilder(object):
         self.max_query_length_decoder = max_seq_length_decoder
         self.seed = seed
         self.use_cache = use_cache
+        self.distribute_datasets = distribute_datasets
         self.extension = extension
         self.max_samples = max_samples
         self.num_proc = num_proc if num_proc > 0 else None
@@ -169,6 +173,7 @@ class T0DatasetBuilder(object):
         self.tasks = []
         self.empty_prompt_token_id = -1
         self.datasets = self.get_data_dict()
+        self.world_size = parallel_state.get_data_parallel_world_size()
 
     def assemble_datasets(self):
         if self.split == 'train':
@@ -182,37 +187,63 @@ class T0DatasetBuilder(object):
         else:
             return self.datasets
 
-    def get_dataset(self, task):
-        features_dir = {
-            node_id: os.path.join(self.dir_path, self.split, f'features_{task.task_id}_n{node_id}')
-            for node_id in range(0, self.num_nodes)
-        }
-        app_state = AppState()
-        rank = app_state.global_rank
+    def map_dataset(self, task, rank, features_dir):
         if rank == 0:
-            if not os.path.isdir(features_dir[0]) or not self.use_cache:
-                logging.info('Waiting for main process to perform the mapping and preprocessing.')
-                dataset = load_dataset(
-                    self.extension, data_files=task.file_path, split='train'
-                )
-                if self.max_samples is not None:
-                    dataset = dataset.select(range(min(len(dataset), self.max_samples)))
-                original_column_names = dataset.column_names
-                dataset = dataset.map(
-                    task.map_fn,
-                    batched=False,
-                    num_proc=self.num_proc,
-                    remove_columns=original_column_names,
-                )
-                for node_id in range(0, self.num_nodes):
-                    dataset.save_to_disk(features_dir[node_id])
+            logging.info('Waiting for main process to perform the mapping/preprocessing.')
+            dataset = load_dataset(
+                self.extension, data_files=task.file_path, split='train'
+            )
+            if self.max_samples is not None:
+                dataset = dataset.select(range(min(len(dataset), self.max_samples)))
+            original_column_names = dataset.column_names
+            dataset = dataset.map(
+                task.map_fn,
+                batched=False,
+                num_proc=self.num_proc,
+                remove_columns=original_column_names,
+            )
+            dataset.save_to_disk(features_dir)
             torch.distributed.barrier()
+            logging.info('Finished waiting for main process.')
         else:
             torch.distributed.barrier()
 
-        #with mutex:
-        logging.info('Loading results from the main process.')
-        dataset = load_from_disk(features_dir[rank//self.num_gpus])
+    def distribute_dataset(self, rank, world_size, features_dir):
+        if rank == 0:
+            logging.info('Waiting for main process to distribute data.')
+            dataset = load_from_disk(features_dir)
+            table = dataset.data
+            start = 0
+            for r in range(world_size):
+                rank_table = table.slice(offset=start, length=math.ceil(len(table)/world_size))
+                start += len(table)//world_size
+                rank_dataset = arrow_dataset.Dataset(
+                    arrow_table=rank_table,
+                    info=dataset.info,
+                    split=dataset.split,
+                    fingerprint=dataset._fingerprint,
+                )
+                new_features_dir = os.path.join(features_dir, f'rank_{r}')
+                rank_dataset.save_to_disk(new_features_dir)
+            torch.distributed.barrier()
+            logging.info('Finished waiting for main process.')
+        else:
+            torch.distributed.barrier()
+
+    def get_dataset(self, task):
+        features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
+        app_state = AppState()
+        rank = app_state.global_rank
+        world_size = app_state.world_size
+        if not os.path.isdir(features_dir) or not self.use_cache:
+            self.map_dataset(task, rank, features_dir)
+        if world_size > 1 and self.distribute_datasets:
+            existing_rank_folders = glob.glob(features_dir + '/rank*')
+            if len(existing_rank_folders) != world_size:
+                self.distribute_dataset(rank, world_size, features_dir)
+            features_dir = os.path.join(features_dir, f'rank_{rank}')
+        logging.info('Loading results from the main process %s.' % features_dir)
+        dataset = load_from_disk(features_dir)
         dataset.info.dataset_size = task.dataset_size
         dataset.task = task
         return dataset
@@ -250,8 +281,11 @@ class T0DatasetBuilder(object):
 
     def get_sampling_probs(self):
         sampling_data_sizes = []
+        app_state = AppState()
+        world_size = app_state.world_size
         for dataset in self.datasets.values():
-            sampling_data_sizes.append(min(dataset.dataset_size, self.max_sampling_size))
+            max_sampling_size = self.max_sampling_size//(world_size if self.distribute_datasets else 1)
+            sampling_data_sizes.append(min(dataset.dataset_size, max_sampling_size))
         sampling_data_sizes = np.array(sampling_data_sizes)
         sampling_probs = sampling_data_sizes / np.sum(sampling_data_sizes)
         return sampling_probs.tolist()
@@ -379,6 +413,7 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
             max_seq_length_decoder: int = 128,
             seed: int = 43,
             use_cache: bool = True,
+            distribute_datasets: bool = True,
             extension: str = 'json',
             max_samples: int = None,
             num_proc: int = None,
@@ -407,7 +442,7 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
         self.split_template = split_template
         super().__init__(
             t0_type, dir_path, max_sampling_size, split, tokenizer, max_seq_length, max_seq_length_decoder,
-            seed, use_cache, extension, max_samples, num_proc, num_gpus, num_nodes
+            seed, use_cache, distribute_datasets, extension, max_samples, num_proc, num_gpus, num_nodes
         )
 
     @staticmethod
