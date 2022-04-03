@@ -225,10 +225,7 @@ class T0DatasetBuilder(object):
                 )
                 new_features_dir = os.path.join(features_dir, f'rank_{r}')
                 rank_dataset.save_to_disk(new_features_dir)
-            torch.distributed.barrier()
             logging.info('Finished waiting for main process.')
-        else:
-            torch.distributed.barrier()
 
     def get_dataset(self, task):
         features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
@@ -241,7 +238,8 @@ class T0DatasetBuilder(object):
             existing_rank_folders = glob.glob(features_dir + '/rank*')
             if len(existing_rank_folders) != world_size:
                 self.distribute_dataset(rank, world_size, features_dir)
-            features_dir = os.path.join(features_dir, f'rank_{rank}')
+            with mutex:
+                features_dir = os.path.join(features_dir, f'rank_{rank}')
         logging.info('Loading results from the main process %s.' % features_dir)
         dataset = load_from_disk(features_dir)
         dataset.info.dataset_size = task.dataset_size
