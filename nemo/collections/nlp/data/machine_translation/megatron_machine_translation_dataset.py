@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import torch
+import numpy as np
 
 from nemo.collections.nlp.data.language_modeling.megatron.megatron_dataset import MegatronDataset
 from nemo.collections.nlp.data.language_modeling.megatron.dataset_utils import get_indexed_dataset_
+from nemo.utils import logging
 
 class MegatronNMTDataset(MegatronDataset):
     """Machine Translation Dataset based on Megatron Dataset Utils."""
@@ -32,7 +34,8 @@ class MegatronNMTDataset(MegatronDataset):
         max_encoder_seq_length,
         max_decoder_seq_length,
         data_impl='mmap',
-        skip_warmup=True
+        skip_warmup=True,
+        dataset_index_sampling_override=False,
     ):
         super().__init__(cfg, trainer=trainer)
         self.encoder_tokenizer = encoder_tokenizer
@@ -45,62 +48,77 @@ class MegatronNMTDataset(MegatronDataset):
         self.max_encoder_seq_length = max_encoder_seq_length
         self.max_decoder_seq_length = max_decoder_seq_length
         self.src_indexed_dataset = self._get_indexed_dataset(src_dataset_prefix, data_impl, skip_warmup)
+        self.tgt_indexed_dataset = self._get_indexed_dataset(tgt_dataset_prefix, data_impl, skip_warmup)
+        assert len(self.src_indexed_dataset) == len(self.tgt_indexed_dataset)
+        self._dataset_length = lambda dataset: dataset.sizes.shape[0]
+        if dataset_index_sampling_override:
+            logging.info("Disregarding index selections and making up our own.")
+            # Make sure the shuffling is different per rank so that the same
+            # samples aren't selected by every worker.
+            self.rng = np.random.default_rng(seed=torch.distributed.get_rank())
+
+            dataset_len = len(self)
+            if dataset_len <= np.iinfo(np.uint32).max:
+                dtype = np.uint32
+            else:
+                dtype = np.uint64
+            self.sampling = np.arange(dataset_len, dtype=dtype)
+            self.rng.shuffle(self.sampling)
+
+            self.sampling_indx = 0
+        else:
+            self.sampling = None
+
+    def __len__(self):
+        self.end_index - self.start_index
 
     def _get_indexed_dataset(self, data_prefix, data_impl, skip_warmup):
-        indexed_dataset = get_indexed_dataset_(data_prefix[0], data_impl, skip_warmup)
+        indexed_dataset = get_indexed_dataset_(data_prefix, data_impl, skip_warmup)
         return indexed_dataset
 
-        _dataset_length = lambda dataset: dataset.sizes.shape[0]
+    def _print_stats(name, start, end):
+        logging.info('    {}:'.format(name))
+        logging.info('     sentence indices in [{}, {}) total of {} '
+                        'sentences'.format(start, end, end - start))
 
-        def _print_stats(name, start, end):
-            print_rank_0('    {}:'.format(name))
-            print_rank_0('     sentence indices in [{}, {}) total of {} '
-                            'sentences'.format(start, end, end - start))
+    def build_named_dataset(name, data_prefix, start_index=0, end_index=0):
+        src_indexed_dataset, tgt_indexed_dataset = _load_data_prefix(data_prefix)
+        if not end_index:
+            end_index = self._dataset_length(src_indexed_dataset) - 1
+        _print_stats(name, start_index, end_index)
+        dataset = Dataset(src_indexed_dataset, tgt_indexed_dataset, start_index,
+                            end_index, args.seq_length, args.decoder_seq_length)
+        return dataset
 
-        def build_named_dataset(name, data_prefix, start_index=0, end_index=0):
-            src_indexed_dataset, tgt_indexed_dataset = _load_data_prefix(data_prefix)
-            if not end_index:
-                end_index = _dataset_length(src_indexed_dataset) - 1
-            _print_stats(name, start_index, end_index)
-            dataset = Dataset(src_indexed_dataset, tgt_indexed_dataset, start_index,
-                                end_index, args.seq_length, args.decoder_seq_length)
-            return dataset
+    def split_and_build_dataset(split, data_prefix):
+        src_indexed_dataset, tgt_indexed_dataset = _load_data_prefix(data_prefix)
+        total_num_of_sentences = _dataset_length(src_indexed_dataset) - 1
+        splits = get_train_valid_test_split_(splits_string, total_num_of_sentences)
+        assert splits[0] < splits[1] < splits[2], \
+            "You need to have a train and valid dataset. Splits: {}".format(splits)
 
-        def split_and_build_dataset(split, data_prefix):
-            src_indexed_dataset, tgt_indexed_dataset = _load_data_prefix(data_prefix)
-            total_num_of_sentences = _dataset_length(src_indexed_dataset) - 1
-            splits = get_train_valid_test_split_(splits_string, total_num_of_sentences)
-            assert splits[0] < splits[1] < splits[2], \
-                "You need to have a train and valid dataset. Splits: {}".format(splits)
+        _print_stats('train', splits[0], splits[1])
+        train_dataset = Dataset(src_indexed_dataset, tgt_indexed_dataset,
+                                splits[0], splits[1], args.seq_length,
+                                args.decoder_seq_length)
 
-            _print_stats('train', splits[0], splits[1])
-            train_dataset = Dataset(src_indexed_dataset, tgt_indexed_dataset,
-                                    splits[0], splits[1], args.seq_length,
-                                    args.decoder_seq_length)
-
-            _print_stats('valid', splits[1], splits[2])
-            valid_dataset = Dataset(src_indexed_dataset, tgt_indexed_dataset,
-                                    splits[1], splits[2], args.seq_length,
-                                    args.decoder_seq_length)
-            return train_dataset, valid_dataset
-
-        print_rank_0(' > dataset split:')
-        if args.train_data and args.valid_data:
-            train_dataset = build_named_dataset('train', args.train_data)
-            valid_dataset = build_named_dataset('valid', args.valid_data)
-        else:
-            assert args.split, "Must be able to split the data path; none provided."
-            assert args.data_path, "Must have a data path to split; none provided."
-            train_dataset, valid_dataset = split_and_build_dataset(args.split, args.data_path)
-
-        print_rank_0("decoder sequence length = {}".format(args.decoder_seq_length))
-
-        return train_dataset, valid_dataset, None
+        _print_stats('valid', splits[1], splits[2])
+        valid_dataset = Dataset(src_indexed_dataset, tgt_indexed_dataset,
+                                splits[1], splits[2], args.seq_length,
+                                args.decoder_seq_length)
+        return train_dataset, valid_dataset
 
     def __len__(self):
         return self.end_index - self.start_index
 
     def __getitem__(self, idx):
+        if self.sampling is not None:
+            idx = self.sampling[self.sampling_indx]
+            self.sampling_indx += 1
+            if self.sampling_indx == len(self.sampling):
+                self.sampling_indx = 0
+                self.rng.shuffle(self.sampling)
+
         local_idx = idx + self.start_index
         assert local_idx < self.end_index
         
