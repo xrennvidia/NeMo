@@ -1,28 +1,30 @@
-# This config contains the default values for training FastPitch model with aligner on LJSpeech dataset.
+# This config contains the default values for training FastPitch model with aligner on LibriTTS dataset.
 # If you want to train model on other dataset, you can change config values according to your dataset.
 # Most dataset-specific arguments are in the head of the config file, see below.
 
-name: FastPitch
+name: FastPitch_hybrid
 
-train_dataset: ???
-validation_datasets: ???
-sup_data_path: ???
-sup_data_types: [ "align_prior_matrix", "pitch" ]
+train_dataset: "/data/speech/LibriTTS2/LibriTTS/train_clean_100.json"
+validation_datasets: "/data/speech/LibriTTS2/LibriTTS/dev_clean.json"
+
+sup_data_types: [align_prior_matrix, pitch, speaker_id]
+sup_data_path: "/data/speech/LibriTTS2/sup_data_path"
 
 # Default values from librosa.pyin
-pitch_fmin: 65.40639132514966
-pitch_fmax: 2093.004522404789
+pitch_fmin: 65.4063949
+pitch_fmax: 2093.004638
 
-# LJSpeech stats (per frame), train (these values depend on pitch_fmin and pitch_fmax)
-pitch_mean: 212.35873413085938
-pitch_std: 68.52806091308594
 
-# Default values for dataset with sample_rate=22050
-sample_rate: 22050
+# LibriTTS stats (per frame), train (these values depend on pitch_fmin and pitch_fmax)
+pitch_mean: 170.18852233 
+pitch_std: 96.0466613 
+
+# Default values for dataset with sample_rate=16000
+sample_rate: 16000
 n_mel_channels: 80
-n_window_size: 1024
-n_window_stride: 256
-n_fft: 1024
+window_size: 0.025
+window_stride: 0.01
+n_fft: 512
 lowfreq: 0
 highfreq: 8000
 window: hann
@@ -35,7 +37,7 @@ model:
   learn_alignment: true
   bin_loss_warmup_epochs: 100
 
-  n_speakers: 1
+  n_speakers: 9000
   max_token_duration: 75
   symbols_embedding_dim: 384
   pitch_embedding_kernel_size: 3
@@ -48,12 +50,15 @@ model:
 
   sample_rate: ${sample_rate}
   n_mel_channels: ${n_mel_channels}
-  n_window_size: ${n_window_size}
-  n_window_stride: ${n_window_stride}
+  window_size: ${window_size}
+  window_stride: ${window_stride}
   n_fft: ${n_fft}
   lowfreq: ${lowfreq}
   highfreq: ${highfreq}
   window: ${window}
+  # sample_rate * win_size
+  win_length: 400
+  hop_length: 160
 
   text_normalizer:
     _target_: nemo_text_processing.text_normalization.normalize.Normalizer
@@ -77,7 +82,7 @@ model:
       _target_: nemo.collections.tts.torch.g2ps.EnglishG2p
       phoneme_dict: ${phoneme_dict_path}
       heteronyms: ${heteronyms_path}
-      phoneme_probability: 0.5
+      # phoneme_probability: 0.5
 
   train_ds:
     dataset:
@@ -87,13 +92,13 @@ model:
       sup_data_path: ${sup_data_path}
       sup_data_types: ${sup_data_types}
       n_fft: ${model.n_fft}
-      win_length: ${model.n_window_size}
-      hop_length: ${model.n_window_stride}
+      win_length: ${model.win_length}
+      hop_length: ${model.hop_length}
       window: ${model.window}
       n_mels: ${model.n_mel_channels}
       lowfreq: ${model.lowfreq}
       highfreq: ${model.highfreq}
-      max_duration: null
+      max_duration: 15
       min_duration: 0.1
       ignore_file: null
       trim: false
@@ -102,13 +107,13 @@ model:
       pitch_norm: true
       pitch_mean: ${model.pitch_mean}
       pitch_std: ${model.pitch_std}
-      use_beta_binomial_interpolator: true
+      # use_beta_binomial_interpolator: true
 
     dataloader_params:
       drop_last: false
       shuffle: true
-      batch_size: 32
-      num_workers: 12
+      batch_size: 24
+      num_workers: 8
 
   validation_ds:
     dataset:
@@ -118,14 +123,14 @@ model:
       sup_data_path: ${sup_data_path}
       sup_data_types: ${sup_data_types}
       n_fft: ${model.n_fft}
-      win_length: ${model.n_window_size}
-      hop_length: ${model.n_window_stride}
+      win_length: ${model.win_length}
+      hop_length: ${model.hop_length}
       window: ${model.window}
       n_mels: ${model.n_mel_channels}
       lowfreq: ${model.lowfreq}
       highfreq: ${model.highfreq}
-      max_duration: null
-      min_duration: null
+      max_duration: 15
+      min_duration: 0.1
       ignore_file: null
       trim: false
       pitch_fmin: ${model.pitch_fmin}
@@ -133,31 +138,31 @@ model:
       pitch_norm: true
       pitch_mean: ${model.pitch_mean}
       pitch_std: ${model.pitch_std}
-      use_beta_binomial_interpolator: true
+      # use_beta_binomial_interpolator: true
 
     dataloader_params:
       drop_last: false
       shuffle: false
-      batch_size: 32
+      batch_size: 24
       num_workers: 8
+    
 
   preprocessor:
     _target_: nemo.collections.asr.modules.AudioToMelSpectrogramPreprocessor
+    normalize: "per_feature"
     features: ${model.n_mel_channels}
     lowfreq: ${model.lowfreq}
     highfreq: ${model.highfreq}
     n_fft: ${model.n_fft}
-    n_window_size: ${model.n_window_size}
-    window_size: false
-    n_window_stride: ${model.n_window_stride}
-    window_stride: false
-    pad_to: 1
+    window_size: ${model.window_size}
+    window_stride: ${model.window_stride}
+    pad_to: 0
     pad_value: 0
     sample_rate: ${model.sample_rate}
     window: ${model.window}
     normalize: null
     preemph: null
-    dither: 0.0
+    dither: 0.00001
     frame_splicing: 1
     log: true
     log_zero_guard_type: add
@@ -222,18 +227,18 @@ model:
       d_model: 1  # Disable scaling based on model dim
 
 trainer:
-  num_nodes: 1
+  num_nodes: 2
   devices: 1
   accelerator: gpu
   strategy: ddp
-  precision: 16
+  precision: 32
   max_epochs: 1000
   accumulate_grad_batches: 1
   gradient_clip_val: 1000.0
   enable_checkpointing: False # Provided by exp_manager
   logger: false # Provided by exp_manager
   log_every_n_steps: 100
-  check_val_every_n_epoch: 5
+  check_val_every_n_epoch: 10
 
 exp_manager:
   exp_dir: null
