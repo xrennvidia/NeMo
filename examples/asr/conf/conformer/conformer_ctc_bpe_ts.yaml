@@ -39,8 +39,6 @@ model:
   log_prediction: true # enables logging sample predictions in the output during training
   ctc_reduction: 'mean_batch'
   train_ds:
-    speaker_embeddings: ${model.speaker_embeddings}
-    speaker_embedding_manifest: None
     augmentor:
       rir_noise_speaker:
         prob: 1.0
@@ -78,26 +76,6 @@ model:
     bucketing_batch_size: null
 
   validation_ds:
-    augmentor:
-      rir_noise_speaker:
-        prob: 1.0
-        rir_manifest_path: ???
-        rir_tar_filepaths: None
-        rir_prob: 0
-        noise_manifest_paths: ???
-        min_snr_db: [0]
-        max_snr_db: [50]
-        noise_tar_filepaths: None
-        apply_noise_rir: True
-        max_additions: 1
-        max_duration: 2.0
-        bg_min_snr_db: [10]
-        bg_max_snr_db: [50]
-        bg_noise_manifest_paths: ???
-        bg_noise_tar_filepaths: None
-        apply_foreground_noise: False
-    speaker_embeddings: ${model.speaker_embeddings}
-    speaker_embedding_manifest: None
     manifest_filepath: ???
     sample_rate: ${model.sample_rate}
     batch_size: 16 # you may increase batch_size if your memory allows
@@ -107,8 +85,6 @@ model:
     use_start_end_token: false
 
   test_ds:
-    speaker_embeddings: ${model.speaker_embeddings}
-    speaker_embedding_manifest: None
     manifest_filepath: null
     sample_rate: ${model.sample_rate}
     batch_size: 16 # you may increase batch_size if your memory allows

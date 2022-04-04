@@ -133,7 +133,7 @@ def get_bpe_dataset(
 
 
 def get_audio_embedding_bpe_dataset(
-    config: dict, tokenizer: 'TokenizerSpec', augmentor: Optional['AudioAugmentor'] = None
+    config: dict, tokenizer: 'TokenizerSpec', augmentor: Optional['AudioAugmentor'] = None, synthetic_generation: bool = False,
 ) -> audio_to_text.AudioToBPEDataset:
     """
     Instantiates a Byte Pair Encoding / Word Piece Encoding based AudioToBPEDataset.
@@ -157,8 +157,8 @@ def get_audio_embedding_bpe_dataset(
         max_utts=config.get('max_utts', 0),
         trim=config.get('trim_silence', False),
         use_start_end_token=config.get('use_start_end_token', True),
-        return_sample_id=config.get('return_sample_id', False),
-        speaker_embedding_manifest=config.get('speaker_embedding_path', None),
+        synthetic_generation=synthetic_generation
+        
     )
     return dataset
 

@@ -1078,9 +1078,9 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
         max_utts: int = 0,
         trim: bool = False,
         use_start_end_token: bool = True,
-        return_sample_id: bool = False,
-        speaker_embedding_manifest: Optional[str] = None,
+        synthetic_generation: bool = False,
     ):
+        keep_fields=["other_audio_filepath", "other_duration"]
         super().__init__(
             manifest_filepath=manifest_filepath,
             tokenizer=tokenizer,
@@ -1092,29 +1092,26 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
             max_utts=max_utts,
             trim=trim,
             use_start_end_token=use_start_end_token,
-            return_sample_id=return_sample_id,
-            index_by_speaker_id=True,
-        )
+            index_by_speaker_id=synthetic_generation == True,
+            keep_fields=[] if synthetic_generation else keep_fields
+        ) # inits  ASRManifestProcessor
 
-        self.speaker_embeddings = None
-        if not speaker_embedding_manifest:
-            self.featurizer = WaveformFeaturizerAndEmbedding(
-                sample_rate=sample_rate, int_values=int_values, augmentor=augmentor
-            )
-        else:
-            # load spaker embeddings from manifest
-            self.speaker_embeddings = None
+
+        self.featurizer = WaveformFeaturizerAndEmbedding(
+            sample_rate=sample_rate, int_values=int_values, augmentor=augmentor
+        )
+        self.synthetic_generation = synthetic_generation
         
-        self.eval_dir= '/home/yangzhang/code/ts_asr/data/ls_dev_clean_mixed'
-        self.eval_individual_dir= '/home/yangzhang/code/ts_asr/data/ls_dev_clean_aux_utterance'
-        self.manifest_eval= self.eval_dir + '/manifest.json'
-        self.manifest_eval_aux_utterance= self.eval_individual_dir + '/manifest.json'
-        os.makedirs(self.eval_dir, exist_ok=True)
-        os.makedirs(self.eval_individual_dir, exist_ok=True)
-        with open(self.manifest_eval, 'w') as fp:
-            pass
-        with open(self.manifest_eval_aux_utterance, 'w') as fp:
-            pass
+        # self.eval_dir= '/home/yangzhang/code/ts_asr/data/ls_dev_clean_mixed'
+        # self.eval_individual_dir= '/home/yangzhang/code/ts_asr/data/ls_dev_clean_aux_utterance'
+        # self.manifest_eval= self.eval_dir + '/manifest.json'
+        # self.manifest_eval_aux_utterance= self.eval_individual_dir + '/manifest.json'
+        # os.makedirs(self.eval_dir, exist_ok=True)
+        # os.makedirs(self.eval_individual_dir, exist_ok=True)
+        # with open(self.manifest_eval, 'w') as fp:
+        #     pass
+        # with open(self.manifest_eval_aux_utterance, 'w') as fp:
+        #     pass
         self.manifest_filepath = manifest_filepath
 
     def __getitem__(self, index):

@@ -203,7 +203,7 @@ class TSEncDecCTCModelBPE(EncDecCTCModelBPE):
             'val_wer': wer,
         }
 
-    def _setup_dataloader_from_config(self, config: Optional[Dict]):
+    def _setup_dataloader_from_config(self, config: Optional[Dict], synthetic_generation: bool = False):
         if 'augmentor' in config:
             augmentor = process_augmentations(config['augmentor'])
         else:
@@ -251,7 +251,7 @@ class TSEncDecCTCModelBPE(EncDecCTCModelBPE):
                 return None
 
             dataset = audio_to_text_dataset.get_audio_embedding_bpe_dataset(
-                config=config, tokenizer=self.tokenizer, augmentor=augmentor
+                config=config, tokenizer=self.tokenizer, augmentor=augmentor, synthetic_generation=synthetic_generation
             )
 
         loader = torch.utils.data.DataLoader(
@@ -296,3 +296,47 @@ class TSEncDecCTCModelBPE(EncDecCTCModelBPE):
 
         temporary_datalayer = self._setup_dataloader_from_config(config=DictConfig(dl_config))
         return temporary_datalayer
+
+
+
+    def setup_training_data(self, train_data_config):
+        
+        """
+        Sets up the training data loader via a Dict-like object.
+
+        Args:
+            train_data_config: A config that contains the information regarding construction
+                of an ASR Training dataset.
+
+        Supported Datasets:
+            -   :class:`~nemo.collections.asr.data.audio_to_text.AudioToCharDataset`
+            -   :class:`~nemo.collections.asr.data.audio_to_text.AudioToBPEDataset`
+            -   :class:`~nemo.collections.asr.data.audio_to_text.TarredAudioToCharDataset`
+            -   :class:`~nemo.collections.asr.data.audio_to_text.TarredAudioToBPEDataset`
+            -   :class:`~nemo.collections.asr.data.audio_to_text_dali.AudioToCharDALIDataset`
+        """
+        if 'shuffle' not in train_data_config:
+            train_data_config['shuffle'] = True
+
+        # preserve config
+        self._update_dataset_config(dataset_name='train', config=train_data_config)
+
+        self._train_dl = self._setup_dataloader_from_config(config=train_data_config, synthetic_generation=True)
+
+        # Need to set this because if using an IterableDataset, the length of the dataloader is the total number
+        # of samples rather than the number of batches, and this messes up the tqdm progress bar.
+        # So we set the number of steps manually (to the correct number) to fix this.
+        if 'is_tarred' in train_data_config and train_data_config['is_tarred']:
+            # We also need to check if limit_train_batches is already set.
+            # If it's an int, we assume that the user has set it to something sane, i.e. <= # training batches,
+            # and don't change it. Otherwise, adjust batches accordingly if it's a float (including 1.0).
+            if self._trainer is not None and isinstance(self._trainer.limit_train_batches, float):
+                self._trainer.limit_train_batches = int(
+                    self._trainer.limit_train_batches
+                    * ceil((len(self._train_dl.dataset) / self.world_size) / train_data_config['batch_size'])
+                )
+            elif self._trainer is None:
+                logging.warning(
+                    "Model Trainer was not set before constructing the dataset, incorrect number of "
+                    "training batches will be used. Please set the trainer and rebuild the dataset."
+                )

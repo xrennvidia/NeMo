@@ -112,6 +112,8 @@ class AudioText(_Collection):
         do_sort_by_duration: bool = False,
         index_by_file_id: bool = False,
         index_by_speaker_id: bool = False,
+        *args,
+        **kwargs,
     ):
         """Instantiates audio-text manifest with filters and preprocessing.
 
@@ -133,6 +135,11 @@ class AudioText(_Collection):
             index_by_speaker_id: If True, saves a mapping from speaker id to index in data.
         """
 
+        if "keep_fields" in kwargs:
+            self.OUTPUT_TYPE = collections.namedtuple(
+            typename='AudioTextEntity',
+            field_names='id audio_file duration text_tokens offset text_raw speaker orig_sr lang' + ' ' + ' '.join(kwargs["keep_fields"])
+        )
         output_type = self.OUTPUT_TYPE
         data, duration_filtered, num_filtered, total_duration = [], 0.0, 0, 0.0
         if index_by_file_id:
@@ -140,9 +147,13 @@ class AudioText(_Collection):
         if index_by_speaker_id:
             self.speaker_mapping = {}
 
-        for id_, audio_file, duration, offset, text, speaker, orig_sr, lang in zip(
-            ids, audio_files, durations, offsets, texts, speakers, orig_sampling_rates, langs
+        additional_fields = []
+        if "keep_fields" in kwargs:
+            additional_fields = [kwargs[x] for x in kwargs['keep_fields']]
+        for x in zip(
+            ids, audio_files, durations, offsets, texts, speakers, orig_sampling_rates, langs, *additional_fields
         ):
+            id_, audio_file, duration, offset, text, speaker, orig_sr, lang = x[0:8]
             # Duration filters.
             if min_duration is not None and duration < min_duration:
                 duration_filtered += duration
@@ -172,7 +183,7 @@ class AudioText(_Collection):
 
             total_duration += duration
 
-            data.append(output_type(id_, audio_file, duration, text_tokens, offset, text, speaker, orig_sr, lang))
+            data.append(output_type(id_, audio_file, duration, text_tokens, offset, text, speaker, orig_sr, lang, *x[8:]))
             if index_by_file_id:
                 file_id, _ = os.path.splitext(os.path.basename(audio_file))
                 self.mapping[file_id] = len(data) - 1
@@ -222,6 +233,15 @@ class ASRAudioText(AudioText):
             speakers.append(item['speaker'])
             orig_srs.append(item['orig_sr'])
             langs.append(item['lang'])
+            if "keep_fields" in kwargs:
+                fields = kwargs["keep_fields"]
+                for field in fields:
+                    if field not in kwargs:
+                        kwargs[field] = []
+                    kwargs[field].append(item[field]) 
+            
+                
+                
 
         super().__init__(ids, audio_files, durations, texts, offsets, speakers, orig_srs, langs, *args, **kwargs)
 
