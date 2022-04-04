@@ -20,6 +20,7 @@ import math
 import os
 import mmap
 import glob
+import pyarrow as pa
 from typing import Dict, Optional, List, Iterator, TypeVar, Callable
 from multiprocessing import Lock
 
@@ -72,16 +73,44 @@ class Task(object):
             lines += 1
         return lines
 
-    def map_fn(self, multi_prompted_ex):
+    @staticmethod
+    def create_example(task_id, prompt_id):
+        raise "Task `create_example` Not implemented"
+
+    def tokenize(self, example):
+        raise "Taks `tokenize` not implemented"
+
+    def fn(self, multi_prompted_ex, split):
         features = {}
         for prompt_type, data in multi_prompted_ex.items():
-            if data is None:
-                data = {'input': None, 'output': None}
             self.prompt_id[prompt_type] = self.prompt_id.get(prompt_type, len(self.prompt_id) + 1)
+            if data is None and split != 'train':
+                continue
+            elif data is None:
+                data = {'input': None, 'output': None}
             example = self.create_example(data, self.task_id, self.prompt_id[prompt_type])
-            feature_dicts = self.tokenize(example)
-            feature_dicts = {f'{k}_{self.prompt_id[prompt_type]}': v for k, v in feature_dicts.items()}
-            features.update(feature_dicts)
+            tokenized_features = self.tokenize(example)
+            if split == 'train':
+                feature_dicts = {f'{k}_{self.prompt_id[prompt_type]}': v for k, v in tokenized_features.items()}
+                features.update(feature_dicts)
+            else:
+                feature_dicts = {f'{k}_0': v for k, v in tokenized_features.items()}  # no specific id in keys
+                for k in feature_dicts.keys():
+                    features[k] = features.get(k, [])
+                    features[k].append(feature_dicts[k])
+        return features
+
+    def map_fn_train(self, multi_prompted_ex):
+        """ Dictionary of promtps templates is flattened and template names are appended to dictionary keys.
+        """
+        features = self.fn(multi_prompted_ex, 'train')
+        return features
+
+    def map_fn_eval(self, multi_prompted_ex):
+        """ Mapping is handled a differently for eval/test since we will not sample prompts.
+            Features dict keys is generic and not composed with prompt template specific ids.
+        """
+        features = self.fn(multi_prompted_ex, 'test/eval')
         return features
 
 
@@ -173,7 +202,6 @@ class T0DatasetBuilder(object):
         self.tasks = []
         self.empty_prompt_token_id = -1
         self.datasets = self.get_data_dict()
-        self.world_size = parallel_state.get_data_parallel_world_size()
 
     def assemble_datasets(self):
         if self.split == 'train':
@@ -197,11 +225,19 @@ class T0DatasetBuilder(object):
                 dataset = dataset.select(range(min(len(dataset), self.max_samples)))
             original_column_names = dataset.column_names
             dataset = dataset.map(
-                task.map_fn,
+                function=task.map_fn_train if self.split == 'train' else task.map_fn_eval,
                 batched=False,
                 num_proc=self.num_proc,
                 remove_columns=original_column_names,
             )
+            if self.split != 'train':
+                column_names = dataset.data.column_names
+                arrays = [pa.compute.list_flatten(dataset.data.table[col]) for col in column_names]
+                schemas = [pa.field(name=name, type=array.type) for name, array in zip(column_names, arrays)]
+                table = pa.Table.from_arrays(arrays=arrays, schema=pa.schema(schemas))
+                dataset.data.table = table
+                dataset.data.replace_schema_metadata()
+                dataset.info.features = dataset.info.features.from_arrow_schema(table.schema)
             dataset.save_to_disk(features_dir)
             torch.distributed.barrier()
         else:
@@ -209,37 +245,37 @@ class T0DatasetBuilder(object):
         logging.info('Finished waiting for main process in map_dataset().')
 
     def distribute_dataset(self, rank, features_dir):
-        if rank == 0:
-            logging.info('Waiting for main process to distribute data.')
-            dataset = load_from_disk(features_dir)
-            table = dataset.data
-            start = 0
-            for node in range(self.num_nodes):
-                node_table = table.slice(offset=start, length=math.ceil(len(table)/self.num_nodes))
-                start += len(table)//self.num_nodes
-                node_dataset = arrow_dataset.Dataset(
-                    arrow_table=node_table,
-                    info=dataset.info,
-                    split=dataset.split,
-                    fingerprint=dataset._fingerprint,
-                )
-                new_features_dir = os.path.join(features_dir, f'node_{node}')
-                node_dataset.save_to_disk(new_features_dir)
-            logging.info('Finished waiting for main process in distribute_dataset().')
+        existing_node_folders = glob.glob(features_dir + '/node*')
+        if len(existing_node_folders) != self.num_nodes:
+            if rank == 0:
+                logging.info('Waiting for main process to distribute data.')
+                dataset = load_from_disk(features_dir)
+                table = dataset.data
+                start = 0
+                for node in range(self.num_nodes):
+                    sub_length = math.ceil(len(table)/self.num_nodes)
+                    node_table = table.slice(offset=start, length=sub_length)
+                    start += sub_length
+                    node_dataset = arrow_dataset.Dataset(
+                        arrow_table=node_table,
+                        info=dataset.info,
+                        split=dataset.split,
+                        fingerprint=dataset._fingerprint,
+                    )
+                    new_features_dir = os.path.join(features_dir, f'node_{node}')
+                    node_dataset.save_to_disk(new_features_dir)
+                logging.info('Finished waiting for main process in distribute_dataset().')
+        torch.distributed.barrier()
 
     def get_dataset(self, task):
         features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
         app_state = AppState()
         rank = app_state.global_rank
-        world_size = app_state.world_size
         node = rank // self.num_gpus
         if not os.path.isdir(features_dir) or not self.use_cache:
             self.map_dataset(task, rank, features_dir)
-        if self.num_nodes > 1 and self.distribute_datasets:
-            existing_node_folders = glob.glob(features_dir + '/node*')
-            if len(existing_node_folders) != self.num_nodes:
-                self.distribute_dataset(rank, features_dir)
-            torch.distributed.barrier()
+        if self.num_nodes > 1 and self.distribute_datasets and self.split == 'train':
+            self.distribute_dataset(rank, features_dir)
             features_dir = os.path.join(features_dir, f'node_{node}')
         logging.info('Loading results from the main process %s.' % features_dir)
         dataset = load_from_disk(features_dir)
@@ -298,6 +334,8 @@ class T0DatasetBuilder(object):
                 not np.any(np.array(features[data_name]) == self.empty_prompt_token_id)
             ):
                 available_prompts.append(data_name.split("_")[-1])
+        if not available_prompts:
+            return None
         prompt_num = np.random.choice(available_prompts)
         chosen_features = {
             'text_enc': features[f'text_enc_{prompt_num}'],
@@ -321,7 +359,8 @@ class T0DatasetBuilder(object):
         new_batch = []
         for features in batch:
             feature = self.choose_template(features)
-            new_batch.append(feature)
+            if feature is not None:
+                new_batch.append(feature)
         return self.collate_fn2(new_batch)
 
     def tokenize(self, example):
