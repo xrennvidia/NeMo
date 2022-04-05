@@ -239,44 +239,41 @@ class T0DatasetBuilder(object):
                 dataset.data.replace_schema_metadata()
                 dataset.info.features = dataset.info.features.from_arrow_schema(table.schema)
             dataset.save_to_disk(features_dir)
-            torch.distributed.barrier()
-        else:
-            torch.distributed.barrier()
+        torch.distributed.barrier()
         logging.info('Finished waiting for main process in map_dataset().')
 
-    def distribute_dataset(self, rank, features_dir):
-        existing_node_folders = glob.glob(features_dir + '/node*')
-        if len(existing_node_folders) != self.num_nodes:
-            if rank == 0:
-                logging.info('Waiting for main process to distribute data.')
-                dataset = load_from_disk(features_dir)
-                table = dataset.data
-                start = 0
-                for node in range(self.num_nodes):
-                    sub_length = math.ceil(len(table)/self.num_nodes)
-                    node_table = table.slice(offset=start, length=sub_length)
-                    start += sub_length
-                    node_dataset = arrow_dataset.Dataset(
-                        arrow_table=node_table,
-                        info=dataset.info,
-                        split=dataset.split,
-                        fingerprint=dataset._fingerprint,
-                    )
-                    new_features_dir = os.path.join(features_dir, f'node_{node}')
-                    node_dataset.save_to_disk(new_features_dir)
-                logging.info('Finished waiting for main process in distribute_dataset().')
+    def distribute_dataset(self, rank, world_size, features_dir):
+        existing_node_folders = glob.glob(features_dir + '/rank*')
+        if len(existing_node_folders) != world_size and rank == 0:
+            logging.info('Waiting for main process to distribute data.')
+            dataset = load_from_disk(features_dir)
+            table = dataset.data
+            start = 0
+            for node in range(world_size):
+                sub_length = math.ceil(len(table)/world_size)
+                node_table = table.slice(offset=start, length=sub_length)
+                start += sub_length
+                node_dataset = arrow_dataset.Dataset(
+                    arrow_table=node_table,
+                    info=dataset.info,
+                    split=dataset.split,
+                    fingerprint=dataset._fingerprint,
+                )
+                new_features_dir = os.path.join(features_dir, f'node_{node}')
+                node_dataset.save_to_disk(new_features_dir)
         torch.distributed.barrier()
+        logging.info('Finished waiting for main process in distribute_dataset().')
 
     def get_dataset(self, task):
         features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
         app_state = AppState()
         rank = app_state.global_rank
-        node = rank // self.num_gpus
+        world_size = app_state.world_size
         if not os.path.isdir(features_dir) or not self.use_cache:
             self.map_dataset(task, rank, features_dir)
-        if self.num_nodes > 1 and self.distribute_datasets and self.split == 'train':
-            self.distribute_dataset(rank, features_dir)
-            features_dir = os.path.join(features_dir, f'node_{node}')
+        if self.num_nodes > 1 and self.distribute_datasets:
+            self.distribute_dataset(rank, world_size, features_dir)
+            features_dir = os.path.join(features_dir, f'node_{rank}')
         logging.info('Loading results from the main process %s.' % features_dir)
         dataset = load_from_disk(features_dir)
         dataset.task = task
@@ -313,9 +310,9 @@ class T0DatasetBuilder(object):
         return dataset_dict
 
     def get_sampling_probs(self):
-        sampling_data_sizes = []
         app_state = AppState()
         world_size = app_state.world_size
+        sampling_data_sizes = []
         for dataset in self.datasets.values():
             max_sampling_size = self.max_sampling_size//(world_size if self.distribute_datasets else 1)
             sampling_data_sizes.append(min(len(dataset), max_sampling_size))

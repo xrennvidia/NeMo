@@ -70,7 +70,7 @@ t0pp_traindt_names_subset = {
 t0pp_traindt_names_subset.update(t0p_traindt_names_subset)
 
 t0_all_evaldt_names_subset = {
-    #'anli': None, 'hellaswag': None,
+    'anli': None, 'hellaswag': None,
     'super_glue': ['cb', 'copa', 'rte', 'wic', 'wsc.fixed'],
     'winogrande': 'winogrande_xl', 'story_cloze': '2016',
 }

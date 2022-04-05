@@ -62,7 +62,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
     def get_loss(self, batch):
         tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids \
             = self.process_batch(batch)
-
+        logging.info(f'tokens_enc {tokens_enc.shape}')
         tokens_loss = itemgetter("tokens_loss")(self.model(
             encoder_input_ids=tokens_enc, decoder_input_ids=tokens_dec,
             encoder_attn_mask=enc_mask, decoder_attn_mask=dec_mask,
