@@ -726,60 +726,72 @@ class RirNoiseSpeakerPerturbation(Perturbation):
         self._apply_foreground_noise = apply_foreground_noise
 
     def perturb(self, data, other_utterance, other_speaker):
-        prob = self._rng.uniform(0.0, 1.0)
-        orig_sr = data.orig_sr
-        if orig_sr not in self._fg_noise_perturbers:
-            orig_sr = max(self._fg_noise_perturbers.keys())
-        fg_perturber = self._fg_noise_perturbers[orig_sr]
-        noise = fg_perturber.get_one_noise_sample(data.sample_rate)
+        self.perturb_with_other_input(data, other_speaker)
+        
+        
+        
+        # prob = self._rng.uniform(0.0, 1.0)
+        # if orig_sr not in self._fg_noise_perturbers:
+        #     orig_sr = max(self._fg_noise_perturbers.keys())
+        # fg_perturber = self._fg_noise_perturbers[orig_sr]
+        # noise = fg_perturber.get_one_noise_sample(data.sample_rate)
 
-        orig_sr = data.orig_sr
-        if orig_sr not in self._bg_noise_perturbers:
-            orig_sr = max(self._bg_noise_perturbers.keys())
-        bg_perturber = self._bg_noise_perturbers[orig_sr]
-        noise = bg_perturber.get_one_noise_sample(data.sample_rate)
+        # if orig_sr not in self._bg_noise_perturbers:
+        #     orig_sr = max(self._bg_noise_perturbers.keys())
+        # bg_perturber = self._bg_noise_perturbers[orig_sr]
+        # noise = bg_perturber.get_one_noise_sample(data.sample_rate)
 
-        if other_speaker:
-            # data overlap with other_speaker
-            self.perturb_with_other_input(data, other_speaker)
+        # if other_speaker:
+        #     # data overlap with other_speaker
+        #     self.perturb_with_other_input(data, other_speaker)
 
-        if prob < self._rir_prob:
-            self._rir_perturber.perturb(data)
-            self._rir_perturber.perturb(other_utterance)
-            if self._apply_noise_rir:
-                self._rir_perturber.perturb(noise)
+        # if prob < self._rir_prob:
+        #     self._rir_perturber.perturb(data)
+        #     self._rir_perturber.perturb(other_utterance)
+        #     if self._apply_noise_rir:
+        #         self._rir_perturber.perturb(noise)
 
-        if self._apply_foreground_noise:
-            fg_perturber.perturb_with_foreground_noise(
-                data, noise, data_rms=data.rms_db, max_noise_dur=self._max_duration, max_additions=self._max_additions
-            )
-            fg_perturber.perturb_with_foreground_noise(
-                other_utterance,
-                noise,
-                data_rms=other_utterance.rms_db,
-                max_noise_dur=self._max_duration,
-                max_additions=self._max_additions,
-            )
-        bg_perturber.perturb_with_input_noise(data, noise, data_rms=data.rms_db)
-        bg_perturber.perturb_with_input_noise(other_utterance, noise, data_rms=other_utterance.rms_db)
+        # if self._apply_foreground_noise:
+        #     fg_perturber.perturb_with_foreground_noise(
+        #         data, noise, data_rms=data.rms_db, max_noise_dur=self._max_duration, max_additions=self._max_additions
+        #     )
+        #     fg_perturber.perturb_with_foreground_noise(
+        #         other_utterance,
+        #         noise,
+        #         data_rms=other_utterance.rms_db,
+        #         max_noise_dur=self._max_duration,
+        #         max_additions=self._max_additions,
+        #     )
+        # bg_perturber.perturb_with_input_noise(data, noise, data_rms=data.rms_db)
+        # bg_perturber.perturb_with_input_noise(other_utterance, noise, data_rms=other_utterance.rms_db)
 
     def perturb_with_other_input(self, data, noise, min_gain_ratio=0.3, max_gain_ratio=0.6):
-        data_rms = data.rms_db
-        gain_ratio = self._rng.uniform(min_gain_ratio, max_gain_ratio)
-        noise_gain_db = gain_ratio * data_rms
-        noise_dur = self._rng.uniform(0.0, noise.duration)
-        start_time = self._rng.uniform(0.0, noise.duration)
-        start_sample = int(round(start_time * noise.sample_rate))
-        end_sample = int(round(min(noise.duration, (start_time + noise_dur)) * noise.sample_rate))
-        noise_samples = np.copy(noise._samples[start_sample:end_sample])
-            # adjust gain for snr purposes and superimpose
-        noise_samples *= 10.0 ** (noise_gain_db / 20.0)
+        
+        overlap_ratio = self._rng.uniform(0.4)
+        overlap_in_s = data.duration * overlap_ratio
+        overlap_num_samples = min(int(round(overlap_in_s * data.orig_sr)), len(noise._samples))
+        if self._rng.uniform() < 0.5:
+            data._samples[:overlap_num_samples] += noise._samples[-overlap_num_samples:]
+        else:
+            data._samples[-overlap_num_samples:] += noise._samples[:overlap_num_samples]
+            
+        
+        # data_rms = data.rms_db
+        # gain_ratio = self._rng.uniform(min_gain_ratio, max_gain_ratio)
+        # noise_gain_db = gain_ratio * data_rms
+        # noise_dur = self._rng.uniform(0.0, noise.duration)
+        # start_time = self._rng.uniform(0.0, noise.duration)
+        # start_sample = int(round(start_time * noise.sample_rate))
+        # end_sample = int(round(min(noise.duration, (start_time + noise_dur)) * noise.sample_rate))
+        # noise_samples = np.copy(noise._samples[start_sample:end_sample])
+        #     # adjust gain for snr purposes and superimpose
+        # noise_samples *= 10.0 ** (noise_gain_db / 20.0)
 
-        if noise_samples.shape[0] > data._samples.shape[0]:
-            noise_samples = noise_samples[0 : data._samples.shape[0]]
+        # if noise_samples.shape[0] > data._samples.shape[0]:
+        #     noise_samples = noise_samples[0 : data._samples.shape[0]]
 
-        noise_idx = self._rng.randint(0, data._samples.shape[0] - noise_samples.shape[0])
-        data._samples[noise_idx : noise_idx + noise_samples.shape[0]] += noise_samples
+        # noise_idx = self._rng.randint(0, data._samples.shape[0] - noise_samples.shape[0])
+        # data._samples[noise_idx : noise_idx + noise_samples.shape[0]] += noise_samples
 
 class TranscodePerturbation(Perturbation):
     """

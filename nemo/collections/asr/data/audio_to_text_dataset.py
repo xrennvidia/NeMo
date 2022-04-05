@@ -157,6 +157,7 @@ def get_audio_embedding_bpe_dataset(
         max_utts=config.get('max_utts', 0),
         trim=config.get('trim_silence', False),
         use_start_end_token=config.get('use_start_end_token', True),
+        return_sample_id=config.get('return_sample_id', False),
         synthetic_generation=synthetic_generation
         
     )

@@ -159,39 +159,26 @@ class WaveformFeaturizerAndEmbedding(WaveformFeaturizer):
             trim=trim,
             orig_sr=orig_sr,
         )
-        if other_utterance_file is None:
-            other_utterance = AudioSegment.from_file(
-                file_path,
-                target_sr=self.sample_rate,
-                int_values=self.int_values,
-                offset=offset,
-                duration=duration,
-                trim=trim,
-                orig_sr=orig_sr,
-            )
-        else:
-            other_utterance = AudioSegment.from_file(
-                other_utterance_file,
-                target_sr=self.sample_rate,
-                int_values=self.int_values,
-                offset=offset,
-                duration=other_utterance_duration,
-                trim=trim,
-                orig_sr=orig_sr,
-            )
 
-        if other_speaker_file is None:
-            other_speaker = None
-        else:
-            other_speaker = AudioSegment.from_file(
-                other_speaker_file,
-                target_sr=self.sample_rate,
-                int_values=self.int_values,
-                offset=offset,
-                duration=other_speaker_duration,
-                trim=trim,
-                orig_sr=orig_sr,
-            )
+        other_utterance = AudioSegment.from_file(
+            other_utterance_file,
+            target_sr=self.sample_rate,
+            int_values=self.int_values,
+            offset=offset,
+            duration=other_utterance_duration,
+            trim=trim,
+            orig_sr=orig_sr,
+        )
+
+        other_speaker = AudioSegment.from_file(
+            other_speaker_file,
+            target_sr=self.sample_rate,
+            int_values=self.int_values,
+            offset=offset,
+            duration=other_speaker_duration,
+            trim=trim,
+            orig_sr=orig_sr,
+        )
         return self.process_segment(audio, other_utterance=other_utterance, other_speaker=other_speaker)
 
     def process_segment(self, audio_segment, other_utterance, other_speaker=None):

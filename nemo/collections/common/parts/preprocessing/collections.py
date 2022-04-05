@@ -146,13 +146,10 @@ class AudioText(_Collection):
             self.mapping = {}
         if index_by_speaker_id:
             self.speaker_mapping = {}
-
-        additional_fields = []
+        fields = [ids, audio_files, durations, offsets, texts, speakers, orig_sampling_rates, langs]
         if "keep_fields" in kwargs:
-            additional_fields = [kwargs[x] for x in kwargs['keep_fields']]
-        for x in zip(
-            ids, audio_files, durations, offsets, texts, speakers, orig_sampling_rates, langs, *additional_fields
-        ):
+            fields.extend([kwargs[x] for x in kwargs['keep_fields']])
+        for x in zip(*fields):
             id_, audio_file, duration, offset, text, speaker, orig_sr, lang = x[0:8]
             # Duration filters.
             if min_duration is not None and duration < min_duration:
@@ -183,7 +180,10 @@ class AudioText(_Collection):
 
             total_duration += duration
 
-            data.append(output_type(id_, audio_file, duration, text_tokens, offset, text, speaker, orig_sr, lang, *x[8:]))
+            output = [id_, audio_file, duration, text_tokens, offset, text, speaker, orig_sr, lang]
+            if len(x) > 8:
+                output.extend(x[8:])
+            data.append(output_type(*output))
             if index_by_file_id:
                 file_id, _ = os.path.splitext(os.path.basename(audio_file))
                 self.mapping[file_id] = len(data) - 1
