@@ -42,6 +42,8 @@ from nemo.utils import logging, model_utils
 __all__ = ['TSEncDecCTCModelBPE']
 
 all_embs = []
+
+
 class TSEncDecCTCModelBPE(EncDecCTCModelBPE):
     """Encoder decoder CTC-based models with Byte Pair Encoding."""
 
@@ -297,10 +299,8 @@ class TSEncDecCTCModelBPE(EncDecCTCModelBPE):
         temporary_datalayer = self._setup_dataloader_from_config(config=DictConfig(dl_config))
         return temporary_datalayer
 
-
-
     def setup_training_data(self, train_data_config):
-        
+
         """
         Sets up the training data loader via a Dict-like object.
 

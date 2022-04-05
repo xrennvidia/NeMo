@@ -187,7 +187,6 @@ def parse_dataset_as_name(name: str) -> str:
     if '_' != name[-1]:
         name = name + '_'
 
-
     return name
 
 

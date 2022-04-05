@@ -104,7 +104,6 @@ def __parse_item(line: str, manifest_file: str) -> Dict[str, Any]:
     elif 'normalized_text' in item:
         item['text'] = item['normalized_text']
 
-    
     if 'other_audio_filepath' in item:
         item['other_audio_filepath'] = expanduser(item['other_audio_filepath'])
     item = dict(
@@ -116,7 +115,7 @@ def __parse_item(line: str, manifest_file: str) -> Dict[str, Any]:
         orig_sr=item.get('orig_sample_rate', None),
         lang=item.get('lang', None),
         other_audio_filepath=item.get('other_audio_filepath', None),
-        other_duration=item.get('other_duration', None)
+        other_duration=item.get('other_duration', None),
     )
 
     return item

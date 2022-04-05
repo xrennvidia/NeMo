@@ -137,9 +137,11 @@ class AudioText(_Collection):
 
         if "keep_fields" in kwargs:
             self.OUTPUT_TYPE = collections.namedtuple(
-            typename='AudioTextEntity',
-            field_names='id audio_file duration text_tokens offset text_raw speaker orig_sr lang' + ' ' + ' '.join(kwargs["keep_fields"])
-        )
+                typename='AudioTextEntity',
+                field_names='id audio_file duration text_tokens offset text_raw speaker orig_sr lang'
+                + ' '
+                + ' '.join(kwargs["keep_fields"]),
+            )
         output_type = self.OUTPUT_TYPE
         data, duration_filtered, num_filtered, total_duration = [], 0.0, 0, 0.0
         if index_by_file_id:
@@ -238,10 +240,7 @@ class ASRAudioText(AudioText):
                 for field in fields:
                     if field not in kwargs:
                         kwargs[field] = []
-                    kwargs[field].append(item[field]) 
-            
-                
-                
+                    kwargs[field].append(item[field])
 
         super().__init__(ids, audio_files, durations, texts, offsets, speakers, orig_srs, langs, *args, **kwargs)
 

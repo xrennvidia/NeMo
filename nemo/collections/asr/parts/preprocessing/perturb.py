@@ -90,8 +90,6 @@ def read_one_audiosegment(manifest, target_sr, rng, tarred_audio=False, audio_da
     return AudioSegment.from_file(audio_file, target_sr=target_sr, offset=offset, duration=duration)
 
 
-
-
 class Perturbation(object):
     def max_augmentation_length(self, length):
         return length
@@ -727,9 +725,7 @@ class RirNoiseSpeakerPerturbation(Perturbation):
 
     def perturb(self, data, other_utterance, other_speaker):
         self.perturb_with_other_input(data, other_speaker)
-        
-        
-        
+
         # prob = self._rng.uniform(0.0, 1.0)
         # if orig_sr not in self._fg_noise_perturbers:
         #     orig_sr = max(self._fg_noise_perturbers.keys())
@@ -766,16 +762,15 @@ class RirNoiseSpeakerPerturbation(Perturbation):
         # bg_perturber.perturb_with_input_noise(other_utterance, noise, data_rms=other_utterance.rms_db)
 
     def perturb_with_other_input(self, data, noise, min_gain_ratio=0.3, max_gain_ratio=0.6):
-        
-        overlap_ratio = self._rng.uniform(0.4)
+
+        overlap_ratio = self._rng.uniform(0, 0.4)
         overlap_in_s = data.duration * overlap_ratio
         overlap_num_samples = min(int(round(overlap_in_s * data.orig_sr)), len(noise._samples))
-        if self._rng.uniform() < 0.5:
+        if self._rng.random() < 0.5:
             data._samples[:overlap_num_samples] += noise._samples[-overlap_num_samples:]
         else:
             data._samples[-overlap_num_samples:] += noise._samples[:overlap_num_samples]
-            
-        
+
         # data_rms = data.rms_db
         # gain_ratio = self._rng.uniform(min_gain_ratio, max_gain_ratio)
         # noise_gain_db = gain_ratio * data_rms
@@ -792,6 +787,7 @@ class RirNoiseSpeakerPerturbation(Perturbation):
 
         # noise_idx = self._rng.randint(0, data._samples.shape[0] - noise_samples.shape[0])
         # data._samples[noise_idx : noise_idx + noise_samples.shape[0]] += noise_samples
+
 
 class TranscodePerturbation(Perturbation):
     """

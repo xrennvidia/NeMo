@@ -11,28 +11,27 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from genericpath import exists
 import io
+import json
 import math
 import os
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Union
-import librosa
-import soundfile as sf
 
 import braceexpand
 import librosa
-from transformers import IBERT_PRETRAINED_MODEL_ARCHIVE_LIST
 import numpy as np
+import soundfile as sf
 import torch
 import webdataset as wd
+from genericpath import exists
 from scipy.stats import betabinom
 from torch.nn import functional as F
 from torch.utils.data import ChainDataset
-from nemo.collections.asr.parts.preprocessing.segment import AudioSegment
-import json
+from transformers import IBERT_PRETRAINED_MODEL_ARCHIVE_LIST
 
 from nemo.collections.asr.parts.preprocessing.features import WaveformFeaturizer, WaveformFeaturizerAndEmbedding
+from nemo.collections.asr.parts.preprocessing.segment import AudioSegment
 from nemo.collections.common import tokenizers
 from nemo.collections.common.parts.preprocessing import collections, parsers
 from nemo.core.classes import Dataset, IterableDataset
@@ -1082,7 +1081,7 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
         return_sample_id: bool = False,
         synthetic_generation: bool = False,
     ):
-        keep_fields=["other_audio_filepath", "other_duration"]
+        keep_fields = ["other_audio_filepath", "other_duration"]
         super().__init__(
             manifest_filepath=manifest_filepath,
             tokenizer=tokenizer,
@@ -1096,17 +1095,17 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
             use_start_end_token=use_start_end_token,
             return_sample_id=return_sample_id,
             index_by_speaker_id=synthetic_generation == True,
-            keep_fields=[] if synthetic_generation else keep_fields
-        ) # inits  ASRManifestProcessor
+            keep_fields=[] if synthetic_generation else keep_fields,
+        )  # inits  ASRManifestProcessor
 
         if synthetic_generation:
             self.featurizer = WaveformFeaturizerAndEmbedding(
                 sample_rate=sample_rate, int_values=int_values, augmentor=augmentor
             )
         self.synthetic_generation = synthetic_generation
-        
-        # self.eval_dir= '/home/yangzhang/code/ts_asr/data/ls_dev_clean_mixed'
-        # self.eval_individual_dir= '/home/yangzhang/code/ts_asr/data/ls_dev_clean_aux_utterance'
+
+        # self.eval_dir= '/home/yangzhang/code/ts_asr/data/ls_train_clean_mixed'
+        # self.eval_individual_dir= '/home/yangzhang/code/ts_asr/data/ls_train_clean_aux_utterance'
         # self.manifest_eval= self.eval_dir + '/manifest.json'
         # self.manifest_eval_aux_utterance= self.eval_individual_dir + '/manifest.json'
         # os.makedirs(self.eval_dir, exist_ok=True)
@@ -1128,20 +1127,24 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
             target_speaker = sample.speaker
             if len(self.manifest_processor.collection.speaker_mapping[target_speaker]) == 1:
                 raise ValueError("target speaker only has one utterance")
-            
-            other_utterance_index = np.random.choice(self.manifest_processor.collection.speaker_mapping[target_speaker])
+
+            other_utterance_index = np.random.choice(
+                self.manifest_processor.collection.speaker_mapping[target_speaker]
+            )
             i = 0
             while other_utterance_index == index and i < 100:
-                other_utterance_index = np.random.choice(self.manifest_processor.collection.speaker_mapping[target_speaker])
-                i+=1
+                other_utterance_index = np.random.choice(
+                    self.manifest_processor.collection.speaker_mapping[target_speaker]
+                )
+                i += 1
             other_utterance = self.manifest_processor.collection[other_utterance_index]
             other_utterance_duration = other_utterance.duration
             other_utterance_file = other_utterance.audio_file
 
             if len(self.manifest_processor.collection.speaker_mapping) == 1:
                 raise ValueError("only one speaker in dataset")
-            
-            random_speaker_id = np.random.choice(self.manifest_processor.collection.speaker_mapping)
+
+            random_speaker_id = np.random.choice(list(self.manifest_processor.collection.speaker_mapping.keys()))
             i = 0
             while random_speaker_id == target_speaker and i < 100:
                 random_speaker_id = np.random.choice(self.manifest_processor.collection.speaker_mapping)
@@ -1165,11 +1168,12 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
                 orig_sr=sample.orig_sr,
             )
             # for generating eval data
-            # if "dev" in self.manifest_filepath:
+            # if "train" in self.manifest_filepath:
             #     f = f"{self.eval_dir}/{index}.wav"
+            #     print(f)
             #     sf.write(f, features, 16000)
             #     with open(self.manifest_eval, 'a') as fp:
-            #         tmp = {"audio_filepath": f, "individual_audio_file": sample.audio_file, "speaker": target_speaker, "duration": sample.duration, "text": sample.text_raw}
+            #         tmp = {"audio_filepath": f, "individual_audio_file": sample.audio_file, "speaker": target_speaker, "duration": sample.duration, "text": sample.text_raw, "overlap_audio_filepath": other_speaker_file}
             #         fp.write(json.dumps(tmp) + "\n")
             #     f = f"{self.eval_individual_dir}/{index}.wav"
             #     sf.write(f, speaker_features, 16000)
@@ -1181,7 +1185,9 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
             features = self.featurizer.process(
                 sample.audio_file, offset=offset, duration=sample.duration, trim=self.trim, orig_sr=sample.orig_sr
             )
-            speaker_features = AudioSegment.from_file(sample.other_audio_filepath, duration=sample.other_duration, trim=self.trim, orig_sr=sample.orig_sr)
+            speaker_features = AudioSegment.from_file(
+                sample.other_audio_filepath, duration=sample.other_duration, trim=self.trim, orig_sr=sample.orig_sr
+            )
             speaker_features = torch.tensor(speaker_features.samples, dtype=torch.float)
         embed_len = torch.tensor(speaker_features.shape[0]).long()
 

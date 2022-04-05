@@ -27,7 +27,7 @@ model.encoder.d_model=256 \
 model.encoder.n_heads=4 \
 model.encoder.n_layers=18 \
 model.spec_augment.time_masks=5 \
-trainer.num_sanity_val_steps=-1 \
+trainer.num_sanity_val_steps=0 \
 +nemo_checkpoint_path=/home/yangzhang/code/ts_asr/stt_en_conformer_ctc_medium_v1.0.0/stt_en_conformer_ctc_medium.nemo
 
 
