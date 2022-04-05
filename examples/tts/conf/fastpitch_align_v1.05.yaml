@@ -241,11 +241,16 @@ trainer:
   check_val_every_n_epoch: 10
 
 exp_manager:
-  exp_dir: null
+  exp_dir: 'fastpitch/'
   name: ${name}
-  create_tensorboard_logger: true
+  create_tensorboard_logger: false
   create_checkpoint_callback: true
   checkpoint_callback_params:
     monitor: v_loss
+  create_wandb_logger: true
+  wandb_logger_kwargs:
+    name: fastpitch_hybrid
+    project: ${name}
+    entity: nvidia
   resume_if_exists: false
   resume_ignore_no_checkpoint: false

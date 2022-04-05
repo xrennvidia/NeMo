@@ -18,11 +18,12 @@ import torch
 from hydra.utils import instantiate
 from omegaconf import DictConfig, open_dict
 from pytorch_lightning import Trainer
-from pytorch_lightning.loggers import LoggerCollection, TensorBoardLogger
+from pytorch_lightning.loggers import LoggerCollection, TensorBoardLogger, WandbLogger
+import wandb
 
 from nemo.collections.asr.data.audio_to_text import AudioToCharWithDursF0Dataset
 from nemo.collections.common.parts.preprocessing import parsers
-from nemo.collections.tts.helpers.helpers import plot_alignment_to_numpy, plot_spectrogram_to_numpy
+from nemo.collections.tts.helpers.helpers import plot_alignment_to_numpy, plot_spectrogram_to_numpy, fastpitch_log_to_wandb_func
 from nemo.collections.tts.losses.aligner_loss import BinLoss, ForwardSumLoss
 from nemo.collections.tts.losses.fastpitchloss import DurationLoss, MelLoss, PitchLoss
 from nemo.collections.tts.models.base import SpectrogramGenerator
@@ -321,28 +322,57 @@ class FastPitchModel(SpectrogramGenerator, Exportable):
             self.log("t_bin_loss", bin_loss)
 
         # Log images to tensorboard
-        if self.log_train_images and isinstance(self.logger, TensorBoardLogger):
-            self.log_train_images = False
+        if self.log_train_images:
+            if isinstance(self.logger, TensorBoardLogger):
+                self.log_train_images = False
 
-            self.tb_logger.add_image(
-                "train_mel_target",
-                plot_spectrogram_to_numpy(mels[0].data.cpu().float().numpy()),
-                self.global_step,
-                dataformats="HWC",
-            )
-            spec_predict = mels_pred[0].data.cpu().float().numpy()
-            self.tb_logger.add_image(
-                "train_mel_predicted", plot_spectrogram_to_numpy(spec_predict), self.global_step, dataformats="HWC",
-            )
-            if self.learn_alignment:
+                self.tb_logger.add_image(
+                    "train_mel_target",
+                    plot_spectrogram_to_numpy(mels[0].data.cpu().float().numpy()),
+                    self.global_step,
+                    dataformats="HWC",
+                )
+                spec_predict = mels_pred[0].data.cpu().float().numpy()
+                self.tb_logger.add_image(
+                    "train_mel_predicted", plot_spectrogram_to_numpy(spec_predict), self.global_step, dataformats="HWC",
+                )
+                if self.learn_alignment:
+                    attn = attn_hard[0].data.cpu().float().numpy().squeeze()
+                    self.tb_logger.add_image(
+                        "train_attn", plot_alignment_to_numpy(attn.T), self.global_step, dataformats="HWC",
+                    )
+                    soft_attn = attn_soft[0].data.cpu().float().numpy().squeeze()
+                    self.tb_logger.add_image(
+                        "train_soft_attn", plot_alignment_to_numpy(soft_attn.T), self.global_step, dataformats="HWC",
+                    )
+            elif isinstance(self.logger, WandbLogger):
+                self.log_train_images = False
+                specs = []
+                alignments = []
+
+                specs += [
+                    wandb.Image(
+                        plot_spectrogram_to_numpy(mels_pred[0].data.cpu().float().numpy()), 
+                        caption=f"train_mel_predicted",
+                    ),
+                    wandb.Image(
+                        plot_spectrogram_to_numpy(mels[0].data.cpu().float().numpy()),
+                        caption=f"train_mel_target",
+                    ),
+                ]
                 attn = attn_hard[0].data.cpu().float().numpy().squeeze()
-                self.tb_logger.add_image(
-                    "train_attn", plot_alignment_to_numpy(attn.T), self.global_step, dataformats="HWC",
-                )
                 soft_attn = attn_soft[0].data.cpu().float().numpy().squeeze()
-                self.tb_logger.add_image(
-                    "train_soft_attn", plot_alignment_to_numpy(soft_attn.T), self.global_step, dataformats="HWC",
-                )
+                alignments += [
+                    wandb.Image(
+                         plot_alignment_to_numpy(attn.T), caption=f"train_attn",
+                    ),
+                    wandb.Image(
+                        plot_alignment_to_numpy(soft_attn.T),
+                        caption=f"train_soft_attn",
+                    ),
+                ]
+                self.logger.experiment.log({"specs": specs, "alignments": alignments})
+
 
         return loss
 
@@ -418,6 +448,9 @@ class FastPitchModel(SpectrogramGenerator, Exportable):
             self.tb_logger.add_image(
                 "val_mel_predicted", plot_spectrogram_to_numpy(spec_predict), self.global_step, dataformats="HWC",
             )
+            self.log_train_images = True
+        elif isinstance(self.logger, WandbLogger):
+            fastpitch_log_to_wandb_func(self.logger, outputs[0].values(), self.global_step, tag="val", )
             self.log_train_images = True
 
     def __setup_dataloader_from_config(self, cfg, shuffle_should_be: bool = True, name: str = "train"):
