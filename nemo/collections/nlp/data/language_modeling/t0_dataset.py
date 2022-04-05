@@ -271,7 +271,7 @@ class T0DatasetBuilder(object):
         world_size = app_state.world_size
         if not os.path.isdir(features_dir) or not self.use_cache:
             self.map_dataset(task, rank, features_dir)
-        if world_size > 1 and self.distribute_datasets and self.split == 'train':
+        if self.num_nodes > 1 and self.distribute_datasets and self.split == 'train':
             self.distribute_dataset(rank, world_size, features_dir)
             features_dir = os.path.join(features_dir, f'rank_{rank}')
         logging.info('Loading results from the main process %s.' % features_dir)
