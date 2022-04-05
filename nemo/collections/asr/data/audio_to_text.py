@@ -1147,7 +1147,7 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
             random_speaker_id = np.random.choice(list(self.manifest_processor.collection.speaker_mapping.keys()))
             i = 0
             while random_speaker_id == target_speaker and i < 100:
-                random_speaker_id = np.random.choice(self.manifest_processor.collection.speaker_mapping)
+                random_speaker_id = np.random.choice(list(self.manifest_processor.collection.speaker_mapping.keys()))
                 i += 1
             other_speaker_file_index = np.random.choice(
                 self.manifest_processor.collection.speaker_mapping[random_speaker_id]

@@ -41,7 +41,7 @@ model:
   train_ds:
     augmentor:
       rir_noise_speaker:
-        prob: 0.8
+        prob: 0
         rir_manifest_path: ???
         rir_tar_filepaths: None
         rir_prob: 0
