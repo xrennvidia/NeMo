@@ -249,18 +249,18 @@ class T0DatasetBuilder(object):
             dataset = load_from_disk(features_dir)
             table = dataset.data
             start = 0
-            for node in range(world_size):
+            for rank in range(world_size):
                 sub_length = math.ceil(len(table)/world_size)
-                node_table = table.slice(offset=start, length=sub_length)
+                rank_table = table.slice(offset=start, length=sub_length)
                 start += sub_length
-                node_dataset = arrow_dataset.Dataset(
-                    arrow_table=node_table,
+                rank_dataset = arrow_dataset.Dataset(
+                    arrow_table=rank_table,
                     info=dataset.info,
                     split=dataset.split,
                     fingerprint=dataset._fingerprint,
                 )
-                new_features_dir = os.path.join(features_dir, f'node_{node}')
-                node_dataset.save_to_disk(new_features_dir)
+                new_features_dir = os.path.join(features_dir, f'rank_{rank}')
+                rank_dataset.save_to_disk(new_features_dir)
         torch.distributed.barrier()
         logging.info('Finished waiting for main process in distribute_dataset().')
 
@@ -271,9 +271,9 @@ class T0DatasetBuilder(object):
         world_size = app_state.world_size
         if not os.path.isdir(features_dir) or not self.use_cache:
             self.map_dataset(task, rank, features_dir)
-        if self.num_nodes > 1 and self.distribute_datasets:
+        if world_size > 1 and self.distribute_datasets and self.split == 'train':
             self.distribute_dataset(rank, world_size, features_dir)
-            features_dir = os.path.join(features_dir, f'node_{rank}')
+            features_dir = os.path.join(features_dir, f'rank_{rank}')
         logging.info('Loading results from the main process %s.' % features_dir)
         dataset = load_from_disk(features_dir)
         dataset.task = task
