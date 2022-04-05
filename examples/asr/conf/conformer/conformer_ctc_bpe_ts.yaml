@@ -38,6 +38,7 @@ model:
   sample_rate: 16000
   log_prediction: true # enables logging sample predictions in the output during training
   ctc_reduction: 'mean_batch'
+  skip_nan_grad: false
   train_ds:
     augmentor:
       rir_noise_speaker:
@@ -181,12 +182,13 @@ model:
       min_lr: 1e-6
 
 trainer:
-  gpus: -1 # number of GPUs, -1 would use all available GPUs
+  devices: -1 # number of GPUs, -1 would use all available GPUs
   num_nodes: 1
   max_epochs: 1000
+  accelerator: auto
   max_steps: null # computed at runtime if not set
   val_check_interval: 1.0 # Set to 0.25 to check 4 times per epoch, or an int for number of iterations
-  accelerator: ddp
+  strategy: ddp
   accumulate_grad_batches: 1
   gradient_clip_val: 0.0
   precision: 32 # Should be set to 16 for O1 and O2 to enable the AMP.
