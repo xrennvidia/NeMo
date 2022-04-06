@@ -205,17 +205,19 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         )
         return datasetbuilder
 
-    def build_data_loader(self, dataset, collate_fn, batch_size, shuffle, pin_memory):
+    def build_data_loader(self, dataset, collate_fn, batch_size, shuffle, pin_memory, split):
         """Buld dataloader given an input dataset."""
         if dataset is None:
             return None
 
-        #sampler = torch.utils.data.sampler.RandomSampler(
-        #    dataset
-        #)
-        sampler = torch.utils.data.distributed.DistributedSampler(
-            dataset, num_replicas=self.trainer.gpus, rank=self.trainer.local_rank, shuffle=shuffle
-        )
+        if split == 'train':
+            sampler = torch.utils.data.distributed.DistributedSampler(
+                dataset, num_replicas=self.trainer.gpus, rank=self.trainer.local_rank, shuffle=shuffle
+            )
+        else:
+            sampler = torch.utils.data.sampler.RandomSampler(
+                dataset
+            )
         return DataLoader(
             dataset,
             collate_fn=collate_fn,
@@ -257,6 +259,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                 batch_size=self.cfg.data.train_ds.batch_size,
                 shuffle=True,
                 pin_memory=True,
+                split='train'
             )
 
     def setup_validation_data(self, cfg):
@@ -273,6 +276,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                 batch_size=self.cfg.data.validation_ds.batch_size,
                 shuffle=False,
                 pin_memory=True,
+                split='validation'
             ) for dataset in dataset_dict.values()]
 
     def setup_test_data(self, cfg):
@@ -289,6 +293,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                 batch_size=self.cfg.data.test_ds.batch_size,
                 shuffle=False,
                 pin_memory=True,
+                split='test'
             ) for dataset in dataset_dict.values()]
 
     @classmethod
