@@ -1133,17 +1133,17 @@ def get_how_many_segments_to_cut_by_files(files: List[Path], size: int) -> List[
         sum_ = sum(sizes)
         permutation = random.sample(list(range(len(sizes))), len(sizes))
         i = 0
-        while sum_ > size:
+        while sum_ > size and i < len(permutation):
             if sizes[permutation[i]] > 0:
                 sizes[permutation[i]] -= 1
                 sum_ -= 1
             i += 1
-    if sum(sizes) < size:
+    elif sum(sizes) < size:
         sum_ = sum(sizes)
         permutation = random.sample(list(range(len(sizes))), len(sizes))
         for i in range(sum_ - size):
             sizes[permutation[i]] += 1
-    sizes += [size - sum(sizes)]
+    assert len(sizes) == len(files)
     assert all([s >= 0 for s in sizes])
     assert sum(sizes) == size
     return sizes
