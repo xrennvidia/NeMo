@@ -1129,8 +1129,8 @@ def get_how_many_segments_to_cut_by_files(files: List[Path], size: int) -> List[
     total_size = sum(stats)
     fracs = [s / total_size for s in stats]
     sizes = [round(f * size) for f in fracs]
-    if sum(sizes) > size:
-        sum_ = sum(sizes)
+    sum_ = sum(sizes)
+    if sum_ > size:
         permutation = random.sample(list(range(len(sizes))), len(sizes))
         i = 0
         while sum_ > size and i < len(permutation):
@@ -1138,10 +1138,9 @@ def get_how_many_segments_to_cut_by_files(files: List[Path], size: int) -> List[
                 sizes[permutation[i]] -= 1
                 sum_ -= 1
             i += 1
-    elif sum(sizes) < size:
-        sum_ = sum(sizes)
+    elif sum_ < size:
         permutation = random.sample(list(range(len(sizes))), len(sizes))
-        for i in range(sum_ - size):
+        for i in range(size - sum_):
             sizes[permutation[i]] += 1
     assert len(sizes) == len(files)
     assert all([s >= 0 for s in sizes])
