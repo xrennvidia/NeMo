@@ -227,14 +227,14 @@ class T0DatasetBuilder(object):
         logging.info('Finished waiting for main process in map_dataset().')
 
     def distribute_dataset(self, rank, world_size, features_dir):
-        existing_node_folders = glob.glob(features_dir + '/rank*')
-        if len(existing_node_folders) != world_size and rank == 0:
+        existing_node_folders = glob.glob(features_dir + '/node*')
+        if len(existing_node_folders) != self.num_nodes and rank == 0:
             logging.info('Waiting for main process to distribute data.')
             dataset = load_from_disk(features_dir)
             table = dataset.data
             start = 0
-            for rank in range(world_size):
-                sub_length = math.ceil(len(table)/world_size)
+            for node in range(self.num_nodes):
+                sub_length = math.ceil(len(table)/self.num_nodes)
                 rank_table = table.slice(offset=start, length=sub_length)
                 start += sub_length
                 rank_dataset = arrow_dataset.Dataset(
@@ -243,7 +243,7 @@ class T0DatasetBuilder(object):
                     split=dataset.split,
                     fingerprint=dataset._fingerprint,
                 )
-                new_features_dir = os.path.join(features_dir, f'rank_{rank}')
+                new_features_dir = os.path.join(features_dir, f'node_{node}')
                 rank_dataset.save_to_disk(new_features_dir)
         torch.distributed.barrier()
         logging.info('Finished waiting for main process in distribute_dataset().')
@@ -253,11 +253,12 @@ class T0DatasetBuilder(object):
         app_state = AppState()
         rank = app_state.global_rank
         world_size = app_state.world_size
+        node = rank // self.num_gpus
         if not os.path.isdir(features_dir) or not self.use_cache:
             self.map_dataset(task, rank, features_dir)
-        if self.distribute_datasets and world_size > 1:
+        if self.distribute_datasets and self.num_nodes > 1:
             self.distribute_dataset(rank, world_size, features_dir)
-            features_dir = os.path.join(features_dir, f'rank_{rank}')
+            features_dir = os.path.join(features_dir, f'node_{node}')
         logging.info('Loading results from the main process %s.' % features_dir)
         dataset = load_from_disk(features_dir)
         dataset.task = task
@@ -294,11 +295,9 @@ class T0DatasetBuilder(object):
         return dataset_dict
 
     def get_sampling_probs(self):
-        app_state = AppState()
-        world_size = app_state.world_size
         sampling_data_sizes = []
         for dataset in self.datasets.values():
-            max_sampling_size = self.max_sampling_size//(world_size if self.distribute_datasets else 1)
+            max_sampling_size = self.max_sampling_size//(self.num_nodes if self.distribute_datasets else 1)
             sampling_data_sizes.append(min(len(dataset), max_sampling_size))
         sampling_data_sizes = np.array(sampling_data_sizes)
         sampling_probs = sampling_data_sizes / np.sum(sampling_data_sizes)
