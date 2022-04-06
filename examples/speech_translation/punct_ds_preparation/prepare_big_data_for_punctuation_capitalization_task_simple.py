@@ -811,6 +811,8 @@ class NewsCrawlWorker:
         text, tok_chars, untok_chars, _ = small.remove_untokenizable_characters_from_text(
             text, self.tokenizer, tok_chars, untok_chars, remove_entire_lines=True
         )
+        text = big.TRAILING_PARENTHESES.sub(' ', text)
+        text = big.TRAILING_PARENTHESES.sub(' ', text)
         text = big.BROKEN_PARENTHESES_WITH_CONTENT.sub(' ', text)
         text = big.SPACE_DUP.sub(' ', text)
         after_suspicious_removal, _ = big.remove_suspicious_lines_and_rearrange_quotes_and_spaces(

@@ -136,6 +136,7 @@ SPACE_PUNCTUATION_MARK = re.compile(r' +([.!?:,;…])')
 ELLIPSIS_WITHOUT_SPACE = re.compile(rf'\.\.([{WC}(])')
 DIGIT_SPACE_PERCENT = re.compile(r'(\d) % *')
 UNICODE_APOSTROPHE = re.compile(f'([{WC}])[‘’]([{WC}])')
+TRAILING_PARENTHESES = re.compile(r' *\([^)]*\) *$', flags=re.MULTILINE)
 BROKEN_PARENTHESES_WITH_CONTENT = re.compile(
     f'\\([^)(]*[^{WC}!?."\'] *\\)|'
     f'\\( *[^{WC}"][^)(]*\\)|'
