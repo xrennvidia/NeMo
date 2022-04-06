@@ -205,19 +205,16 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         )
         return datasetbuilder
 
-    def build_data_loader(self, dataset, collate_fn, batch_size, shuffle, pin_memory, split):
+    def build_data_loader(self, dataset, collate_fn, batch_size, shuffle, pin_memory):
         """Buld dataloader given an input dataset."""
         if dataset is None:
             return None
 
-        if split == 'train':
-            sampler = torch.utils.data.distributed.DistributedSampler(
-                dataset, num_replicas=self.trainer.gpus, rank=self.trainer.local_rank, shuffle=shuffle
-            )
-        else:
-            sampler = torch.utils.data.sampler.RandomSampler(
-                dataset
-            )
+        generator = torch.Generator()
+        generator.manual_seed(self.cfg.seed + (10 * self.trainer.local_rank))
+        sampler = torch.utils.data.sampler.RandomSampler(
+            data_source=dataset, generator=generator
+        )
         return DataLoader(
             dataset,
             collate_fn=collate_fn,
@@ -258,8 +255,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                 collate_fn=self._train_ds.collate_fn,
                 batch_size=self.cfg.data.train_ds.batch_size,
                 shuffle=True,
-                pin_memory=True,
-                split='train'
+                pin_memory=True
             )
 
     def setup_validation_data(self, cfg):
@@ -275,8 +271,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                 collate_fn=self._validation_ds.collate_fn,
                 batch_size=self.cfg.data.validation_ds.batch_size,
                 shuffle=False,
-                pin_memory=True,
-                split='validation'
+                pin_memory=True
             ) for dataset in dataset_dict.values()]
 
     def setup_test_data(self, cfg):
@@ -292,8 +287,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                 collate_fn=self._test_ds.collate_fn,
                 batch_size=self.cfg.data.test_ds.batch_size,
                 shuffle=False,
-                pin_memory=True,
-                split='test'
+                pin_memory=True
             ) for dataset in dataset_dict.values()]
 
     @classmethod
