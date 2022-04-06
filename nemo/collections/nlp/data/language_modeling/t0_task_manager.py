@@ -16,7 +16,7 @@ t0_debug = {
     #"dummy_dataset": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
     #"dummy_dataset": ["10", "11"],
     #'app_reviews': None,
-    'squad_v2': None,
+    #'squad_v2': None,
     #'cnn_dailymail': '3.0.0',
     #'race': ['high', 'middle'],
     #'yelp_review_full': None,

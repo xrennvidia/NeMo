@@ -84,20 +84,12 @@ class Task(object):
         features = {}
         for prompt_type, data in multi_prompted_ex.items():
             self.prompt_id[prompt_type] = self.prompt_id.get(prompt_type, len(self.prompt_id) + 1)
-            if data is None and split != 'train':
-                continue
-            elif data is None:
+            if data is None:
                 data = {'input': None, 'output': None}
             example = self.create_example(data, self.task_id, self.prompt_id[prompt_type])
             tokenized_features = self.tokenize(example)
-            if split == 'train':
-                feature_dicts = {f'{k}_{self.prompt_id[prompt_type]}': v for k, v in tokenized_features.items()}
-                features.update(feature_dicts)
-            else:
-                feature_dicts = {f'{k}_0': v for k, v in tokenized_features.items()}  # no specific id in keys
-                for k in feature_dicts.keys():
-                    features[k] = features.get(k, [])
-                    features[k].append(feature_dicts[k])
+            feature_dicts = {f'{k}_{self.prompt_id[prompt_type]}': v for k, v in tokenized_features.items()}
+            features.update(feature_dicts)
         return features
 
     def map_fn_train(self, multi_prompted_ex):
@@ -230,14 +222,6 @@ class T0DatasetBuilder(object):
                 num_proc=self.num_proc,
                 remove_columns=original_column_names,
             )
-            if self.split != 'train':
-                column_names = dataset.data.column_names
-                arrays = [pa.compute.list_flatten(dataset.data.table[col]) for col in column_names]
-                schemas = [pa.field(name=name, type=array.type) for name, array in zip(column_names, arrays)]
-                table = pa.Table.from_arrays(arrays=arrays, schema=pa.schema(schemas))
-                dataset.data.table = table
-                dataset.data.replace_schema_metadata()
-                dataset.info.features = dataset.info.features.from_arrow_schema(table.schema)
             dataset.save_to_disk(features_dir)
         torch.distributed.barrier()
         logging.info('Finished waiting for main process in map_dataset().')
@@ -271,7 +255,7 @@ class T0DatasetBuilder(object):
         world_size = app_state.world_size
         if not os.path.isdir(features_dir) or not self.use_cache:
             self.map_dataset(task, rank, features_dir)
-        if self.num_nodes > 1 and self.distribute_datasets and self.split == 'train':
+        if self.distribute_datasets and world_size > 1:
             self.distribute_dataset(rank, world_size, features_dir)
             features_dir = os.path.join(features_dir, f'rank_{rank}')
         logging.info('Loading results from the main process %s.' % features_dir)
@@ -331,8 +315,7 @@ class T0DatasetBuilder(object):
                 not np.any(np.array(features[data_name]) == self.empty_prompt_token_id)
             ):
                 available_prompts.append(data_name.split("_")[-1])
-        if not available_prompts:
-            return None
+        assert available_prompts
         prompt_num = np.random.choice(available_prompts)
         chosen_features = {
             'text_enc': features[f'text_enc_{prompt_num}'],
@@ -356,8 +339,7 @@ class T0DatasetBuilder(object):
         new_batch = []
         for features in batch:
             feature = self.choose_template(features)
-            if feature is not None:
-                new_batch.append(feature)
+            new_batch.append(feature)
         return self.collate_fn2(new_batch)
 
     def tokenize(self, example):

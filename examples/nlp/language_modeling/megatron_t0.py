@@ -63,7 +63,7 @@ def main(cfg) -> None:
     if cfg.get('cluster_type', None) == 'BCP':
         plugins.append(TorchElasticEnvironment())
 
-    trainer = Trainer(plugins=plugins, **cfg.trainer)
+    trainer = Trainer(plugins=plugins, num_sanity_val_steps=2, **cfg.trainer)
 
     exp_manager(trainer, cfg.exp_manager)
 

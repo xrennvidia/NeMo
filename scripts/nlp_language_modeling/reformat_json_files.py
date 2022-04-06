@@ -91,13 +91,32 @@ def check_outputs(file_list):
                 assert len(set(outputs)) < 3
 
 
+def make_single_line(file_list):
+    for file in tqdm(file_list):
+        name = file.split("/")[-1]
+        new_file = new_dir + name
+        with open(file, "r") as fr, open(new_file, "w") as fw:
+            for line in fr:
+                json_line = json.loads(line)
+                for template_names in json_line.keys():
+                    new_jsonline = {}
+                    if json_line[template_names] is None:
+                        continue
+                    else:
+                        new_jsonline[template_names] = json_line[template_names]
+                    if new_jsonline:
+                        fw.write(json.dumps(new_jsonline))
+                        fw.write('\n')
+
+
 if __name__ == '__main__':
-    old_dir = "/home/jpilault/datasets/T0_prompted/debug_old/"
-    new_dir = "/home/jpilault/datasets/T0_prompted/debug/"
+    old_dir = "/home/jpilault/datasets/T0_prompted/test_old/"
+    new_dir = "/home/jpilault/datasets/T0_prompted/test/"
 
-    file_list = glob.glob(old_dir + "*")
+    file_list = glob.glob(old_dir + "*jsonl")
 
-    add_empty_fields(file_list)
+    make_single_line(file_list)
+    #add_empty_fields(file_list)
     #remove_none(file_list)
     #reformat_json(file_list)
     #check_outputs(file_list)

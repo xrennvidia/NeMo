@@ -167,7 +167,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                 self.log(f'validation_acc_{task_name}', avg_task_acc, prog_bar=True)
                 logging.info(f'Validation accuracy for {task_name}: {avg_task_acc}')
                 avg_val_acc.extend(avg_task_acc_list)
-        self.log(f'val_loss', torch.mean(torch.stack(avg_loss)), prog_bar=True)
+        self.log('val_loss', torch.mean(torch.stack(avg_loss)), prog_bar=True)
         if self.trainer.num_nodes == 1:
             self.log('val_acc', torch.mean(torch.stack(avg_val_acc)), prog_bar=True)
 
@@ -214,10 +214,8 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         if dataset is None:
             return None
 
-        rank = parallel_state.get_data_parallel_rank()
-        world_size = parallel_state.get_data_parallel_world_size()
-        sampler = torch.utils.data.distributed.DistributedSampler(
-            dataset, num_replicas=world_size, rank=rank, shuffle=shuffle
+        sampler = torch.utils.data.sampler.RandomSampler(
+            dataset
         )
         return DataLoader(
             dataset,
