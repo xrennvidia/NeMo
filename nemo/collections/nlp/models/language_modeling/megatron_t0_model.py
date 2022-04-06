@@ -117,12 +117,11 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids \
             = self.process_batch(batch)
 
-        if self.trainer.num_nodes == 1:
-            predicted_token_ids, log_probs = self.model.decode(
-                tokens_enc=tokens_enc, enc_mask=enc_mask,
-                num_tokens_to_generate=self.decoder_seq_length
-            )
-            self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
+        predicted_token_ids, log_probs = self.model.decode(
+            tokens_enc=tokens_enc, enc_mask=enc_mask,
+            num_tokens_to_generate=self.decoder_seq_length
+        )
+        self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
 
         return {'loss': loss}
 
@@ -133,17 +132,16 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             loss = [x['loss'] for x in outputs]
             averaged_loss = average_losses_across_data_parallel_group(loss)
             accuracies_losses[task_name] = {'loss': averaged_loss[0]}
-        if self.trainer.num_nodes == 1:
-            for task_id in self.acc_metric_dict.keys():
-                task_name = get_task_name(task_id)
-                assert task_name in accuracies_losses
-                accuracies_losses[task_name]['accuracies'] = {}
-                for prompt_id in self.acc_metric_dict[task_id].keys():
-                    accuracy = self.acc_metric_dict[task_id][prompt_id].compute()['acc']
-                    if torch.any(torch.isnan(accuracy)):
-                        continue
-                    accuracies_losses[task_name]['accuracies'][str(prompt_id)] = accuracy
-                    self.acc_metric_dict[task_id][prompt_id].reset()
+        for task_id in self.acc_metric_dict.keys():
+            task_name = get_task_name(task_id)
+            assert task_name in accuracies_losses
+            accuracies_losses[task_name]['accuracies'] = {}
+            for prompt_id in self.acc_metric_dict[task_id].keys():
+                accuracy = self.acc_metric_dict[task_id][prompt_id].compute()['acc']
+                if torch.any(torch.isnan(accuracy)):
+                    continue
+                accuracies_losses[task_name]['accuracies'][str(prompt_id)] = accuracy
+                self.acc_metric_dict[task_id][prompt_id].reset()
         return accuracies_losses
 
     def validation_step(self, batch, batch_idx, dataloader_idx):
@@ -158,18 +156,16 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             avg_loss.append(loss)
             self.log(f'val_loss_{task_name}', loss, prog_bar=True)
             logging.info(f'Validation loss for {task_name}: {loss}')
-            if self.trainer.num_nodes == 1:
-                accuracies = val_accuracies_losses[task_name]['accuracies']
-                for prompt_id in accuracies.keys():
-                    self.log(f'validation_acc_{task_name}_{prompt_id}', accuracies[prompt_id], prog_bar=False)
-                avg_task_acc_list = list(accuracies.values())
-                avg_task_acc = torch.mean(torch.stack(avg_task_acc_list))
-                self.log(f'validation_acc_{task_name}', avg_task_acc, prog_bar=True)
-                logging.info(f'Validation accuracy for {task_name}: {avg_task_acc}')
-                avg_val_acc.extend(avg_task_acc_list)
+            accuracies = val_accuracies_losses[task_name]['accuracies']
+            for prompt_id in accuracies.keys():
+                self.log(f'validation_acc_{task_name}_{prompt_id}', accuracies[prompt_id], prog_bar=False)
+            avg_task_acc_list = list(accuracies.values())
+            avg_task_acc = torch.mean(torch.stack(avg_task_acc_list))
+            self.log(f'validation_acc_{task_name}', avg_task_acc, prog_bar=True)
+            logging.info(f'Validation accuracy for {task_name}: {avg_task_acc}')
+            avg_val_acc.extend(avg_task_acc_list)
         self.log('val_loss', torch.mean(torch.stack(avg_loss)), prog_bar=True)
-        if self.trainer.num_nodes == 1:
-            self.log('val_acc', torch.mean(torch.stack(avg_val_acc)), prog_bar=True)
+        self.log('val_acc', torch.mean(torch.stack(avg_val_acc)), prog_bar=True)
 
     def test_step(self, batch, batch_idx, dataloader_idx):
         return self.inference_step(batch, batch_idx)
