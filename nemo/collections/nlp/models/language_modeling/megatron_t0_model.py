@@ -222,7 +222,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             sampler=sampler,
             num_workers=self.cfg.data.num_workers,
             pin_memory=pin_memory,
-            drop_last=False,
+            drop_last=True,
         )
 
     def setup(self, stage: Optional[str] = None):
