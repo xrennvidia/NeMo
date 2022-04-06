@@ -767,6 +767,8 @@ def split_large_files_into_small_files(
     split_files, source_files, start_lines, end_lines, processes, opened_files = [], [], [], [], [], []
     for i, input_file in enumerate(input_dir.iterdir()):
         num_lines_in_input_file = count_lines_in_file(input_file)
+        print(f"Number of lines in file {input_file}:", num_lines_in_input_file)
+        print("num_lines_per_file:", num_lines_per_file)
         for start in range(0, num_lines_in_input_file, num_lines_per_file):
             new_file = output_dir / f"{new_file_count}.txt"
             split_files.append(new_file)
