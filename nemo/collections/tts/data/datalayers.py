@@ -878,9 +878,10 @@ class CTCG2PDataset(Dataset):
         self,
         manifest_filepath: str,
         tokenizer: PreTrainedTokenizerBase,
-        labels: List[str],
+        labels: List[str] = None,
         max_source_len: int = 512,
         max_target_len: int = 512,
+        with_labels: bool = True,
     ):
         # TODO: docstring
         super().__init__()
@@ -896,11 +897,17 @@ class CTCG2PDataset(Dataset):
         self.labels_tkn2id = {l: i for i, l in enumerate(labels)}
         self.data = []
         self.pad_token = 0
-
+        self.with_labels = with_labels
         num_filtered = 0
 
         num_removed = 0
         # Load grapheme/phoneme sequence pairs into self.data
+
+        if with_labels:
+            long_input_file = f"/mnt/sdb_4/g2p/v2/{os.path.basename(manifest_filepath).replace('.json', 'errors.txt')}"
+            print(long_input_file)
+            long_input_file = open(long_input_file, "w")
+
         with open(manifest_filepath, 'r') as f_in:
             logging.info(f"Loading dataset from: {manifest_filepath}")
             for i, line in enumerate(tqdm(f_in)):
@@ -914,24 +921,36 @@ class CTCG2PDataset(Dataset):
                     num_filtered += 1
                     continue
                 """
-                # TODO: change pred_text to something more sensible in manifest
-                if (
-                    len(item["text"]) < len(item["pred_text"].split())
-                    or len(item["text"]) > max_source_len
-                    or len(item["pred_text"]) > max_target_len
-                ):
-                    num_removed += 1
-                    continue
-                target = self.map(item["pred_text"])
-                target_len = len(target)
-                self.data.append(
-                    {
-                        "graphemes": item["text"],
-                        "phonemes": item["pred_text"],
-                        "target": target,
-                        "target_len": target_len,
-                    }
-                )
+                if with_labels:
+                    # TODO: change pred_text to something more sensible in manifest
+                    # import pdb; pdb.set_trace()
+                    if (
+                        len(item["text"]) < len(item["pred_text"].split())
+                        or len(item["text"]) > max_source_len
+                        # or len(item["pred_text"]) > max_target_len
+                    ):
+                        num_removed += 1
+                        long_input_file.write(
+                            f'TEXT:{item["text"]}, PRED:{item["pred_text"]},text_longer_pred: {len(item["text"]) < len(item["pred_text"].split())}, long_text: {len(item["text"]) > max_source_len}\n'
+                        )
+                        continue
+                    target = self.map(item["pred_text"])
+                    target_len = len(target)
+                    self.data.append(
+                        {
+                            "graphemes": item["text"],
+                            "phonemes": item["pred_text"],
+                            "target": target,
+                            "target_len": target_len,
+                        }
+                    )
+                else:
+                    # TODO: change pred_text to something more sensible in manifest
+                    if len(item["text"]) > max_source_len:
+                        item["text"] = item["text"][:max_source_len]
+                    self.data.append(
+                        {"graphemes": item["text"],}
+                    )
 
         # print(f"=======> Filtered {num_filtered} entries.")
         logging.info(f"Removed {num_removed} examples from {manifest_filepath}")
@@ -1004,6 +1023,12 @@ class CTCG2PDataset(Dataset):
             )
             input_ids, attention_mask = input_encoding.input_ids, input_encoding.attention_mask
 
+        input_len = torch.sum(attention_mask, 1)
+
+        # for inference
+        if not self.with_labels:
+            return (input_ids, attention_mask, input_len)
+
         # Encode targets (phonemes)
         targets = [torch.tensor(entry["target"]) for entry in batch]
         target_lengths = [torch.tensor(entry["target_len"]) for entry in batch]
@@ -1017,6 +1042,4 @@ class CTCG2PDataset(Dataset):
 
         padded_targets = torch.stack(padded_targets)
         target_lengths = torch.stack(target_lengths)
-
-        input_len = torch.sum(attention_mask, 1)
         return (input_ids, attention_mask, input_len, padded_targets, target_lengths)

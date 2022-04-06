@@ -14,15 +14,15 @@
 
 import json
 import os
-import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf, open_dict
 from pytorch_lightning import Trainer
 from torch import nn
+from tqdm import tqdm
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from nemo.collections.asr.losses.ctc import CTCLoss
@@ -78,10 +78,10 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
             ### T5
             # Load appropriate tokenizer from HuggingFace
             print(f"----------> Using model: {cfg.model_name}")
-            self._tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
+            self.tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
 
-            self.max_source_len = cfg.get("max_source_len", self._tokenizer.model_max_length)
-            self.max_target_len = cfg.get("max_target_len", self._tokenizer.model_max_length)
+            self.max_source_len = cfg.get("max_source_len", self.tokenizer.model_max_length)
+            self.max_target_len = cfg.get("max_target_len", self.tokenizer.model_max_length)
         else:
             chars = [
                 " ",
@@ -117,7 +117,7 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
             with open(vocab_file, "w") as f:
                 [f.write(f'"{ch}"\n') for ch in chars]
 
-            self._tokenizer = CharTokenizer(vocab_file=vocab_file)
+            self.tokenizer = CharTokenizer(vocab_file=vocab_file)
             self.max_source_len = cfg.get("max_source_len", 512)
             self.max_target_len = cfg.get("max_target_len", 512)
 
@@ -146,7 +146,7 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
                 self._cfg.decoder.feat_in = self.encoder.config.d_model
         else:
             self.embedding = nn.Embedding(
-                embedding_dim=cfg.embedding.d_model, num_embeddings=self._tokenizer.vocab_size, padding_idx=0
+                embedding_dim=cfg.embedding.d_model, num_embeddings=self.tokenizer.vocab_size, padding_idx=0
             )
             # setup encoder after init()
             self.encoder = EncDecCTCModel.from_config_dict(self._cfg.encoder)
@@ -284,19 +284,133 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
     def test_epoch_end(self, outputs):
         self.validation_epoch_end(outputs, split="test")
 
-    @torch.no_grad()
-    def _generate_predictions(self, input_ids: torch.Tensor, model_max_target_len: int = 512):
+    def _setup_infer_dataloader(
+        self, manifest_filepath: str, batch_size: int, num_workers: int
+    ) -> 'torch.utils.data.DataLoader':
         """
-        Generates predictions and converts IDs to text.
+        Setup function for a infer data loader.
+
+        Args:
+            queries: text
+            batch_size: batch size to use during inference
+
+        Returns:
+            A pytorch DataLoader.
         """
-        outputs = self.model.generate(
-            input_ids, output_scores=True, return_dict_in_generate=True, max_length=model_max_target_len
+        dataset = CTCG2PDataset(
+            manifest_filepath=manifest_filepath,
+            tokenizer=self.tokenizer,
+            labels=self.vocabulary,
+            max_source_len=self._cfg.max_source_len,
+            with_labels=False,
         )
 
-        generated_ids, sequence_toks_scores = outputs['sequences'], outputs['scores']
-        generated_texts = self._tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+        return torch.utils.data.DataLoader(
+            dataset,
+            collate_fn=dataset.collate_fn,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            drop_last=False,
+        )
 
-        return generated_texts, generated_ids, sequence_toks_scores
+    @torch.no_grad()
+    def _infer(self, manifest_filepath: str, batch_size: int, num_workers: int = 0) -> List[int]:
+        """
+        Get prediction for the queries
+        Args:
+            queries: text sequences
+            batch_size: batch size to use during inference.
+        Returns:
+        all_preds: model predictions
+        """
+        # store predictions for all queries in a single list
+        all_preds = []
+        mode = self.training
+        try:
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            # Switch model to evaluation mode
+            self.eval()
+            self.to(device)
+            infer_datalayer = self._setup_infer_dataloader(
+                manifest_filepath, batch_size=batch_size, num_workers=num_workers
+            )
+
+            for batch in tqdm(infer_datalayer):
+                input_ids, attention_mask, input_len = batch
+
+                log_probs, greedy_predictions, encoded_len = self.forward(
+                    input_ids=input_ids.to(device),
+                    attention_mask=attention_mask.to(device),
+                    input_len=input_len.to(device),
+                )
+                preds_str = self.ctc_decoder_predictions_tensor(greedy_predictions.tolist())
+                all_preds.extend(preds_str)
+
+                del greedy_predictions
+                del log_probs
+                del batch
+                del input_len
+        finally:
+            # set mode back to its original value
+            self.train(mode=mode)
+        return all_preds
+
+    # Functions for inference
+    @torch.no_grad()
+    def convert_graphemes_to_phonemes(
+        self,
+        manifest_filepath: str,
+        batch_size: int = 32,
+        num_workers: int = 0,
+        output_file: Optional[str] = None,
+        target_field: Optional[str] = None,
+    ) -> List[str]:
+        """ Main function for Inference
+        Args:
+            sents: A list of inputs tokenized by a basic tokenizer.
+            nb_spans: A list of ints where each int indicates the number of semiotic spans in each input.
+            span_starts: A list of lists where each list contains the starting locations of semiotic spans in an input.
+            span_ends: A list of lists where each list contains the ending locations of semiotic spans in an input.
+            inst_directions: A list of str where each str indicates the direction of the corresponding instance (i.e., INST_BACKWARD for ITN or INST_FORWARD for TN).
+
+        Returns: A list of lists where each list contains the decoded spans for the corresponding input.
+        """
+        if not os.path.exists(manifest_filepath):
+            raise ValueError(f"{manifest_filepath} is not found")
+
+        all_preds = self._infer(manifest_filepath, batch_size=batch_size, num_workers=num_workers)
+
+        if output_file is None:
+            output_file = manifest_filepath.replace(".json", "_phonemes.json")
+
+        logging.info(f"Saving predictions to {output_file}.")
+        all_targets = []
+        with open(manifest_filepath, "r") as f_in:
+            with open(output_file, 'w', encoding="utf-8") as f_out:
+                for i, line in tqdm(enumerate(f_in)):
+                    line = json.loads(line)
+
+                    if target_field is not None:
+                        if target_field not in line:
+                            if i == 0:
+                                logging.error(
+                                    f"{target_field} not found in {manifest_filepath}. Skipping PER calculation"
+                                )
+                        else:
+                            line["graphemes"] = line["text"]
+                            line["text"] = line[target_field]
+                            line["PER"] = word_error_rate(hypotheses=[all_preds[i]], references=[line[target_field]])
+                            all_targets.append(line[target_field])
+
+                    line["pred_text"] = all_preds[i]
+                    f_out.write(json.dumps(line) + "\n")
+
+        if target_field is not None:
+            per = word_error_rate(hypotheses=all_preds, references=all_targets)
+            logging.info(f"Overall PER --- {round(per * 100, 2)}%")
+        logging.info(f"Predictions saved to {output_file}.")
+        return all_preds
 
     # ===== Dataset Setup Functions ===== #
     def _setup_dataloader_from_config(self, cfg, name):
@@ -306,7 +420,12 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
             raise ValueError(f"No dataloader_params for {name}")
 
         dataset = CTCG2PDataset(
-            cfg.dataset.manifest_filepath, self._tokenizer, self.vocabulary, self.max_source_len, self.max_target_len
+            manifest_filepath=cfg.dataset.manifest_filepath,
+            tokenizer=self.tokenizer,
+            labels=self.vocabulary,
+            max_source_len=self.max_source_len,
+            max_target_len=self.max_target_len,
+            with_labels=True,
         )
 
         return torch.utils.data.DataLoader(dataset, collate_fn=dataset.collate_fn, **cfg.dataloader_params)
