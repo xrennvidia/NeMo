@@ -92,6 +92,14 @@ def initialize_model_parallel_for_nemo(
             rampup_batch_size=rampup_batch_size,
         )
 
+    # TODO: verify rampup batch schedule is consistent
+    #     while consumed_samples <= int(args.rampup_batch_size[2]):
+    #     update_num_microbatches(consumed_samples, consistency_check=False)
+    #     consumed_samples += get_current_global_batch_size()
+    #     iterations += 1
+    # # Reset
+    # update_num_microbatches(0, consistency_check=False)
+
     app_state._is_megatron_initialized = True
 
     set_logging_level(apex_transformer_log_level)
