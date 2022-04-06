@@ -210,8 +210,11 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         if dataset is None:
             return None
 
-        sampler = torch.utils.data.sampler.RandomSampler(
-            dataset
+        #sampler = torch.utils.data.sampler.RandomSampler(
+        #    dataset
+        #)
+        sampler = torch.utils.data.distributed.DistributedSampler(
+            dataset, num_replicas=self.trainer.gpus, rank=self.trainer.local_rank, shuffle=shuffle
         )
         return DataLoader(
             dataset,
