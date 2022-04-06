@@ -800,42 +800,6 @@ class NewsCrawlWorker:
         self.tokenizer = tokenizer
         self.progress_queue = progress_queue
 
-    def prepare_wiki_extracted_doc(
-        self, doc: str, start_line: int, end_line: int, input_file: Path
-    ) -> Dict[str, Union[str, int, Path]]:
-        header_match = WIKI_EXTRACTED_HEADER.search(doc)
-        if header_match is None:
-            raise ValueError(
-                f"Document header is not found in file {input_file} for document in lines between {start_line} and "
-                f"{end_line}"
-            )
-        title = header_match.group(3)
-        doc = doc[header_match.span()[1]:]
-        doc = doc.strip()
-        first_end_line = doc.find('\n')
-        doc = doc[first_end_line:].strip()
-        doc = big.NEW_LINE_DUP.sub('\n', doc)
-        doc = small.SPACING_CHARACTERS_TO_REPLACE.sub(' ', doc)
-        global tok_chars
-        global untok_chars
-        doc, tok_chars, untok_chars, _ = small.remove_untokenizable_characters_from_text(
-            doc, self.tokenizer, tok_chars, untok_chars, remove_entire_lines=True
-        )
-        doc = big.BROKEN_PARENTHESES_WITH_CONTENT.sub(' ', doc)
-        doc = big.SPACE_DUP.sub(' ', doc)
-        after_suspicious_removal, _ = big.remove_suspicious_lines_and_rearrange_quotes_and_spaces(
-            doc,
-            normalize_and_check_quotes_and_parentheses=True,
-            check_suspicious_endings=True,
-            check_suspicious_parentheses=True,
-        )
-        doc = big.normalize_punctuation(after_suspicious_removal, self.lang)
-        doc = big.NEW_LINE_DUP.sub('\n', doc)
-        doc = [sent.strip() for sent in doc.split('\n')]
-        doc = [sent for sent in doc if sent.count(' ') > 4]
-        doc = '\n'.join(doc)
-        return {"text": doc, "start_line": start_line, "end_line": end_line, "source": input_file, "title": title}
-
     def __call__(
         self, input_file: Path, file_id: int, doc_id: int, source_file: Path, start_line: int, end_line: int, idx: int
     ) -> None:

@@ -1,6 +1,6 @@
 python prepare_big_data_for_punctuation_capitalization_task_simple.py \
   --output_dir /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_extracted_wmt2020_x2_06.04.2022 \
-  --corpus_types wiki-extracted \
+  --corpus_types news-crawl \
   --create_model_input \
   --bert_labels \
   --autoregressive_labels \
@@ -8,7 +8,7 @@ python prepare_big_data_for_punctuation_capitalization_task_simple.py \
   --allowed_punctuation '.,?' \
   --only_first_punctuation_character_after_word_in_autoregressive \
   --no_label_if_all_characters_are_upper_case \
-  --input_files_or_dirs /media/apeganov/DATA/wikipedia.en.lid_filtered.test_filtered_split \
+  --input_files_or_dirs /media/apeganov/DATA/wikipedia.en.lid_filtered.test_filtered_dir \
   --num_jobs 24 \
   --num_passes_through_dataset 2 \
   --dev_size 10000 \
