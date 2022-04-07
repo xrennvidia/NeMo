@@ -59,7 +59,7 @@ model:
     # if evaluation data is not in the model.dataset.data_dir as the training data or multiple datasets are used for
     # evaluation is needed, specify ds_item, otherwise by default data_dir is used
     use_tarred_dataset: true
-    ds_item: /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_wmt_17.01.2022/for_upload/train_t5_tarred_5500
+    ds_item: /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_wmt_06.04.2022/for_upload/train_t5_tarred_5500
     tar_metadata_file: metadata.punctuation_capitalization.tokens5500.max_seq_length512.-home-apeganov-pretrained_tokenizers-t5_large.json
     shuffle: true
     num_samples: -1
@@ -73,12 +73,12 @@ model:
     # evaluation is needed, specify ds_item, otherwise by default data_dir is used
     use_tarred_dataset: false
     ds_item:
-      - /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_wmt_17.01.2022/for_upload/europarl_dev
-      - /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_wmt_17.01.2022/for_upload/IWSLT_tst2019
-      - /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_wmt_17.01.2022/for_upload/news_commentary_dev
-      - /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_wmt_17.01.2022/for_upload/news_crawl_dev
-      - /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_wmt_17.01.2022/for_upload/rapid_dev
-      - /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_wmt_17.01.2022/for_upload/wiki_dev
+      - /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_wmt_06.04.2022/for_upload/europarl_dev
+      - /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_wmt_06.04.2022/for_upload/IWSLT_tst2019
+      - /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_wmt_06.04.2022/for_upload/news_commentary_dev
+      - /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_wmt_06.04.2022/for_upload/news_crawl_dev
+      - /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_wmt_06.04.2022/for_upload/rapid_dev
+      - /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_wmt_06.04.2022/for_upload/wiki_dev
     text_file: input.txt
     labels_file: bert_labels.txt
     shuffle: false
