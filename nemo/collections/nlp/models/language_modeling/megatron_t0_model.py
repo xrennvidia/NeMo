@@ -214,11 +214,18 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         if dataset is None:
             return None
 
-        generator = torch.Generator()
-        generator.manual_seed(self.cfg.seed + (10 * self.trainer.local_rank))
-        sampler = torch.utils.data.sampler.RandomSampler(
-            data_source=dataset, generator=generator
-        )
+        if self.trainer.num_nodes == 1:
+            rank = parallel_state.get_data_parallel_rank()
+            world_size = parallel_state.get_data_parallel_world_size()
+            sampler = torch.utils.data.distributed.DistributedSampler(
+                dataset, num_replicas=world_size, rank=rank, shuffle=shuffle
+            )
+        else:
+            generator = torch.Generator()
+            generator.manual_seed(self.cfg.seed + (10 * self.trainer.local_rank))
+            sampler = torch.utils.data.sampler.RandomSampler(
+                data_source=dataset, generator=generator
+            )
         return DataLoader(
             dataset,
             collate_fn=collate_fn,
