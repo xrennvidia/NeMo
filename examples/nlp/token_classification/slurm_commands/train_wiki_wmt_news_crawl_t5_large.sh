@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A ent_aiapps_asr
 #SBATCH -p batch_dgx2h_m2                 # luna / backfill / interactive
-#SBATCH -N 4                    # number of nodes
+#SBATCH -N 8                    # number of nodes
 #SBATCH -t 8:00:00              # wall time  (4 for luna, 8 for backfill, 2 for interactive)
 #SBATCH --exclusive
 #SBATCH --mem=0
@@ -12,7 +12,7 @@
 #SBATCH --ntasks-per-node=16     # n tasks per machine (one task per gpu) <required>
 set -x
 USERID='apeganov'
-CONTAINER="gitlab-master.nvidia.com/apeganov/speechtranslation:21.12"
+CONTAINER="gitlab-master.nvidia.com/apeganov/speechtranslation:latest"
 WANDB="${wandb}" # replace with your own WandB API key
 
 # Training - we want to train for 300B tokens with a global batch size of at least 1M tokens
@@ -31,7 +31,7 @@ EXPNAME="evelina_wiki_wmt_news_crawl_t5_large_lr5e-6_steps400k"
 SLURM_ACCOUNT='ent_aiapps'
 USERID='apeganov'
 LUSTRE_ACCOUNT_PREFIX=/gpfs/fs1/projects/${SLURM_ACCOUNT}
-DATA="${LUSTRE_ACCOUNT_PREFIX}/datasets/data/punctuation_capitalization/wiki_wmt_min_punc_3_128_17.01.2022"
+DATA="${LUSTRE_ACCOUNT_PREFIX}/datasets/data/punctuation_capitalization/wiki_wmt_min_punc_3_128_06.04.2022"
 RESULTS=${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/results/$PROJECT/$EXPNAME
 CODE="${LUSTRE_ACCOUNT_PREFIX}/users/${USERID}/code/NeMo"
 
