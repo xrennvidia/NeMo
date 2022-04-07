@@ -114,14 +114,15 @@ class MegatronT0Model(MegatronT5FineTuneModel):
     def inference_step(self, batch, batch_idx):
         loss = self.model.validation_step(batch, batch_idx)
 
-        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids \
-            = self.process_batch(batch)
+        if self.trainer.num_nodes == 1:
+            tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids \
+                = self.process_batch(batch)
 
-        predicted_token_ids, log_probs = self.model.decode(
-            tokens_enc=tokens_enc, enc_mask=enc_mask,
-            num_tokens_to_generate=self.decoder_seq_length
-        )
-        self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
+            predicted_token_ids, log_probs = self.model.decode(
+                tokens_enc=tokens_enc, enc_mask=enc_mask,
+                num_tokens_to_generate=self.decoder_seq_length
+            )
+            self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
 
         return {'loss': loss}
 
