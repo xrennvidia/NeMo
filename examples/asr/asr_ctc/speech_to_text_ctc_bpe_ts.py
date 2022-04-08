@@ -95,7 +95,7 @@ def main(cfg):
     # asr_model.setup_training_data(train_data_config=cfg.model.train_ds)
     # asr_model.setup_multiple_validation_data(val_data_config=cfg.model.validation_ds)
 
-    # trainer.fit(asr_model)
+    trainer.fit(asr_model)
 
     if hasattr(cfg.model, 'test_ds') and cfg.model.test_ds.manifest_filepath is not None:
         if asr_model.prepare_test(trainer):
