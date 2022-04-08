@@ -680,18 +680,18 @@ class RirNoiseSpeakerPerturbation(Perturbation):
         apply_foreground_noise=False,
     ):
 
-        logging.info("Called Rir aug init")
-        self._rir_prob = rir_prob
+        # logging.info("Called Rir aug init")
+        # self._rir_prob = rir_prob
         self._rng = random.Random()
-        self._rir_perturber = ImpulsePerturbation(
-            manifest_path=rir_manifest_path,
-            audio_tar_filepaths=rir_tar_filepaths,
-            shuffle_n=rir_shuffle_n,
-            shift_impulse=True,
-        )
-        self._fg_noise_perturbers = {}
-        self._bg_noise_perturbers = {}
-        if noise_manifest_paths:
+        # self._rir_perturber = ImpulsePerturbation(
+        #     manifest_path=rir_manifest_path,
+        #     audio_tar_filepaths=rir_tar_filepaths,
+        #     shuffle_n=rir_shuffle_n,
+        #     shift_impulse=True,
+        # )
+        # self._fg_noise_perturbers = {}
+        # self._bg_noise_perturbers = {}
+        if noise_manifest_paths is not None:
             for i in range(len(noise_manifest_paths)):
                 if orig_sample_rate is None:
                     orig_sr = 16000

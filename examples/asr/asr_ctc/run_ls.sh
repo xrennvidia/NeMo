@@ -5,12 +5,6 @@ python speech_to_text_ctc_bpe_ts.py \
 model.tokenizer.type=bpe \
 model.tokenizer.dir=/home/yangzhang/code/ts_asr/tokenizer_conformer/tokenizer_spe_unigram_v128/ \
 model.train_ds.manifest_filepath=/mnt/data/LibriSpeech/train_clean_100_360.json \
-model.train_ds.augmentor.rir_noise_speaker.rir_manifest_path=/mnt/data/rir_noises/rir_tarred/tarred/tarred_audio_manifest.json \
-model.train_ds.augmentor.rir_noise_speaker.rir_tar_filepaths=/mnt/data/rir_noises/rir_tarred/tarred/audio_{0..127}.tar \
-model.train_ds.augmentor.rir_noise_speaker.noise_manifest_paths=[/mnt/data/rir_noises/noises_20s_tarred/tarred_audio_manifest.json] \
-model.train_ds.augmentor.rir_noise_speaker.noise_tar_filepaths=[/mnt/data/rir_noises/noises_20s_tarred/audio_{0..255}.tar] \
-model.train_ds.augmentor.rir_noise_speaker.bg_noise_manifest_paths=[/mnt/data/rir_noises/noises_20s_tarred/tarred_audio_manifest.json] \
-model.train_ds.augmentor.rir_noise_speaker.bg_noise_tar_filepaths=[/mnt/data/rir_noises/noises_20s_tarred/audio_{0..255}.tar] \
 trainer.max_epochs=1 \
 model.train_ds.augmentor.rir_noise_speaker.bg_min_snr_db=[20] \
 model.train_ds.augmentor.rir_noise_speaker.bg_max_snr_db=[50] \
