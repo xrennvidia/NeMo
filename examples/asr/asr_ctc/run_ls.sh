@@ -18,17 +18,17 @@ model.test_ds.num_workers=0 \
 model.test_ds.batch_size=8 \
 model.test_ds.manifest_filepath=[/mnt/data/LibriSpeech/dev_clean.json,/mnt/data/LibriSpeech/test_clean.json] \
 trainer.devices=-1 \
+trainer.log_every_n_steps=50 \
 model.encoder.d_model=256 \
 model.encoder.n_heads=4 \
 model.encoder.n_layers=18 \
 model.spec_augment.time_masks=5 \
 trainer.num_sanity_val_steps=0 \
-trainer.val_check_interval=0.1 \
-+nemo_checkpoint_path=/home/yangzhang/code/NeMo/examples/asr/asr_ctc/nemo_experiments/Conformer-CTC-BPE/2022-04-05_12-23-05/checkpoints/Conformer-CTC-BPE.nemo
-# +nemo_checkpoint_path=/home/yangzhang/code/ts_asr/stt_en_conformer_ctc_medium_v1.0.0/stt_en_conformer_ctc_medium.nemo
-
-
-
+trainer.val_check_interval=0.01 \
+exp_manager.create_wandb_logger=true \
+exp_manager.wandb_logger_kwargs.project=ts_asr \
+exp_manager.wandb_logger_kwargs.name=test \
++nemo_checkpoint_path=/home/yangzhang/code/ts_asr/stt_en_conformer_ctc_medium_v1.0.0/stt_en_conformer_ctc_medium.nemo
 
 # PROJECT_NAME="ls_100"
 # wandb login 2640ba7ea01264a146c1d9f3f075ec53350dd2f1 && python speech_to_text_ctc_bpe_ts.py \
