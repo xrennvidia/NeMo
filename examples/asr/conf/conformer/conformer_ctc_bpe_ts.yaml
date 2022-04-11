@@ -26,6 +26,7 @@
 
 name: "Conformer-CTC-BPE"
 
+do_training: True
 model:
   speaker_embeddings:
     feature_dim: 192

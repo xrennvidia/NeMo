@@ -80,25 +80,34 @@ def main(cfg):
 
     trainer = pl.Trainer(**cfg.trainer)
     exp_manager(trainer, cfg.get("exp_manager", None))
-    asr_model = TSEncDecCTCModelBPE(cfg=cfg.model, trainer=trainer)
+    
+    if cfg.do_training:
+        asr_model = TSEncDecCTCModelBPE(cfg=cfg.model, trainer=trainer)
 
-    # Initialize the weights of the model from another model, if provided via config
-    # asr_model.maybe_init_from_pretrained_checkpoint(cfg)
+        # Initialize the weights of the model from another model, if provided via config
+        # asr_model.maybe_init_from_pretrained_checkpoint(cfg)
 
-    checkpoint = EncDecCTCModelBPE.restore_from(
-        cfg.nemo_checkpoint_path, map_location=torch.device('cpu'), strict=False
-    )
-    asr_model.load_state_dict(checkpoint.state_dict(), strict=False)
-    del checkpoint
+        checkpoint = EncDecCTCModelBPE.restore_from(
+            cfg.nemo_checkpoint_path, map_location=torch.device('cpu'), strict=False
+        )
+        asr_model.load_state_dict(checkpoint.state_dict(), strict=False)
+        del checkpoint
+        
+        trainer.fit(asr_model)
+    else:
+        asr_model = TSEncDecCTCModelBPE.restore_from(
+            cfg.nemo_checkpoint_path, map_location=torch.device('cpu'), strict=False
+        )
 
     # asr_model.change_vocabulary(new_tokenizer_dir=cfg.model.tokenizer.dir, new_tokenizer_type=cfg.model.tokenizer.type)
     # asr_model.setup_training_data(train_data_config=cfg.model.train_ds)
     # asr_model.setup_multiple_validation_data(val_data_config=cfg.model.validation_ds)
 
-    trainer.fit(asr_model)
 
     if hasattr(cfg.model, 'test_ds') and cfg.model.test_ds.manifest_filepath is not None:
+        asr_model.setup_multiple_test_data(test_data_config=cfg.model.test_ds)
         if asr_model.prepare_test(trainer):
+            
             trainer.test(asr_model)
 
 

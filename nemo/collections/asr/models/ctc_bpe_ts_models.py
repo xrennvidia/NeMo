@@ -15,7 +15,7 @@
 import copy
 import os
 from copyreg import dispatch_table
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 import torch
 from omegaconf import DictConfig, ListConfig, OmegaConf, open_dict
@@ -205,6 +205,7 @@ class TSEncDecCTCModelBPE(EncDecCTCModelBPE):
         }
 
     def _setup_dataloader_from_config(self, config: Optional[Dict], synthetic_generation: bool = False):
+        
         if 'augmentor' in config:
             augmentor = process_augmentations(config['augmentor'])
         else:
@@ -339,3 +340,6 @@ class TSEncDecCTCModelBPE(EncDecCTCModelBPE):
                     "Model Trainer was not set before constructing the dataset, incorrect number of "
                     "training batches will be used. Please set the trainer and rebuild the dataset."
                 )
+
+
+
