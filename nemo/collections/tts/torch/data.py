@@ -846,13 +846,15 @@ class VocoderDataset(Dataset):
                 mel = torch.load(sample["mel_filepath"])
             frames = math.ceil(self.n_segments / self.hop_length)
 
-            if len(audio) >= self.n_segments:
+            if len(audio) >= self.n_segments and mel.shape[1] > frames:
                 start = random.randint(0, mel.shape[1] - frames - 1)
+                alpha = len(audio) / ( mel.shape[1] * self.hop_length )
                 mel = mel[:, start : start + frames]
-                audio = audio[start * self.hop_length : (start + frames) * self.hop_length]
+                # audio = audio[start * self.hop_length : (start + frames) * self.hop_length]
+                audio = audio[math.ceil(start * alpha * self.hop_length) : math.ceil((start + frames) * alpha * self.hop_length)]
             else:
                 mel = torch.nn.functional.pad(mel, (0, frames - mel.shape[1]))
-                audio = torch.nn.functional.pad(audio, (0, self.n_segments - len(audio)))
+            audio = torch.nn.functional.pad(audio, (0, self.n_segments - len(audio)))
 
             return audio, len(audio), mel
 
