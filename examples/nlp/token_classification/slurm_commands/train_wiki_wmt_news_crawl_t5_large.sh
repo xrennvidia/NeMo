@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A ent_aiapps_asr
 #SBATCH -p batch_dgx2h_m2                 # luna / backfill / interactive
-#SBATCH -N 8                    # number of nodes
+#SBATCH -N 16                    # number of nodes
 #SBATCH -t 8:00:00              # wall time  (4 for luna, 8 for backfill, 2 for interactive)
 #SBATCH --exclusive
 #SBATCH --mem=0
@@ -25,7 +25,7 @@ LOG_EVERY_N_STEPS=100
 
 # Logging
 PROJECT="autoregressive_punctuation_capitalization"
-EXPNAME="evelina_wiki_wmt_news_crawl_t5_large_lr5e-6_steps400k_bs704000"
+EXPNAME="evelina_wiki_wmt_news_crawl_t5_large_lr5e-6_steps400k_bs1408000"
 
 # Mounts
 SLURM_ACCOUNT='ent_aiapps'
