@@ -714,7 +714,8 @@ class T0DatasetBuilder(object):
         if os.path.isdir(features_dir):
             cache_exists = all(os.path.exists(cache) for cache in cached_features_files)
         else:
-            os.mkdir(features_dir)
+            if rank == 0:
+                os.mkdir(features_dir)
             cache_exists = False
         if not self.use_cache or not cache_exists:
             self.map_features(task, rank, cached_features_files)
