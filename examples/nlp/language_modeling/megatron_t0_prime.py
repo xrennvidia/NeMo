@@ -8,15 +8,16 @@
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDIos.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-# os.environ['HYDRA_FULL_ERROR'] = '1'TIONS OF ANY KIND, either express or implied.
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import os
 from pathlib import Path
 
 from omegaconf.omegaconf import OmegaConf, open_dict
 from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import ModelSummary
 from pytorch_lightning.callbacks.timer import Timer
 from pytorch_lightning.plugins.environments.torchelastic_environment import TorchElasticEnvironment
 from pytorch_lightning.plugins.precision.native_amp import NativeMixedPrecisionPlugin
@@ -63,7 +64,17 @@ def main(cfg) -> None:
     if cfg.get('cluster_type', None) == 'BCP':
         plugins.append(TorchElasticEnvironment())
 
-    trainer = Trainer(plugins=plugins, **cfg.trainer)
+    if cfg.model.data.num_data_shards > cfg.trainer.max_epochs:
+        logging.info("Datasets are switched every epoch. If num_data_shards > max epoch, "
+                     "the model does not train on the whole dataset. "
+                     "Switching num_data_shards = max_epoch.")
+        cfg.model.data.num_data_shards = cfg.trainer.max_epochs
+
+    trainer = Trainer(
+        plugins=plugins, num_sanity_val_steps=2,
+        reload_dataloaders_every_n_epochs=1 if cfg.model.data.num_data_shards > 1 else 0,
+        **cfg.trainer, callbacks=[ModelSummary(max_depth=3)],
+    )
 
     exp_manager(trainer, cfg.exp_manager)
 

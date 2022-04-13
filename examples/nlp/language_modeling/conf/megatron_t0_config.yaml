@@ -10,8 +10,8 @@ trainer:
   replace_sampler_ddp: False
   max_epochs: 3
   max_steps: null # consumed_samples = global_step * micro_batch_size * data_parallel_size * accumulate_grad_batches
-  log_every_n_steps: 10
-  val_check_interval: 20
+  log_every_n_steps: 50
+  val_check_interval: 1.0
   accumulate_grad_batches: 2
   gradient_clip_val: 1.0
 
@@ -38,7 +38,7 @@ exp_manager:
 model:
   seed: 1234
   restore_from_path: /home/jpilault/models/megatron_t5/t5_220m/megatron_t5--val_loss=1.47-step=999999-consumed_samples=2047944704.0.nemo
-  tensor_model_parallel_size: 1
+  tensor_model_parallel_size: 2
   pipeline_model_parallel_size: 1 # T5 PP is not supported yet. Use 1 for now.
   gradient_as_bucket_view: True # Allocate gradients in a contiguous bucket to save memory (less fragmentation and buffer memory)
   megatron_amp_O2: False # Enable O2 optimization for megatron amp
@@ -50,22 +50,23 @@ model:
     dir_path: '/home/jpilault/datasets/T0_prompted'
     max_sampling_size: 500000  # from T0 paper (https://arxiv.org/abs/2110.08207)
     num_workers: 24
+    num_data_shards: 4
     train_ds:
-      batch_size: 16
+      batch_size: 2
       shuffle: True
-      pin_memory: True
+      pin_memory: False
       max_seq_length: 512
 
     validation_ds:
-      batch_size: 32
+      batch_size: 4
       shuffle: False
-      pin_memory: True
+      pin_memory: False
       max_seq_length: 512
 
     test_ds:
-      batch_size: 32
+      batch_size: 4
       shuffle: False
-      pin_memory: True
+      pin_memory: False
       max_seq_length: 512
 
   optim:

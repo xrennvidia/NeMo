@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import logging
 import re
 from operator import itemgetter
 from typing import Dict, Optional
@@ -25,7 +25,7 @@ from pytorch_lightning.trainer.trainer import Trainer
 from nemo.collections.nlp.data.language_modeling.t0_task_manager import get_task_name
 from nemo.collections.nlp.data.language_modeling.t0_dataset import (
     T0DatasetBuilder,
-    T0PrimeDatasetBuilder
+    #T0PrimeDatasetBuilder
 )
 from nemo.collections.common.metrics.classification_accuracy import ExactStringPerCategoryMatchMetric
 from nemo.collections.nlp.models.language_modeling.megatron_glue_model import MegatronT5FineTuneModel
@@ -71,6 +71,9 @@ class MegatronT0Model(MegatronT5FineTuneModel):
 
     def training_step(self, batch, batch_idx):
 
+        #logging.info(f'text_dec {batch["text_dec"].shape}')
+        #logging.info(f'text_enc {batch["text_enc"].shape}')
+        #logging.info(f'train dataloader {self.trainer.train_dataloader}')
         loss_mask, tokens_loss = self.get_loss(batch)
         loss = self.model.loss_func(loss_mask, tokens_loss)
         self.log('train_loss', loss)
@@ -87,8 +90,13 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             self.log('lr', lr)
             self.log('global_step', self.trainer.global_step, prog_bar=True)
             self._reduced_loss_buffer = []
-
         return loss
+
+    def train_dataloader(self):
+        if self.cfg.data.num_data_shards > 1 and 0 < self.trainer.current_epoch < self.trainer.max_epochs:
+            current_shard = self.trainer.current_epoch % self.cfg.data.num_data_shards
+            self.setup_training_data(self.cfg.data, shard=current_shard)
+        return self._train_dl
 
     def get_accuracy(self, predicted_token_ids, labels, task_ids, prompt_ids):
         preds = predicted_token_ids.cpu().numpy().tolist()
@@ -205,7 +213,8 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             max_samples=getattr(self.cfg.data, "max_samples", None),
             num_proc=self.cfg.data.num_workers,
             num_nodes=self.trainer.num_nodes,
-            num_gpus=self.trainer.gpus
+            num_gpus=self.trainer.gpus,
+            num_data_shards=self.cfg.data.num_data_shards
         )
         return datasetbuilder
 
@@ -214,11 +223,18 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         if dataset is None:
             return None
 
-        generator = torch.Generator()
-        generator.manual_seed(self.cfg.seed + (10 * self.trainer.local_rank))
-        sampler = torch.utils.data.sampler.RandomSampler(
-            data_source=dataset, generator=generator
+        #generator = torch.Generator()
+        #generator.manual_seed(self.cfg.seed + (10 * self.trainer.local_rank))
+        #sampler = torch.utils.data.sampler.RandomSampler(
+        #    data_source=dataset, generator=generator
+        #)
+
+        rank = parallel_state.get_data_parallel_rank()
+        world_size = parallel_state.get_data_parallel_world_size()
+        sampler = torch.utils.data.distributed.DistributedSampler(
+            dataset, num_replicas=world_size, rank=rank, shuffle=shuffle
         )
+        sampler.set_epoch(self.trainer.current_epoch)
         return DataLoader(
             dataset,
             collate_fn=collate_fn,
@@ -236,24 +252,24 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         if self._train_dl is not None and self._validation_dl is not None:
             return
         if stage in (None, 'fit'):
+            logging.info('Building train %s datasets.' % self.cfg.data.t0_type)
             self.setup_training_data(self.cfg.data)
+            logging.info('Building validation datasets.')
             self.setup_validation_data(self.cfg.data)
             logging.info(f'Finished building T0 train and evaluation datasets.')
         if stage in (None, 'test'):
+            logging.info('Building test datasets.')
             self.setup_test_data(self.cfg.data)
 
-    def setup_training_data(self, cfg):
-        logging.info('Building train %s datasets.' % self.cfg.data.t0_type)
-        self._train_ds = self.get_datasetbuilder('train', self.cfg.data.train_ds.max_seq_length)
+    def setup_training_data(self, cfg, shard=None):
+        if shard is None:
+            self._train_ds = self.get_datasetbuilder('train', self.cfg.data.train_ds.max_seq_length)
+        else:
+            logging.info('Resetting train dataset for shard = %s' % shard)
+            self._train_ds.set_data_dict(shard)
+
         logging.info(f'Length of train dataset: {len(self._train_ds)}')
         if hasattr(self, '_train_ds'):
-            resume_checkpoint_path = self.trainer.checkpoint_connector.resume_checkpoint_path
-            if resume_checkpoint_path:
-                consumed_samples = int(
-                    float(re.findall(r"consumed_samples\=([0-9]+.[0-9]+)", resume_checkpoint_path)[0])
-                )
-            else:
-                consumed_samples = 0
             self._train_dl = self.build_data_loader(
                 self._train_ds.assemble_datasets(),
                 collate_fn=self._train_ds.collate_fn,
@@ -263,11 +279,9 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             )
 
     def setup_validation_data(self, cfg):
-        logging.info('Building validation datasets.')
         self._validation_ds = self.get_datasetbuilder('validation', self.cfg.data.validation_ds.max_seq_length)
         logging.info(f'Length of val dataset: {len(self._validation_ds)}')
         if hasattr(self, '_validation_ds'):
-            consumed_samples = 0
             dataset_dict = self._validation_ds.assemble_datasets()
             self.validation_task_names = list(dataset_dict.keys())
             self._validation_dl = [self.build_data_loader(
@@ -279,11 +293,9 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             ) for dataset in dataset_dict.values()]
 
     def setup_test_data(self, cfg):
-        logging.info('Building test datasets.')
         self._test_ds = self.get_datasetbuilder('test', self.cfg.data.test_ds.max_seq_length)
         logging.info(f'Length of test dataset: {len(self._test_ds)}')
         if hasattr(self, '_test_ds'):
-            consumed_samples = 0
             dataset_dict = self._test_ds.assemble_datasets()
             self.test_task_names = list(dataset_dict.keys())
             self._test_dl = [self.build_data_loader(
