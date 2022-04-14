@@ -81,7 +81,7 @@ class Task(object):
 
     @staticmethod
     def create_example(task_id, prompt_id):
-        raise "Task `create_example` Not implemented"
+        raise "Task `create_example` not implemented"
 
     def tokenize(self, example):
         raise "Taks `tokenize` not implemented"
@@ -91,7 +91,7 @@ class Task(object):
         for prompt_type, data in multi_prompted_ex.items():
             self.prompt_id[prompt_type] = self.prompt_id.get(prompt_type, len(self.prompt_id) + 1)
             if data is None:
-                data = {'input': None, 'output': None}
+                data = {'input': None, 'output': None, 'chunked_idx': None}
             example = self.create_example(data, self.task_id, self.prompt_id[prompt_type])
             tokenized_features = self.tokenize(example)
             feature_dicts = {f'{k}_{self.prompt_id[prompt_type]}': v for k, v in tokenized_features.items()}
@@ -594,6 +594,9 @@ class TaskDataset(Dataset):
         feature = self.features[idx]
         return self.choose_template(feature)
 
+    def get_chosen_features(self, feature_dict, prompt_num):
+        raise "Dataset `get_chosen_features` not implemented"
+
     def choose_template(self, feature_dict):
         available_prompts = []
         for data_name in feature_dict.keys():
@@ -604,14 +607,7 @@ class TaskDataset(Dataset):
                 available_prompts.append(data_name.split("_")[-1])
         assert available_prompts
         prompt_num = np.random.choice(available_prompts)
-        chosen_features = {
-            'text_enc': feature_dict[f'text_enc_{prompt_num}'],
-            'text_dec': feature_dict[f'text_dec_{prompt_num}'],
-            'labels': feature_dict[f'labels_{prompt_num}'],
-            'task_id': feature_dict[f'task_id_{prompt_num}'],
-            'prompt_id': feature_dict[f'prompt_id_{prompt_num}']
-        }
-        return chosen_features
+        return self.get_chosen_features(feature_dict, prompt_num)
 
 
 class T0DatasetBuilder(object):
@@ -632,7 +628,6 @@ class T0DatasetBuilder(object):
             max_seq_length_decoder: int = 128,
             seed: int = 43,
             use_cache: bool = True,
-            distribute_datasets: bool = False,
             extension: str = 'json',
             max_samples: int = None,
             num_proc: int = None,
@@ -664,7 +659,6 @@ class T0DatasetBuilder(object):
         self.max_query_length_decoder = max_seq_length_decoder
         self.seed = seed
         self.use_cache = use_cache
-        self.distribute_datasets = distribute_datasets  # TODO: no longer needed
         self.extension = extension
         self.max_samples = max_samples
         self.num_proc = num_proc if num_proc > 0 else None
@@ -706,7 +700,12 @@ class T0DatasetBuilder(object):
         return task
 
     def get_dataset(self, task, shard):
-        features_dir = os.path.join(self.dir_path, self.split, f'cache_{task.dt_name}_{task.subset}')
+        features_dir_name = f'cache_{task.dt_name}'
+        if task.subset is not None:
+            features_dir_name += f'_{task.subset}'
+        if getattr(self, 'split_template', False):
+            features_dir_name += '_seperated'
+        features_dir = os.path.join(self.dir_path, self.split, features_dir_name)
         cached_features_files = [os.path.join(
             features_dir, f"cached_{self.tokenizer.name}_{self.max_query_length}_{shard}"
         ) for shard in range(self.num_data_shards)]
@@ -723,6 +722,7 @@ class T0DatasetBuilder(object):
         with open(cached_features_files[shard], "rb") as reader:
             features = pickle.load(reader)
         dataset = TaskDataset(task, features, self.empty_prompt_token_id)
+        dataset.get_chosen_features = self.get_chosen_features
         return dataset
 
     def map_features(self, task, rank, cached_features_files):
@@ -737,7 +737,8 @@ class T0DatasetBuilder(object):
             dataset = dataset.map(
                 function=task.map_fn_train if self.split == 'train' else task.map_fn_eval,
                 num_proc=self.num_proc,
-                remove_columns=original_column_names
+                remove_columns=original_column_names,
+                load_from_cache_file=False
             )
             self.shard_save_features(dataset, cached_features_files)
         torch.distributed.barrier()
@@ -776,6 +777,16 @@ class T0DatasetBuilder(object):
 
     def __len__(self):
         return sum(len(dataset) for dataset in self.datasets.values())
+
+    @staticmethod
+    def get_chosen_features(feature_dict, prompt_num):
+        return {
+            'text_enc': feature_dict[f'text_enc_{prompt_num}'],
+            'text_dec': feature_dict[f'text_dec_{prompt_num}'],
+            'labels': feature_dict[f'labels_{prompt_num}'],
+            'task_id': feature_dict[f'task_id_{prompt_num}'],
+            'prompt_id': feature_dict[f'prompt_id_{prompt_num}']
+        }
 
     @staticmethod
     def create_example(data, task_id, prompt_id):
@@ -872,7 +883,6 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
             max_seq_length_decoder: int = 128,
             seed: int = 43,
             use_cache: bool = True,
-            distribute_datasets: bool = True,
             extension: str = 'json',
             max_samples: int = None,
             num_proc: int = None,
@@ -898,14 +908,24 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
             split_template: whether to seperate template tokens
         """
         self.prompt_token_id = prompt_token_id
-        self.prompt_seq_len = prompt_seq_len
+        self.prompt_seq_len = prompt_seq_len if split_template else 1
         self.split_template = split_template
         super().__init__(
             t0_type, dir_path, max_sampling_size, split, tokenizer,
             max_seq_length, max_seq_length_decoder, seed, use_cache,
-            distribute_datasets, extension, max_samples, num_proc,
-            num_gpus, num_nodes, num_data_shards
+            extension, max_samples, num_proc, num_gpus, num_nodes, num_data_shards
         )
+
+    @staticmethod
+    def get_chosen_features(feature_dict, prompt_num):
+        return {
+            'text_enc': feature_dict[f'text_enc_{prompt_num}'],
+            'template': feature_dict[f'template_{prompt_num}'],
+            'text_dec': feature_dict[f'text_dec_{prompt_num}'],
+            'labels': feature_dict[f'labels_{prompt_num}'],
+            'task_id': feature_dict[f'task_id_{prompt_num}'],
+            'prompt_id': feature_dict[f'prompt_id_{prompt_num}']
+        }
 
     @staticmethod
     def create_example(data, task_id, prompt_id):
@@ -930,30 +950,35 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
                 chunk_name, chunk_start, chunk_end = chunk.split("-")
                 text_chunks.append((chunk_name, input_text[int(chunk_start):int(chunk_end)]))
             return text_chunks
-
-        input_text_chunks = get_text_chunks(example.input_text, example.chunked_idx)
-        enc_query = []
-        template = []
-        for chunk in input_text_chunks:
-            chunk_name = chunk[0]
-            chunk_tokens = self.tokenizer.text_to_ids(chunk[1])
-            if chunk_name == TEMPLATE_CHUNK_NAME and self.split_template:
-                remain = max(0, self.prompt_seq_len - len(template) - len(chunk_tokens))
-                template.extend(chunk_tokens[:remain])
-                enc_query.extend([self.prompt_token_id] * len(chunk_tokens[:remain]))
-            else:
-                max_length = self.max_query_length + (0 if self.split_template else self.prompt_seq_len)
-                remain = max(0, max_length - len(enc_query) - len(chunk_tokens))
-                enc_query.extend(chunk_tokens[:remain])  # only reduce original chunk
-        dec_query = (
-                [self.tokenizer.cls_id]
-                + self.tokenizer.text_to_ids(example.label)
-                + [self.tokenizer.eos_id]
-        )
-        if len(dec_query) > self.max_query_length_decoder + 1:
-            dec_query = dec_query[: self.max_query_length_decoder + 1]
-        dec_input = dec_query[:-1]
-        labels = dec_query[1:]
+        if example.input_text is None:
+            enc_query = [self.empty_prompt_token_id]
+            template = [self.empty_prompt_token_id]
+            dec_input = [self.empty_prompt_token_id]
+            labels = [self.empty_prompt_token_id]
+        else:
+            input_text_chunks = get_text_chunks(example.input_text, example.chunked_idx)
+            enc_query = []
+            template = []
+            for chunk in input_text_chunks:
+                chunk_name = chunk[0]
+                chunk_tokens = self.tokenizer.text_to_ids(chunk[1])
+                if chunk_name == TEMPLATE_CHUNK_NAME and self.split_template:
+                    remain = max(0, self.prompt_seq_len - len(template) - len(chunk_tokens))
+                    template.extend(chunk_tokens[:remain])
+                    enc_query.extend([self.prompt_token_id] * len(chunk_tokens[:remain]))
+                else:
+                    max_length = self.max_query_length + (0 if self.split_template else self.prompt_seq_len)
+                    remain = max(0, max_length - len(enc_query) - len(chunk_tokens))
+                    enc_query.extend(chunk_tokens[:remain])  # only reduce original chunk
+            dec_query = (
+                    [self.tokenizer.cls_id]
+                    + self.tokenizer.text_to_ids(example.label)
+                    + [self.tokenizer.eos_id]
+            )
+            if len(dec_query) > self.max_query_length_decoder + 1:
+                dec_query = dec_query[: self.max_query_length_decoder + 1]
+            dec_input = dec_query[:-1]
+            labels = dec_query[1:]
         task_id = [example.task_id]
         prompt_id = [example.prompt_id]
         return {
@@ -965,7 +990,7 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
             'prompt_id': prompt_id
         }
 
-    def collate_fn2(self, batch):
+    def collate_fn(self, batch):
         enc_query = [item['text_enc'] for item in batch]
         template = [item['template'] for item in batch]
         dec_input = [item['text_dec'] for item in batch]
@@ -1001,13 +1026,13 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
         dec_mask = (dec_input != self.tokenizer.pad_id).long()
 
         return {
-            'text_enc': enc_query,
-            'text_dec': dec_input,
-            'template': template,
-            'labels': labels,
-            'loss_mask': loss_mask,
-            'enc_mask': enc_mask,
-            'dec_mask': dec_mask,
+            'text_enc': enc_query[:, :self.max_query_length],
+            'text_dec': dec_input[:, :self.max_query_length_decoder],
+            'template': template[:, :self.prompt_seq_len],
+            'labels': labels[:, :self.max_query_length_decoder],
+            'loss_mask': loss_mask[:, :self.max_query_length_decoder],
+            'enc_mask': enc_mask[:, :self.max_query_length],
+            'dec_mask': dec_mask[:, :self.max_query_length_decoder],
             'task_ids': task_ids,
             'prompt_ids': prompt_ids
         }

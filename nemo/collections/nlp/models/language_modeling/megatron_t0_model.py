@@ -25,7 +25,7 @@ from pytorch_lightning.trainer.trainer import Trainer
 from nemo.collections.nlp.data.language_modeling.t0_task_manager import get_task_name
 from nemo.collections.nlp.data.language_modeling.t0_dataset import (
     T0DatasetBuilder,
-    #T0PrimeDatasetBuilder
+    T0PrimeDatasetBuilder
 )
 from nemo.collections.common.metrics.classification_accuracy import ExactStringPerCategoryMatchMetric
 from nemo.collections.nlp.models.language_modeling.megatron_glue_model import MegatronT5FineTuneModel
@@ -209,7 +209,6 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             max_seq_length=seq_length,
             seed=self.cfg.seed,
             use_cache=self.cfg.data.use_cache,
-            distribute_datasets=self.cfg.data.distribute_datasets,
             max_samples=getattr(self.cfg.data, "max_samples", None),
             num_proc=self.cfg.data.num_workers,
             num_nodes=self.trainer.num_nodes,
@@ -350,7 +349,7 @@ class MegatronT0PrimeModel(MegatronT0Model):
 
         self.hidden_size = self.model.cfg.hidden_size
         self.prompt_seq_len = cfg.prompt_encoder.seq_len
-        self.float_type = self.model.model.language_model.encoder.layers[0].dtype
+        self.float_type = self.model.enc_dec_model.enc_dec_model.encoder.model.layers[0].dtype
 
         if cfg.freeze:
             self.model.freeze()
@@ -364,14 +363,14 @@ class MegatronT0PrimeModel(MegatronT0Model):
             prompt_gen_type=cfg.prompt_encoder.prompt_gen_type,
             trainer=trainer
         )
-        self.word_embeddings = self.model.model.language_model.embedding.word_embeddings
+        self.word_embeddings = self.model.enc_dec_model.encoder_embedding.word_embeddings
         self.position_embeddings = self.model.enc_dec_model.encoder_embedding.position_embeddings
         self.model.tokenizer.add_special_tokens({'additional_special_tokens': [cfg.pseudo_token]})
         self.pseudo_token_id = self.model.tokenizer.token_to_id(cfg.pseudo_token)
         self.pad_token_id = self.model.tokenizer.pad_id if self.model.tokenizer.pad_id is not None \
             else self.model.tokenizer.unk_id
 
-    def embed_input(self, enc_input_id, prompt_input_ids):
+    def embed_input(self, enc_input_id, prompt_input_ids, enc_mask):
         """
         This method will replace the virtual tokens in the enc_input_id with
         embeddings calculated from `prompt_encoder`. If the `prompt_input_ids` is
@@ -387,7 +386,7 @@ class MegatronT0PrimeModel(MegatronT0Model):
         queries_for_embedding = enc_input_id.clone()
 
         queries_for_embedding[(enc_input_id == self.pseudo_token_id)] = self.pad_token_id
-        query_embeddings = self.word_embeddings(queries_for_embedding).clone().type(self.float_type)
+        query_embeddings = self.word_embeddings(queries_for_embedding)
 
         if self.cfg.prompt_encoder.task_dependent and self.cfg.data.split_template:
             prompt_condition = self.word_embeddings(prompt_input_ids)
@@ -397,56 +396,71 @@ class MegatronT0PrimeModel(MegatronT0Model):
             prompt_condition = None
 
         if self.float_type == torch.float32:
-            replace_embeds = self.prompt_encoder(prompt_condition=prompt_condition)
+            prompt_embeds = self.prompt_encoder(prompt_condition=prompt_condition)
         else:
             with torch.autocast(device_type="cuda", dtype=self.float_type):
-                replace_embeds = self.prompt_encoder(prompt_condition=prompt_condition)
+                prompt_embeds = self.prompt_encoder(prompt_condition=prompt_condition)
 
-        index = (
-            (enc_input_id == self.pseudo_token_id).nonzero().reshape((bz, -1, 2))[:, :, 1][:, :, None]
-        )
-        _, seq, _ = index.shape
-        _, _, emb = query_embeddings.shape
-        index = index.expand(bz, seq, emb)[:, :self.prompt_seq_len, :]
-
-        if prompt_condition is None:
-            _, replace_seq, _ = replace_embeds.shape
-            replace_embeds = replace_embeds.expand(bz, replace_seq, emb)
-
-        query_embeddings.scatter_(1, index, replace_embeds)
-
+        query_embeddings = query_embeddings.clone().type(self.float_type)
         encoder_position_ids = build_position_ids(enc_input_id)
         position_embeddings = self.position_embeddings(encoder_position_ids)
-        return query_embeddings + position_embeddings
+
+        if self.cfg.data.split_template:
+            index = (
+                (enc_input_id == self.pseudo_token_id).nonzero().reshape((bz, -1, 2))[:, :, 1][:, :, None]
+            )
+            _, seq, _ = index.shape
+            _, _, emb = query_embeddings.shape
+            index = index.expand(bz, seq, emb)[:, :self.prompt_seq_len, :]
+
+            if prompt_condition is None:
+                _, replace_seq, _ = prompt_embeds.shape
+                prompt_embeds = prompt_embeds.expand(bz, replace_seq, emb)
+            query_embeddings.scatter_(1, index, prompt_embeds)
+            encoder_input = query_embeddings + position_embeddings
+        else:
+            encoder_input = torch.cat((prompt_embeds, query_embeddings + position_embeddings), dim=1)
+            enc_mask = torch.cat((torch.ones_like(prompt_embeds[:, :, 0]), enc_mask), dim=1)
+
+        return encoder_input, enc_mask
 
     def get_loss(self, batch):
         tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids, tokens_prompt \
             = self.process_batch(batch)
 
-        encoder_input = self.embed_input(tokens_enc, tokens_prompt)
-        tokens_loss = itemgetter("tokens_loss")(self.model(
-            encoder_input_ids=None, decoder_input_ids=tokens_dec,
-            encoder_attn_mask=enc_mask, decoder_attn_mask=dec_mask,
-            tokentype_ids=None, lm_labels=labels,
-            enc_input=encoder_input
-        ))
-
+        encoder_input, enc_mask = self.embed_input(tokens_enc, tokens_prompt, enc_mask)
+        if self.float_type == torch.float32:
+            tokens_loss = itemgetter("tokens_loss")(self.model.enc_dec_model(
+                enc_input_ids=None, dec_input_ids=tokens_dec,
+                enc_attn_mask=enc_mask, dec_attn_mask=dec_mask,
+                tokentype_ids=None, labels=labels,
+                enc_input=encoder_input
+            ))
+        else:
+            with torch.autocast(device_type="cuda", dtype=self.float_type):
+                tokens_loss = itemgetter("tokens_loss")(self.model.enc_dec_model(
+                    enc_input_ids=None, dec_input_ids=tokens_dec,
+                    enc_attn_mask=enc_mask, dec_attn_mask=dec_mask,
+                    tokentype_ids=None, labels=labels,
+                    enc_input=encoder_input
+                ))
         return loss_mask, tokens_loss
 
     def inference_step(self, batch, batch_idx):
-        loss = self.model.validation_step(batch, batch_idx)
-
+        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids, tokens_prompt \
+            = self.process_batch(batch)
+        encoder_input, enc_mask = self.embed_input(tokens_enc, tokens_prompt, enc_mask)
+        _, tokens_loss = self.get_loss(batch)
+        loss = self.model.loss_func(loss_mask, tokens_loss)
+        reduced_loss = average_losses_across_data_parallel_group([loss])
         if self.trainer.num_nodes == 1:
-            tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids, tokens_prompt \
-                = self.process_batch(batch)
-            encoder_input = self.embed_input(enc_input_id=tokens_enc, prompt_input_ids=tokens_prompt)
             predicted_token_ids, log_probs = self.model.decode(
-                tokens_enc=tokens_enc, enc_mask=enc_mask, encoder_input=encoder_input,
+                tokens_enc=tokens_enc, enc_mask=enc_mask, enc_input=encoder_input,
                 num_tokens_to_generate=self.decoder_seq_length
             )
             self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
 
-        return {'loss': loss}
+        return {'loss': reduced_loss}
 
     def get_datasetbuilder(self, split, seq_length):
         datasetbuilder = T0PrimeDatasetBuilder(
@@ -457,8 +471,12 @@ class MegatronT0PrimeModel(MegatronT0Model):
             tokenizer=self.model.tokenizer,
             max_seq_length=seq_length,
             seed=self.cfg.seed,
-            buffer_size=self.cfg.data.buffer_size,
+            use_cache=self.cfg.data.use_cache,
             max_samples=getattr(self.cfg.data, "max_samples", None),
+            num_proc=self.cfg.data.num_workers,
+            num_nodes=self.trainer.num_nodes,
+            num_gpus=self.trainer.gpus,
+            num_data_shards=self.cfg.data.num_data_shards,
             prompt_token_id=self.pseudo_token_id,
             prompt_seq_len=self.prompt_seq_len,
             split_template=self.cfg.data.split_template
