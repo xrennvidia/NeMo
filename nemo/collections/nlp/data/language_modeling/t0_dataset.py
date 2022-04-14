@@ -664,7 +664,7 @@ class T0DatasetBuilder(object):
         self.num_proc = num_proc if num_proc > 0 else None
         self.num_gpus = num_gpus
         self.num_nodes = num_nodes
-        self.num_data_shards = num_data_shards
+        self.num_data_shards = num_data_shards if split == 'train' else 1
         self.tasks = []
         self.empty_prompt_token_id = -1
         self.set_data_dict()
@@ -979,6 +979,8 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
                 dec_query = dec_query[: self.max_query_length_decoder + 1]
             dec_input = dec_query[:-1]
             labels = dec_query[1:]
+            if not template:
+                template = [self.tokenizer.pad_id]
         task_id = [example.task_id]
         prompt_id = [example.prompt_id]
         return {
