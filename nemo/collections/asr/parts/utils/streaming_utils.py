@@ -227,14 +227,34 @@ class AudioBuffersDataLayer(IterableDataset):
 #         return samples
 
 
-def get_samples(audio_file, offset=0, duration=None, target_sr=16000):
+# def get_samples(audio_file, offset=0, duration=None, target_sr=16000):
     
-    samples, sample_rate = librosa.load(audio_file,
-                                        offset=offset,
-                                        duration=duration,
-                                        sr =16000)
-    return samples
+#     samples, sample_rate = librosa.load(audio_file,
+#                                         offset=offset,
+#                                         duration=duration,
+#                                         sr =16000)
+#     return samples
 
+
+def get_samples(audio_file, offset=0, duration=None, target_sr=16000):
+    if offset < 0:
+        offset = 0 
+    with sf.SoundFile(audio_file, 'r') as f:
+        dtype = 'int16'
+        sample_rate = f.samplerate
+        if offset > 0:
+            f.seek(int(offset * sample_rate))
+        if duration and duration > 0:
+            samples = f.read(int(duration * sample_rate), dtype=dtype)
+        else:
+            samples = f.read(dtype=dtype)
+        if sample_rate != target_sr:
+            samples = librosa.core.resample(samples, sample_rate, target_sr)
+        samples = samples.astype('float32') / 32768
+        samples = samples.transpose()
+        return samples
+
+        
 class FeatureFrameBufferer:
     """
     Class to append each feature frame to a buffer and return
