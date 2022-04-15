@@ -1105,13 +1105,13 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
         self.synthetic_generation = synthetic_generation
 
         # self.eval_dir= '/home/yangzhang/code/ts_asr/data/ls_train_clean_mixed'
-        # self.eval_individual_dir= '/home/yangzhang/code/ts_asr/data/ls_train_clean_aux_utterance'
         # self.manifest_eval= self.eval_dir + '/manifest.json'
-        # self.manifest_eval_aux_utterance= self.eval_individual_dir + '/manifest.json'
         # os.makedirs(self.eval_dir, exist_ok=True)
-        # os.makedirs(self.eval_individual_dir, exist_ok=True)
         # with open(self.manifest_eval, 'w') as fp:
         #     pass
+        # self.eval_individual_dir= '/home/yangzhang/code/ts_asr/data/ls_train_clean_aux_utterance'
+        # self.manifest_eval_aux_utterance= self.eval_individual_dir + '/manifest.json'
+        # os.makedirs(self.eval_individual_dir, exist_ok=True)
         # with open(self.manifest_eval_aux_utterance, 'w') as fp:
         #     pass
         self.manifest_filepath = manifest_filepath
@@ -1144,37 +1144,57 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
             if len(self.manifest_processor.collection.speaker_mapping) == 1:
                 raise ValueError("only one speaker in dataset")
 
-            random_speaker_id = np.random.choice(list(self.manifest_processor.collection.speaker_mapping.keys()))
+            second_speaker_id = np.random.choice(list(self.manifest_processor.collection.speaker_mapping.keys()))
+            third_speaker_id = np.random.choice(list(self.manifest_processor.collection.speaker_mapping.keys()))
+        
             i = 0
-            while random_speaker_id == target_speaker and i < 100:
-                random_speaker_id = np.random.choice(list(self.manifest_processor.collection.speaker_mapping.keys()))
+            while second_speaker_id == target_speaker  and i < 100:
+                second_speaker_id = np.random.choice(list(self.manifest_processor.collection.speaker_mapping.keys()))
                 i += 1
-            other_speaker_file_index = np.random.choice(
-                self.manifest_processor.collection.speaker_mapping[random_speaker_id]
-            )
-            other_speaker_file = self.manifest_processor.collection[other_speaker_file_index]
-            other_speaker_duration = other_speaker_file.duration
-            other_speaker_file = other_speaker_file.audio_file
+            i = 0
+            while third_speaker_id == target_speaker  and i < 100:
+                third_speaker_id = np.random.choice(list(self.manifest_processor.collection.speaker_mapping.keys()))
+                i += 1
 
+
+            second_speaker_file_index = np.random.choice(
+                self.manifest_processor.collection.speaker_mapping[second_speaker_id]
+            )
+            second_speaker_file = self.manifest_processor.collection[second_speaker_file_index]
+            second_speaker_duration = second_speaker_file.duration
+            second_speaker_file = second_speaker_file.audio_file
+
+
+            third_speaker_file_index = np.random.choice(
+                self.manifest_processor.collection.speaker_mapping[third_speaker_id]
+            )
+            third_speaker_file = self.manifest_processor.collection[third_speaker_file_index]
+            third_speaker_duration = third_speaker_file.duration
+            third_speaker_file = third_speaker_file.audio_file
+            
             features, speaker_features = self.featurizer.process(
                 sample.audio_file,
-                other_utterance_file=other_utterance_file,
-                other_speaker_file=other_speaker_file,
-                offset=offset,
                 duration=sample.duration,
+                other_utterance_file=other_utterance_file,
                 other_utterance_duration=other_utterance_duration,
-                other_speaker_duration=other_speaker_duration,
+                second_speaker_file=second_speaker_file,
+                second_speaker_duration=second_speaker_duration,
+                third_speaker_file=third_speaker_file,
+                third_speaker_duration=third_speaker_duration,
+                offset=offset,
                 trim=self.trim,
                 orig_sr=sample.orig_sr,
             )
             # for generating eval data
             # if "train" in self.manifest_filepath:
             #     f = f"{self.eval_dir}/{index}.wav"
-            #     print(f)
             #     sf.write(f, features, 16000)
             #     with open(self.manifest_eval, 'a') as fp:
-            #         tmp = {"audio_filepath": f, "individual_audio_file": sample.audio_file, "speaker": target_speaker, "duration": sample.duration, "text": sample.text_raw, "overlap_audio_filepath": other_speaker_file}
+            #         tmp = {"audio_filepath": f, "individual_audio_file": sample.audio_file, "speaker": target_speaker, "duration": sample.duration, "text": sample.text_raw, "overlap_audio_filepath_1": second_speaker_file, "overlap_audio_filepath_2": third_speaker_file}
+            #         print(tmp)
             #         fp.write(json.dumps(tmp) + "\n")
+                    
+                    
             #     f = f"{self.eval_individual_dir}/{index}.wav"
             #     sf.write(f, speaker_features, 16000)
             #     with open(self.manifest_eval_aux_utterance, 'a') as fp:

@@ -680,6 +680,7 @@ class RirNoiseSpeakerPerturbation(Perturbation):
         apply_foreground_noise=False,
         max_overlap=1.0,
         min_overlap=0,
+        two_sided_overlap=0
     ):
 
         # logging.info("Called Rir aug init")
@@ -687,6 +688,7 @@ class RirNoiseSpeakerPerturbation(Perturbation):
         self._rng = random.Random()
         self.max_overlap = max_overlap
         self.min_overlap = min_overlap
+        self.two_sided_overlap = two_sided_overlap
         # self._rir_perturber = ImpulsePerturbation(
         #     manifest_path=rir_manifest_path,
         #     audio_tar_filepaths=rir_tar_filepaths,
@@ -695,40 +697,40 @@ class RirNoiseSpeakerPerturbation(Perturbation):
         # )
         # self._fg_noise_perturbers = {}
         # self._bg_noise_perturbers = {}
-        if noise_manifest_paths is not None:
-            for i in range(len(noise_manifest_paths)):
-                if orig_sample_rate is None:
-                    orig_sr = 16000
-                else:
-                    orig_sr = orig_sample_rate[i]
-                self._fg_noise_perturbers[orig_sr] = NoisePerturbation(
-                    manifest_path=noise_manifest_paths[i],
-                    min_snr_db=min_snr_db[i],
-                    max_snr_db=max_snr_db[i],
-                    audio_tar_filepaths=noise_tar_filepaths[i],
-                    orig_sr=orig_sr,
-                )
-        self._max_additions = max_additions
-        self._max_duration = max_duration
-        if bg_noise_manifest_paths:
-            for i in range(len(bg_noise_manifest_paths)):
-                if bg_orig_sample_rate is None:
-                    orig_sr = 16000
-                else:
-                    orig_sr = bg_orig_sample_rate[i]
-                self._bg_noise_perturbers[orig_sr] = NoisePerturbation(
-                    manifest_path=bg_noise_manifest_paths[i],
-                    min_snr_db=bg_min_snr_db[i],
-                    max_snr_db=bg_max_snr_db[i],
-                    audio_tar_filepaths=bg_noise_tar_filepaths[i],
-                    orig_sr=orig_sr,
-                )
+        # if noise_manifest_paths is not None:
+        #     for i in range(len(noise_manifest_paths)):
+        #         if orig_sample_rate is None:
+        #             orig_sr = 16000
+        #         else:
+        #             orig_sr = orig_sample_rate[i]
+        #         self._fg_noise_perturbers[orig_sr] = NoisePerturbation(
+        #             manifest_path=noise_manifest_paths[i],
+        #             min_snr_db=min_snr_db[i],
+        #             max_snr_db=max_snr_db[i],
+        #             audio_tar_filepaths=noise_tar_filepaths[i],
+        #             orig_sr=orig_sr,
+        #         )
+        # self._max_additions = max_additions
+        # self._max_duration = max_duration
+        # if bg_noise_manifest_paths:
+        #     for i in range(len(bg_noise_manifest_paths)):
+        #         if bg_orig_sample_rate is None:
+        #             orig_sr = 16000
+        #         else:
+        #             orig_sr = bg_orig_sample_rate[i]
+        #         self._bg_noise_perturbers[orig_sr] = NoisePerturbation(
+        #             manifest_path=bg_noise_manifest_paths[i],
+        #             min_snr_db=bg_min_snr_db[i],
+        #             max_snr_db=bg_max_snr_db[i],
+        #             audio_tar_filepaths=bg_noise_tar_filepaths[i],
+        #             orig_sr=orig_sr,
+        #         )
 
-        self._apply_noise_rir = apply_noise_rir
-        self._apply_foreground_noise = apply_foreground_noise
+        # self._apply_noise_rir = apply_noise_rir
+        # self._apply_foreground_noise = apply_foreground_noise
 
-    def perturb(self, data, other_utterance, other_speaker):
-        self.perturb_with_other_input(data, other_speaker)
+    def perturb(self, data, other_utterance, second_speaker, third_speaker):
+        self.perturb_with_other_input(data, second_speaker, third_speaker)
 
         # prob = self._rng.uniform(0.0, 1.0)
         # if orig_sr not in self._fg_noise_perturbers:
@@ -741,9 +743,9 @@ class RirNoiseSpeakerPerturbation(Perturbation):
         # bg_perturber = self._bg_noise_perturbers[orig_sr]
         # noise = bg_perturber.get_one_noise_sample(data.sample_rate)
 
-        # if other_speaker:
-        #     # data overlap with other_speaker
-        #     self.perturb_with_other_input(data, other_speaker)
+        # if second_speaker:
+        #     # data overlap with second_speaker
+        #     self.perturb_with_other_input(data, second_speaker)
 
         # if prob < self._rir_prob:
         #     self._rir_perturber.perturb(data)
@@ -765,15 +767,36 @@ class RirNoiseSpeakerPerturbation(Perturbation):
         # bg_perturber.perturb_with_input_noise(data, noise, data_rms=data.rms_db)
         # bg_perturber.perturb_with_input_noise(other_utterance, noise, data_rms=other_utterance.rms_db)
 
-    def perturb_with_other_input(self, data, noise, min_gain_ratio=0.3, max_gain_ratio=0.6):
+    def perturb_with_other_input(self, data, second_speaker, third_speaker, min_gain_ratio=0.3, max_gain_ratio=0.6):
 
-        overlap_ratio = self._rng.uniform(self.min_overlap, self.max_overlap)
-        overlap_in_s = data.duration * overlap_ratio
-        overlap_num_samples = min(int(round(overlap_in_s * data.orig_sr)), len(noise._samples))
-        if self._rng.random() < 0.5:
-            data._samples[:overlap_num_samples] += noise._samples[-overlap_num_samples:]
-        else:
-            data._samples[-overlap_num_samples:] += noise._samples[:overlap_num_samples]
+        # overlap_ratio = self._rng.uniform(self.min_overlap, self.max_overlap)
+        overlap_ratio = self.max_overlap
+        
+        if self._rng.random() < self.two_sided_overlap:
+            overlap_length = int(round(len(data._samples) * overlap_ratio))
+            if len(second_speaker._samples) +  len(third_speaker._samples) <= overlap_length:
+                data._samples[-len(second_speaker._samples):] += second_speaker._samples
+                data._samples[:len(third_speaker._samples)] += third_speaker._samples
+            else:
+                if third_speaker.duration < second_speaker.duration:
+                    second_speaker, third_speaker = third_speaker, second_speaker
+                min_samples= overlap_length - min(overlap_length, len(third_speaker._samples))
+                max_samples = min(overlap_length, len(second_speaker._samples))
+                num_samples_2 = self._rng.randint(min_samples, max_samples)
+                if self._rng.random() < 0.5:
+                    data._samples[-num_samples_2:] += second_speaker._samples[:num_samples_2]
+                    data._samples[:min(overlap_length, len(third_speaker._samples)) -  num_samples_2] += third_speaker._samples[-(min(overlap_length, len(third_speaker._samples)) -  num_samples_2):]
+                else:
+                    data._samples[:num_samples_2] += second_speaker._samples[-num_samples_2:]
+                    data._samples[-(min(overlap_length, len(third_speaker._samples)) -  num_samples_2):] += third_speaker._samples[:min(overlap_length, len(third_speaker._samples)) -  num_samples_2]
+   
+        else: 
+            overlap_in_s = data.duration * overlap_ratio
+            overlap_num_samples = min(int(round(overlap_in_s * data.orig_sr)), len(second_speaker._samples))
+            if self._rng.random() < 0.5:
+                data._samples[:overlap_num_samples] += second_speaker._samples[-overlap_num_samples:]
+            else:
+                data._samples[-overlap_num_samples:] += second_speaker._samples[:overlap_num_samples]
 
         # data_rms = data.rms_db
         # gain_ratio = self._rng.uniform(min_gain_ratio, max_gain_ratio)

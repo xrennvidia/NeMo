@@ -61,6 +61,7 @@ model:
         apply_foreground_noise: False
         max_overlap: 1.0
         min_overlap: 0.0
+        two_sided_overlap: 0.0
     manifest_filepath: ???
     sample_rate: ${model.sample_rate}
     batch_size: 16 # you may increase batch_size if your memory allows
