@@ -8,6 +8,7 @@ model.tokenizer.dir=/home/yangzhang/code/ts_asr/tokenizer_conformer/tokenizer_sp
 model.train_ds.manifest_filepath=/mnt/data/LibriSpeech/train_clean_100_360.json \
 trainer.max_epochs=1 \
 model.train_ds.augmentor.rir_noise_speaker.prob=0.8 \
+model.train_ds.augmentor.rir_noise_speaker.max_overlap=0.8 \
 model.validation_ds.manifest_filepath=[/mnt/data/LibriSpeech/dev_clean.json,/mnt/data/LibriSpeech/dev_clean_overlap_0.4.json] \
 model.train_ds.max_duration=20 \
 model.train_ds.batch_size=4 \
@@ -27,8 +28,9 @@ model.encoder.n_layers=18 \
 model.spec_augment.time_masks=5 \
 trainer.num_sanity_val_steps=0 \
 trainer.val_check_interval=0.01 \
-+nemo_checkpoint_path=/home/yangzhang/code/NeMo/examples/asr/asr_ctc/ngc_ckpt/2793511/Conformer-CTC-BPE/2022-04-09_00-46-34/checkpoints/Conformer-CTC-BPE.nemo
-# +nemo_checkpoint_path=/home/yangzhang/code/ts_asr/stt_en_conformer_ctc_medium_v1.0.0/stt_en_conformer_ctc_medium.nemo
++nemo_checkpoint_path=/home/yangzhang/code/ts_asr/stt_en_conformer_ctc_medium_v1.0.0/stt_en_conformer_ctc_medium.nemo
+
+# +nemo_checkpoint_path=/home/yangzhang/code/NeMo/examples/asr/asr_ctc/ngc_ckpt/2793511/Conformer-CTC-BPE/2022-04-09_00-46-34/checkpoints/Conformer-CTC-BPE.nemo
 
 # PROJECT_NAME="ls_100"
 # wandb login 2640ba7ea01264a146c1d9f3f075ec53350dd2f1 && python speech_to_text_ctc_bpe_ts.py \

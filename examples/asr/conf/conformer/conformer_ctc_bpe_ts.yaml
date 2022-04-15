@@ -59,6 +59,8 @@ model:
         bg_noise_manifest_paths: null
         bg_noise_tar_filepaths: null
         apply_foreground_noise: False
+        max_overlap: 1.0
+        min_overlap: 0.0
     manifest_filepath: ???
     sample_rate: ${model.sample_rate}
     batch_size: 16 # you may increase batch_size if your memory allows

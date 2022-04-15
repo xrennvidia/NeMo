@@ -678,11 +678,15 @@ class RirNoiseSpeakerPerturbation(Perturbation):
         bg_noise_tar_filepaths=None,
         bg_orig_sample_rate=None,
         apply_foreground_noise=False,
+        max_overlap=1.0,
+        min_overlap=0,
     ):
 
         # logging.info("Called Rir aug init")
         # self._rir_prob = rir_prob
         self._rng = random.Random()
+        self.max_overlap = max_overlap
+        self.min_overlap = min_overlap
         # self._rir_perturber = ImpulsePerturbation(
         #     manifest_path=rir_manifest_path,
         #     audio_tar_filepaths=rir_tar_filepaths,
@@ -763,7 +767,7 @@ class RirNoiseSpeakerPerturbation(Perturbation):
 
     def perturb_with_other_input(self, data, noise, min_gain_ratio=0.3, max_gain_ratio=0.6):
 
-        overlap_ratio = self._rng.uniform(0, 0.4)
+        overlap_ratio = self._rng.uniform(self.min_overlap, self.max_overlap)
         overlap_in_s = data.duration * overlap_ratio
         overlap_num_samples = min(int(round(overlap_in_s * data.orig_sr)), len(noise._samples))
         if self._rng.random() < 0.5:
