@@ -30,9 +30,11 @@ try:
         set_tensor_model_parallel_rank,
         set_tensor_model_parallel_world_size,
     )
-    from apex.transformer.pipeline_parallel.utils import setup_microbatch_calculator
+
+    # TODO: use this apex import once bug is fixed in apex in NGC container
+    # from apex.transformer.pipeline_parallel.utils import setup_microbatch_calculator
+    from nemo.collections.nlp.parts.utils_funcs import setup_microbatch_calculator
     from apex.transformer.utils import ensure_divisibility
-    import apex.transformer.pipeline_parallel.utils
 
     HAVE_APEX = True
 except (ImportError, ModuleNotFoundError):
