@@ -114,7 +114,6 @@ class AudioFeatureIterator(IterableDataset):
             self._start = last
             if self._start == self._features_len[0]-1:
                 self.output = False
-
         else:
             frame = np.zeros([self._features.shape[0], int(self._feature_frame_len)], dtype='float32')
             samp_len = self._features_len[0] - self._start
@@ -156,32 +155,6 @@ def speech_collate_fn(batch):
     return audio_signal, audio_lengths
 
 
-# simple data layer to pass audio signal
-class VadAudioBuffersDataLayer(IterableDataset):
-    
-    def __init__(self):
-        super().__init__()
-
-        
-    def __iter__(self):
-        return self
-    
-    def __next__(self):
-        if self._buf_count == len(self.signal) :
-            raise StopIteration
-        self._buf_count +=1
-        return torch.as_tensor(self.signal[self._buf_count-1], dtype=torch.float32), \
-               torch.as_tensor(self.signal_shape[0], dtype=torch.int64)
-        
-    def set_signal(self, signals):
-        self.signal = signals
-        self.signal_shape = self.signal[0].shape
-        self._buf_count = 0
-
-    def __len__(self):
-        return 1
-    
-
 # simple data layer to pass buffered frames of audio samples
 class AudioBuffersDataLayer(IterableDataset):
     @property
@@ -213,27 +186,6 @@ class AudioBuffersDataLayer(IterableDataset):
 
     def __len__(self):
         return 1
-
-
-# def get_samples(audio_file, target_sr=16000):
-#     with sf.SoundFile(audio_file, 'r') as f:
-#         dtype = 'int16'
-#         sample_rate = f.samplerate
-#         samples = f.read(dtype=dtype)
-#         if sample_rate != target_sr:
-#             samples = librosa.core.resample(samples, sample_rate, target_sr)
-#         samples = samples.astype('float32') / 32768
-#         samples = samples.transpose()
-#         return samples
-
-
-# def get_samples(audio_file, offset=0, duration=None, target_sr=16000):
-    
-#     samples, sample_rate = librosa.load(audio_file,
-#                                         offset=offset,
-#                                         duration=duration,
-#                                         sr =16000)
-#     return samples
 
 
 def get_samples(audio_file, offset=0, duration=None, target_sr=16000):
@@ -427,13 +379,13 @@ class FrameBatchASR:
         self.frame_buffers = []
         self.frame_bufferer.reset()
 
-    def read_audio_file(self, 
-                        audio_filepath: str, 
-                        offset: float,
-                        duration: float,
-                        delay, model_stride_in_secs):
-        if offset < 0:
-            offset = 0
+    def read_audio_file(
+        self, 
+        audio_filepath: str, 
+        offset: float,
+        duration: float,
+        delay: float, 
+        model_stride_in_secs: float):
         samples = get_samples(audio_filepath, offset, duration)
         samples = np.pad(samples, (0, int(delay * model_stride_in_secs * self.asr_model._cfg.sample_rate)))
         frame_reader = AudioFeatureIterator(samples, self.frame_len, self.raw_preprocessor, self.asr_model.device)
@@ -515,11 +467,11 @@ class FrameBatchVAD:
         )
 
         self.vad_model = vad_model
-
+        self.patience = patience
         self.batch_size = batch_size
         self.all_vad_preds = []
-        self.vad_decision_buffer = [0] * (patience+1)
-        self.vad_decision_buffer_filtered = [0] * (patience+1)
+        self.vad_decision_buffer = [0] * (self.patience+1)
+        self.vad_decision_buffer_filtered = [0] * (self.patience+1)
         self.speech_segment = set()
         self.start = 0
         self.end=0
@@ -538,7 +490,7 @@ class FrameBatchVAD:
         self.raw_preprocessor = EncDecClassificationModel.from_config_dict(cfg.preprocessor)
         self.raw_preprocessor.to(vad_model.device)
 
-    def reset(self, patience=25):
+    def reset(self):
         """
         Reset frame_history and decoder's state
         """
@@ -546,8 +498,8 @@ class FrameBatchVAD:
         self.data_loader = DataLoader(self.data_layer, batch_size=self.batch_size, collate_fn=speech_collate_fn)
 
         self.all_vad_preds = []
-        self.vad_decision_buffer = [0] * (patience+1)
-        self.vad_decision_buffer_filtered = [0] * (patience+1)
+        self.vad_decision_buffer = [0] * (self.patience+1)
+        self.vad_decision_buffer_filtered = [0] * (self.patience+1)
         self.speech_segment = set()
         self.start = 0
         self.end=0
@@ -558,13 +510,11 @@ class FrameBatchVAD:
                         audio_filepath: str, 
                         offset: float,
                         duration: float,
-                        delay, model_stride_in_secs):
-        if offset < 0:
-            offset = 0
+                        delay: float, 
+                        model_stride_in_secs: float):
         samples = get_samples(audio_filepath, offset, duration)
         self.pad_end_len = int(delay * model_stride_in_secs * self.vad_model._cfg.sample_rate)
         samples = np.pad(samples, (0, self.pad_end_len))
-        print(samples.shape)
 
         frame_reader = AudioFeatureIterator(samples, self.frame_len, self.raw_preprocessor, self.vad_model.device)
         self.set_frame_reader(frame_reader)
@@ -579,8 +529,7 @@ class FrameBatchVAD:
             current_decision = 1
         else:
             current_decision = 0
-        # print(f"{self.vad_decision_buffer}, {current_pred:.2f}, {current_frame:.2f}")
-        
+
         # change happens
         if not self.is_speech and self.vad_decision_buffer.count(1) > 2:
             self.is_speech = True
@@ -592,10 +541,8 @@ class FrameBatchVAD:
             self.speech_segment.add((round(self.start,2) , round(self.end, 2)))
             
         if self.is_speech and end_of_seq:
-#             if self.vad_decision_buffer.count(1) > 1:
             self.end = current_frame 
             self.speech_segment.add((self.start, self.end))
-#             print("STOP at the end! ", self.vad_decision_buffer, current_decision, "start: ", self.start, "end: ", self.end)
 
         self.vad_decision_buffer = self.vad_decision_buffer[1:]
         self.vad_decision_buffer.append(current_decision)
