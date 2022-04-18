@@ -680,7 +680,11 @@ class RirNoiseSpeakerPerturbation(Perturbation):
         apply_foreground_noise=False,
         max_overlap=1.0,
         min_overlap=0,
-        two_sided_overlap=0
+        two_sided_overlap=0,
+        max_padded_silence=0,
+        speaker_min_snr_db=0,
+        speaker_max_snr_db=0,
+        max_gain_db=300.0,
     ):
 
         # logging.info("Called Rir aug init")
@@ -689,6 +693,11 @@ class RirNoiseSpeakerPerturbation(Perturbation):
         self.max_overlap = max_overlap
         self.min_overlap = min_overlap
         self.two_sided_overlap = two_sided_overlap
+        self.max_padded_silence = max_padded_silence
+        self.speaker_min_snr_db = speaker_min_snr_db
+        self.speaker_max_snr_db = speaker_max_snr_db
+        self.max_gain_db = max_gain_db
+        
         # self._rir_perturber = ImpulsePerturbation(
         #     manifest_path=rir_manifest_path,
         #     audio_tar_filepaths=rir_tar_filepaths,
@@ -771,7 +780,24 @@ class RirNoiseSpeakerPerturbation(Perturbation):
 
         overlap_ratio = self._rng.uniform(self.min_overlap, self.max_overlap)
         
-        if self._rng.random() < self.two_sided_overlap:
+        
+        snr_db = self._rng.uniform(self.speaker_min_snr_db, self.speaker_max_snr_db)
+        data_rms = data.rms_db
+        second_speaker_ratio = min(data_rms - second_speaker.rms_db - snr_db, self.max_gain_db)
+        second_speaker.gain_db(second_speaker_ratio)
+        
+        
+        snr_db = self._rng.uniform(self.speaker_min_snr_db, self.speaker_max_snr_db)
+        third_speaker_ratio = min(data_rms - third_speaker.rms_db - snr_db, self.max_gain_db)
+        third_speaker.gain_db(third_speaker_ratio)
+        
+        if self._rng.random() < self.two_sided_overlap: # do two sided overlap sythesis
+            if self.max_padded_silence > 0:
+                left_pad = int(round(self._rng.uniform(0, self.max_padded_silence) * data.orig_sr))
+                right_pad = int(round(self._rng.uniform(0, self.max_padded_silence) * data.orig_sr))
+                padded_data = np.zeros(left_pad  + len(data._samples) + right_pad, dtype=data._samples.dtype)
+                padded_data[left_pad:left_pad + len(data._samples)] = data._samples
+                data._samples = padded_data
             overlap_length = int(round(len(data._samples) * overlap_ratio))
             if len(second_speaker._samples) +  len(third_speaker._samples) <= overlap_length:
                 data._samples[-len(second_speaker._samples):] += second_speaker._samples
@@ -789,12 +815,25 @@ class RirNoiseSpeakerPerturbation(Perturbation):
                     data._samples[:num_samples_2] += second_speaker._samples[-num_samples_2:]
                     data._samples[-(min(overlap_length, len(third_speaker._samples)) -  num_samples_2):] += third_speaker._samples[:min(overlap_length, len(third_speaker._samples)) -  num_samples_2]
    
-        else: 
-            overlap_in_s = data.duration * overlap_ratio
-            overlap_num_samples = min(int(round(overlap_in_s * data.orig_sr)), len(second_speaker._samples))
+        else: # do one sided overlap synthesis
+            if self.max_padded_silence > 0:
+                pad_samples = int(round(self._rng.uniform(0, self.max_padded_silence) * data.orig_sr))
+                data_num_samples = pad_samples + len(data._samples)
+            else:
+                data_num_samples = len(data._samples)
+            max_overlap_in_samples = int(round(self.max_overlap * data_num_samples))
+            overlap_num_samples = min(max_overlap_in_samples, len(second_speaker._samples))
             if self._rng.random() < 0.5:
+                if self.max_padded_silence > 0:
+                    padded_data = np.zeros(pad_samples  + len(data._samples), dtype=data._samples.dtype)
+                    padded_data[pad_samples:pad_samples + len(data._samples)] = data._samples
+                    data._samples = padded_data
                 data._samples[:overlap_num_samples] += second_speaker._samples[-overlap_num_samples:]
             else:
+                if self.max_padded_silence > 0:
+                    padded_data = np.zeros(pad_samples  + len(data._samples), dtype=data._samples.dtype)
+                    padded_data[:len(data._samples)] = data._samples
+                    data._samples = padded_data
                 data._samples[-overlap_num_samples:] += second_speaker._samples[:overlap_num_samples]
 
         # data_rms = data.rms_db

@@ -1190,7 +1190,7 @@ class AudioAndEmbeddingToBPEDataset(AudioToBPEDataset):
             #     f = f"{self.eval_dir}/{index}.wav"
             #     sf.write(f, features, 16000)
             #     with open(self.manifest_eval, 'a') as fp:
-            #         tmp = {"audio_filepath": f, "individual_audio_file": sample.audio_file, "speaker": target_speaker, "duration": sample.duration, "text": sample.text_raw, "overlap_audio_filepath_1": second_speaker_file, "overlap_audio_filepath_2": third_speaker_file}
+            #         tmp = {"audio_filepath": f, "individual_audio_file": sample.audio_file, "speaker": target_speaker, "duration": len(f)/16000, "text": sample.text_raw, "overlap_audio_filepath_1": second_speaker_file, "overlap_audio_filepath_2": third_speaker_file}
             #         print(tmp)
             #         fp.write(json.dumps(tmp) + "\n")
                     

@@ -10,6 +10,7 @@ trainer.max_epochs=1 \
 model.train_ds.augmentor.rir_noise_speaker.prob=1.0 \
 model.train_ds.augmentor.rir_noise_speaker.max_overlap=0.5 \
 model.train_ds.augmentor.rir_noise_speaker.two_sided_overlap=0.0 \
+model.train_ds.augmentor.rir_noise_speaker.max_padded_silence=0.1 \
 model.validation_ds.manifest_filepath=[/mnt/data/LibriSpeech/dev_clean.json,/mnt/data/LibriSpeech/dev_clean_overlap_0.4.json] \
 model.train_ds.max_duration=20 \
 model.train_ds.batch_size=4 \
