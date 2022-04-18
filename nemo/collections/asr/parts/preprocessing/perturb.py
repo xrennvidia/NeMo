@@ -769,8 +769,7 @@ class RirNoiseSpeakerPerturbation(Perturbation):
 
     def perturb_with_other_input(self, data, second_speaker, third_speaker, min_gain_ratio=0.3, max_gain_ratio=0.6):
 
-        # overlap_ratio = self._rng.uniform(self.min_overlap, self.max_overlap)
-        overlap_ratio = self.max_overlap
+        overlap_ratio = self._rng.uniform(self.min_overlap, self.max_overlap)
         
         if self._rng.random() < self.two_sided_overlap:
             overlap_length = int(round(len(data._samples) * overlap_ratio))
