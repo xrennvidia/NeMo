@@ -431,7 +431,7 @@ class MegatronT0PrimeModel(MegatronT0Model):
         encoder_input, enc_mask = self.embed_input(tokens_enc, tokens_prompt, enc_mask)
         if self.float_type == torch.float32:
             tokens_loss = itemgetter("tokens_loss")(self.model.enc_dec_model(
-                enc_input_ids=None, dec_input_ids=tokens_dec,
+                enc_input_ids=tokens_enc, dec_input_ids=tokens_dec,
                 enc_attn_mask=enc_mask, dec_attn_mask=dec_mask,
                 tokentype_ids=None, labels=labels,
                 enc_input=encoder_input

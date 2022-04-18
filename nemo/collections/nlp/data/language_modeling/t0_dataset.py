@@ -571,6 +571,41 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
         }
 
 
+class InterleavedDataset(torch.utils.data.Dataset):
+    def __init__(self, datasets, max_sampling_size):
+        self.datasets = datasets
+        num_datasets = len(datasets)
+        sampling_data_sizes = []
+        data_sizes = []
+        for dataset in self.datasets:
+            data_size = len(dataset)
+            data_sizes.append(data_size)
+            sampling_data_sizes.append(min(data_size, max_sampling_size))
+        sampling_data_sizes = np.array(sampling_data_sizes)
+        sampling_probs = sampling_data_sizes / np.sum(sampling_data_sizes)
+
+        self.size = sum(sampling_data_sizes)
+
+        self.dataset_index = np.random.choice(num_datasets, size=self.size, p=sampling_probs)
+        self.dataset_sample_iterator = []
+        for sampling_size, data_size in zip(sampling_data_sizes, data_sizes):
+            self.dataset_sample_iterator.append(np.nditer(
+                np.random.choice(data_size, size=sampling_size, replace=False)
+            ))
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        dataset_idx = self.dataset_index[idx]
+        try:
+            sample_idx = next(self.dataset_sample_iterator[dataset_idx])
+        except StopIteration:
+            self.dataset_sample_iterator[dataset_idx].reset()
+            sample_idx = next(self.dataset_sample_iterator[dataset_idx])
+        return self.datasets[int(dataset_idx)][int(sample_idx)]
+
+
 class TaskDataset(Dataset):
 
     @property
@@ -726,6 +761,9 @@ class T0DatasetBuilder(object):
         return dataset
 
     def map_features(self, task, rank, cached_features_files):
+        """
+        We use Huggingface datasets map to creates features.
+        """
         logging.info('Waiting for main process to perform the feature processing.')
         if rank == 0:
             dataset = load_dataset(
@@ -745,22 +783,33 @@ class T0DatasetBuilder(object):
         logging.info('Finished waiting for main process in map_dataset().')
 
     def shard_save_features(self, dataset, cached_features_files):
+        """
+        Converting huggingface / pyarrow datasets to pickled features allows
+        us to use NeMo datasets annd avoids locks and other multi-gpu weird behavior.
+        """
         logging.info('Waiting for main process to shard and save features.')
         num_examples = len(dataset)
-        features = dataset.to_dict()
         shard_size = num_examples // self.num_data_shards
-        features = [{k: v[i] for k, v in features.items()} for i in range(num_examples)]
-        features = [features[i:i + shard_size] for i in range(0, num_examples, shard_size)]
-        for features_shard, file_name in zip(features, cached_features_files):
+        start = 0
+        for shard_idx, file_name in enumerate(cached_features_files):
+            end = start + shard_size
+            dataset_shard = dataset.select(range(start, end))
+            features = dataset_shard.to_dict()
+            features = [{k: v[i] for k, v in features.items()} for i in range(shard_size)]
+            start = end
             with open(file_name, "wb") as writer:
-                pickle.dump(features_shard, writer)
+                pickle.dump(features, writer)
 
     def assemble_datasets(self):
         if self.split == 'train':
             datasets_list = list(self.datasets.values())
-            datasets = BlendableDataset(
+            #datasets = BlendableDataset(
+            #    datasets=datasets_list,
+            #    weights=self.get_sampling_probs()
+            #)
+            datasets = InterleavedDataset(
                 datasets=datasets_list,
-                weights=self.get_sampling_probs()
+                max_sampling_size=self.max_sampling_size
             )
             return datasets
         else:

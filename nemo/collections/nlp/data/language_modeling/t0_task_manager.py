@@ -53,11 +53,11 @@ t0_traindt_names_subset = {
     'glue': ['mrpc', 'qqp'], 'paws': 'labeled_final'
 }
 t0p_traindt_names_subset = {
-    #Multiple-Choice QA
+    # Multiple-Choice QA
     'openbookqa': 'main', 'piqa': None, 'race': ['high', 'middle'],
-    #Extractive QA
+    # Extractive QA
     'squad_v2': None,
-    #Closed-Book QA
+    # Closed-Book QA
     'ai2_arc': ['ARC-Challenge', 'ARC-Easy'], 'trivia_qa': 'unfiltered',
     'web_questions': None
 }

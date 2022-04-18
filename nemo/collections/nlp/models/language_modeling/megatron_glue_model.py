@@ -64,6 +64,11 @@ class MegatronT5FineTuneModel(NLPModel):
             t5_cfg.precision = cfg.precision
             t5_cfg.masked_softmax_fusion = False
             t5_cfg.megatron_amp_O2 = self.megatron_amp_o2
+            if hasattr(cfg, 'attention_dropout'):
+                t5_cfg.attention_dropout = cfg.attention_dropout
+            if hasattr(cfg, 'hidden_dropout'):
+                t5_cfg.hidden_dropout = cfg.hidden_dropout
+
 
         self.model = MegatronT5Model.restore_from(
             self.register_artifact('t5_base_model', cfg.restore_from_path),
