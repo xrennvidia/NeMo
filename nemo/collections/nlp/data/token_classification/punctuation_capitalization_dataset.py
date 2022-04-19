@@ -1205,6 +1205,63 @@ class BertPunctuationCapitalizationDataset(Dataset):
         text_lines, punct_labels_lines, capit_labels_lines = zip(*dataset)
         return text_lines, punct_labels_lines, capit_labels_lines, punct_unique_labels, capit_unique_labels
 
+    def _adjust_number_of_batches(
+        self,
+        input_ids: List[np.ndarray],
+        batch_beginnings: List[int],
+        batch_sizes: List[int],
+        batch_seq_lengths: List[int],
+    ) -> Tuple[List[int], List[int], List[int]]:
+        num_missing_batches = (
+            self.number_of_batches_is_multiple_of - len(batch_sizes) % self.number_of_batches_is_multiple_of
+        )
+        indices_of_batches_to_split: List[int] = []
+        for i, bs in enumerate(batch_sizes):
+            if bs > 1:
+                indices_of_batches_to_split.append(i)
+            if len(indices_of_batches_to_split) == num_missing_batches:
+                break
+        if len(indices_of_batches_to_split) < num_missing_batches:
+            logging.warning(
+                f"Unable to achieve number of batches multiple of {self.number_of_batches_is_multiple_of} because "
+                f"dataset in files '{self.text_file}' and '{self.labels_file}' contains not enough examples "
+                f"({sum(batch_sizes)}) or strings in the dataset are too long. Dataset will have "
+                f"{len(batch_beginnings)} batches instead. For validation or test dataset if multiple GPUs are used "
+                f"this will lead to distorted metrics because some batches will be processed several times."
+            )
+            return batch_beginnings, batch_sizes, batch_seq_lengths
+        for i in indices_of_batches_to_split:
+            reversed_batch = input_ids[batch_beginnings[i] : batch_beginnings[i] + batch_sizes[i]][::-1]
+            num_tokens_in_batch = sum([len(a) for a in reversed_batch])
+            new_batch = []
+            new_batch_num_tokens = 0
+            for j, elem in enumerate(reversed_batch):
+                new_batch.append(elem)
+                new_batch_num_tokens += len(elem)
+                if new_batch_num_tokens >= num_tokens_in_batch // 2:
+                    assert len(new_batch) < len(reversed_batch), (
+                        f"`input_ids` list is supposed to be sorted be length in ascending order `reversed_batch` "
+                        f"is supposed to be sorted in descending order. In addition the batch has to contain more "
+                        f"than 1 element ({len(reversed_batch)}). Thus number of elements {len(new_batch)} in "
+                        f"`new_batch` has to less than in `reversed_batch`."
+                    )
+                    break
+            # Reversing batches for uniformity because elements in other batches are sorted by length in ascending order
+            new_batch, replacement_batch = new_batch[::-1], reversed_batch[len(new_batch):][::-1]
+            assert {
+                id(elem) for elem in new_batch
+            } | {id(elem) for elem in replacement_batch} == {id(elem) for elem in reversed_batch}
+            batch_beginnings.append(batch_beginnings[i] + len(replacement_batch))
+            batch_sizes.append(len(new_batch))
+            batch_seq_lengths.append(ceil(max([len(elem) for elem in new_batch]) / 8) * 8)
+            batch_sizes[i] = len(replacement_batch)
+            batch_seq_lengths[i] = ceil(max([len(elem) for elem in replacement_batch]) / 8) * 8
+        # For ease of checking of mark batches are sorted by batch beginnings.
+        batch_beginnings, batch_sizes, batch_seq_lengths = zip(
+            *sorted(zip(batch_beginnings, batch_sizes, batch_seq_lengths), key=lambda x: x[0])
+        )
+        return list(batch_beginnings), list(batch_sizes), list(batch_seq_lengths)
+
     def _mark_up_batches(self, input_ids: List[np.ndarray]) -> Tuple[List[int], List[int], List[int]]:
         """
         Computes indices of first samples in batch, batch sizes, seq lengths for batches. ``input_ids`` has to be
@@ -1277,7 +1334,7 @@ class BertPunctuationCapitalizationDataset(Dataset):
         assert sum(batch_sizes) == len(input_ids)
         for i in range(len(batch_beginnings) - 1):
             assert batch_beginnings[i] + batch_sizes[i] == batch_beginnings[i + 1]
-            assert batch_seq_lengths[i] >= max(
+            assert batch_seq_lengths[i] == max(
                 [len(inp) for inp in input_ids[batch_beginnings[i] : batch_beginnings[i] + batch_sizes[i]]]
             )
         return batch_beginnings, batch_sizes, batch_seq_lengths
