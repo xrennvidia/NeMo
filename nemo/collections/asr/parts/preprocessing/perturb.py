@@ -791,15 +791,21 @@ class RirNoiseSpeakerPerturbation(Perturbation):
         third_speaker_ratio = min(data_rms - third_speaker.rms_db - snr_db, self.max_gain_db)
         third_speaker.gain_db(third_speaker_ratio)
         
+        fade_funct = np.linspace(0.0, 1.0, int(round(0.015*data.orig_sr)))
         if self._rng.random() < self.two_sided_overlap: # do two sided overlap sythesis
             if self.max_padded_silence > 0:
+                # fade in fade out
+                data._samples[:len(fade_funct)] *= fade_funct
+                data._samples[-len(fade_funct):] *= fade_funct[::-1]
                 left_pad = int(round(self._rng.uniform(0, self.max_padded_silence) * data.orig_sr))
                 right_pad = int(round(self._rng.uniform(0, self.max_padded_silence) * data.orig_sr))
                 padded_data = np.zeros(left_pad  + len(data._samples) + right_pad, dtype=data._samples.dtype)
                 padded_data[left_pad:left_pad + len(data._samples)] = data._samples
                 data._samples = padded_data
             overlap_length = int(round(len(data._samples) * overlap_ratio))
-            if len(second_speaker._samples) +  len(third_speaker._samples) <= overlap_length:
+            if (len(second_speaker._samples) +  len(third_speaker._samples)) <= overlap_length:
+                second_speaker._samples[:len(fade_funct)] *= fade_funct  
+                third_speaker._samples[-len(fade_funct):] *= fade_funct[::-1]
                 data._samples[-len(second_speaker._samples):] += second_speaker._samples
                 data._samples[:len(third_speaker._samples)] += third_speaker._samples
             else:
@@ -809,14 +815,24 @@ class RirNoiseSpeakerPerturbation(Perturbation):
                 max_samples = min(overlap_length, len(second_speaker._samples))
                 num_samples_2 = self._rng.randint(min_samples, max_samples)
                 if self._rng.random() < 0.5:
-                    data._samples[-num_samples_2:] += second_speaker._samples[:num_samples_2]
-                    data._samples[:min(overlap_length, len(third_speaker._samples)) -  num_samples_2] += third_speaker._samples[-(min(overlap_length, len(third_speaker._samples)) -  num_samples_2):]
+                    
+                    if num_samples_2 != 0:
+                        second_speaker._samples[:len(fade_funct)] *= fade_funct  
+                        data._samples[-num_samples_2:] += second_speaker._samples[:num_samples_2]
+                    if (min(overlap_length, len(third_speaker._samples)) -  num_samples_2) !=0:
+                        third_speaker._samples[-len(fade_funct):] *= fade_funct[::-1]
+                        data._samples[:min(overlap_length, len(third_speaker._samples)) -  num_samples_2] += third_speaker._samples[-(min(overlap_length, len(third_speaker._samples)) -  num_samples_2):]
                 else:
-                    data._samples[:num_samples_2] += second_speaker._samples[-num_samples_2:]
-                    data._samples[-(min(overlap_length, len(third_speaker._samples)) -  num_samples_2):] += third_speaker._samples[:min(overlap_length, len(third_speaker._samples)) -  num_samples_2]
+                    if num_samples_2 != 0:
+                        second_speaker._samples[-len(fade_funct):] *= fade_funct[::-1]
+                        data._samples[:num_samples_2] += second_speaker._samples[-num_samples_2:]
+                    if (min(overlap_length, len(third_speaker._samples)) -  num_samples_2) !=0:
+                        third_speaker._samples[:len(fade_funct)] *= fade_funct  
+                        data._samples[-(min(overlap_length, len(third_speaker._samples)) -  num_samples_2):] += third_speaker._samples[:min(overlap_length, len(third_speaker._samples)) -  num_samples_2]
    
         else: # do one sided overlap synthesis
             if self.max_padded_silence > 0:
+                fade_funct = np.linspace(0.0, 1.0, int(round(0.015*data.orig_sr)))
                 pad_samples = int(round(self._rng.uniform(0, self.max_padded_silence) * data.orig_sr))
                 data_num_samples = pad_samples + len(data._samples)
             else:
@@ -825,12 +841,16 @@ class RirNoiseSpeakerPerturbation(Perturbation):
             overlap_num_samples = min(max_overlap_in_samples, len(second_speaker._samples))
             if self._rng.random() < 0.5:
                 if self.max_padded_silence > 0:
+                    data._samples[:len(fade_funct)] *= fade_funct
+                    second_speaker._samples[-len(fade_funct):] *= fade_funct[::-1]  
                     padded_data = np.zeros(pad_samples  + len(data._samples), dtype=data._samples.dtype)
                     padded_data[pad_samples:pad_samples + len(data._samples)] = data._samples
                     data._samples = padded_data
                 data._samples[:overlap_num_samples] += second_speaker._samples[-overlap_num_samples:]
             else:
                 if self.max_padded_silence > 0:
+                    data._samples[-len(fade_funct):] *= fade_funct[::-1]
+                    second_speaker._samples[:len(fade_funct)] *= fade_funct   
                     padded_data = np.zeros(pad_samples  + len(data._samples), dtype=data._samples.dtype)
                     padded_data[:len(data._samples)] = data._samples
                     data._samples = padded_data
