@@ -3,7 +3,7 @@ name: megatron_t0
 trainer:
   gpus: 2
   num_nodes: 1
-  accelerator: ddp
+  accelerator: gpu
   precision: 16
   logger: False # logger provided by exp_manager
   checkpoint_callback: False

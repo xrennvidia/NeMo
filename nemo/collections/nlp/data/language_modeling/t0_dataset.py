@@ -201,17 +201,53 @@ class T0HFDatasetBuilder(object):
         self.empty_prompt_token_id = -1
         self.datasets = self.get_data_dict()
 
-    def assemble_datasets(self):
+    def get_data_dict(self):
         if self.split == 'train':
-            datasets_list = list(self.datasets.values())
-            datasets = interleave_datasets(
-                datasets=datasets_list,
-                probabilities=self.get_sampling_probs(),
-                seed=self.seed
-            )
-            return datasets
+            data_dict = DATA_ORG[self.t0_type]
         else:
-            return self.datasets
+            data_dict = t0_all_evaldt_names_subset
+        dataset_dict = {}
+        for dt_name in data_dict.keys():
+            logging.info('Dataset name %s.' % dt_name)
+            subsets = data_dict[dt_name]
+            if not isinstance(subsets, list):
+                subsets = [subsets]
+            for subset in subsets:
+                logging.info('Subset name %s.' % subset)
+                if "/" in dt_name:
+                    dt_name = dt_name.split("/")[-1]
+                file_name = "_%s_%s.jsonl" % (dt_name, "" if subset is None else subset)
+                _, data_paths = get_data_paths_and_splits(self.split, self.dir_path, file_name, dt_name)
+                for file_path in data_paths:
+                    task = self.get_task(file_path, dt_name, subset)
+                    task_name = "%s_%s" % (dt_name, "" if subset is None else subset)
+                    dataset_dict[task_name] = self.get_dataset(task)
+        return dataset_dict
+
+    def get_task(self, file_path, dt_name, subset):
+        task = Task(file_path, dt_name, subset)
+        task.create_example = self.create_example
+        task.tokenize = self.tokenize
+        self.tasks.append(task)
+        return task
+
+    def get_dataset(self, task):
+        features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
+        app_state = AppState()
+        #rank = app_state.global_rank
+        rank = parallel_state.get_data_parallel_rank()
+        #world_size = app_state.world_size
+        world_size = parallel_state.get_data_parallel_world_size()
+        node = rank // self.num_gpus
+        if not os.path.isdir(features_dir) or not self.use_cache:
+            self.map_dataset(task, rank, features_dir)
+        if self.distribute_datasets and self.num_nodes > 1:
+            self.distribute_dataset(rank, world_size, features_dir)
+            features_dir = os.path.join(features_dir, f'node_{node}')
+        logging.info('Loading results from the main process %s.' % features_dir)
+        dataset = load_from_disk(features_dir, keep_in_memory=True)
+        dataset.task = task
+        return dataset
 
     def map_dataset(self, task, rank, features_dir):
         logging.info('Waiting for main process to perform the mapping/preprocessing.')
@@ -254,53 +290,17 @@ class T0HFDatasetBuilder(object):
         torch.distributed.barrier()
         logging.info('Finished waiting for main process in distribute_dataset().')
 
-    def get_dataset(self, task):
-        features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
-        app_state = AppState()
-        #rank = app_state.global_rank
-        rank = parallel_state.get_data_parallel_rank()
-        #world_size = app_state.world_size
-        world_size = parallel_state.get_data_parallel_world_size()
-        node = rank // self.num_gpus
-        if not os.path.isdir(features_dir) or not self.use_cache:
-            self.map_dataset(task, rank, features_dir)
-        if self.distribute_datasets and self.num_nodes > 1:
-            self.distribute_dataset(rank, world_size, features_dir)
-            features_dir = os.path.join(features_dir, f'node_{node}')
-        logging.info('Loading results from the main process %s.' % features_dir)
-        dataset = load_from_disk(features_dir, keep_in_memory=True)
-        dataset.task = task
-        return dataset
-
-    def get_task(self, file_path, dt_name, subset):
-        task = Task(file_path, dt_name, subset)
-        task.create_example = self.create_example
-        task.tokenize = self.tokenize
-        self.tasks.append(task)
-        return task
-
-    def get_data_dict(self):
+    def assemble_datasets(self):
         if self.split == 'train':
-            data_dict = DATA_ORG[self.t0_type]
+            datasets_list = list(self.datasets.values())
+            datasets = interleave_datasets(
+                datasets=datasets_list,
+                probabilities=self.get_sampling_probs(),
+                seed=self.seed
+            )
+            return datasets
         else:
-            data_dict = t0_all_evaldt_names_subset
-        dataset_dict = {}
-        for dt_name in data_dict.keys():
-            logging.info('Dataset name %s.' % dt_name)
-            subsets = data_dict[dt_name]
-            if not isinstance(subsets, list):
-                subsets = [subsets]
-            for subset in subsets:
-                logging.info('Subset name %s.' % subset)
-                if "/" in dt_name:
-                    dt_name = dt_name.split("/")[-1]
-                file_name = "_%s_%s.jsonl" % (dt_name, "" if subset is None else subset)
-                _, data_paths = get_data_paths_and_splits(self.split, self.dir_path, file_name, dt_name)
-                for file_path in data_paths:
-                    task = self.get_task(file_path, dt_name, subset)
-                    task_name = "%s_%s" % (dt_name, "" if subset is None else subset)
-                    dataset_dict[task_name] = self.get_dataset(task)
-        return dataset_dict
+            return self.datasets
 
     def get_sampling_probs(self):
         sampling_data_sizes = []
@@ -490,30 +490,37 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
                 chunk_name, chunk_start, chunk_end = chunk.split("-")
                 text_chunks.append((chunk_name, input_text[int(chunk_start):int(chunk_end)]))
             return text_chunks
-
-        input_text_chunks = get_text_chunks(example.input_text, example.chunked_idx)
-        enc_query = []
-        template = []
-        for chunk in input_text_chunks:
-            chunk_name = chunk[0]
-            chunk_tokens = self.tokenizer.text_to_ids(chunk[1])
-            if chunk_name == TEMPLATE_CHUNK_NAME and self.split_template:
-                remain = max(0, self.prompt_seq_len - len(template) - len(chunk_tokens))
-                template.extend(chunk_tokens[:remain])
-                enc_query.extend([self.prompt_token_id] * len(chunk_tokens[:remain]))
-            else:
-                max_length = self.max_query_length + (0 if self.split_template else self.prompt_seq_len)
-                remain = max(0, max_length - len(enc_query) - len(chunk_tokens))
-                enc_query.extend(chunk_tokens[:remain])  # only reduce original chunk
-        dec_query = (
-                [self.tokenizer.cls_id]
-                + self.tokenizer.text_to_ids(example.label)
-                + [self.tokenizer.eos_id]
-        )
-        if len(dec_query) > self.max_query_length_decoder + 1:
-            dec_query = dec_query[: self.max_query_length_decoder + 1]
-        dec_input = dec_query[:-1]
-        labels = dec_query[1:]
+        if example.input_text is None:
+            enc_query = [self.empty_prompt_token_id]
+            template = [self.empty_prompt_token_id]
+            dec_input = [self.empty_prompt_token_id]
+            labels = [self.empty_prompt_token_id]
+        else:
+            input_text_chunks = get_text_chunks(example.input_text, example.chunked_idx)
+            enc_query = []
+            template = []
+            for chunk in input_text_chunks:
+                chunk_name = chunk[0]
+                chunk_tokens = self.tokenizer.text_to_ids(chunk[1])
+                if chunk_name == TEMPLATE_CHUNK_NAME and self.split_template:
+                    remain = max(0, self.prompt_seq_len - len(template) - len(chunk_tokens))
+                    template.extend(chunk_tokens[:remain])
+                    enc_query.extend([self.prompt_token_id] * len(chunk_tokens[:remain]))
+                else:
+                    max_length = self.max_query_length + (0 if self.split_template else self.prompt_seq_len)
+                    remain = max(0, max_length - len(enc_query) - len(chunk_tokens))
+                    enc_query.extend(chunk_tokens[:remain])  # only reduce original chunk
+            dec_query = (
+                    [self.tokenizer.cls_id]
+                    + self.tokenizer.text_to_ids(example.label)
+                    + [self.tokenizer.eos_id]
+            )
+            if len(dec_query) > self.max_query_length_decoder + 1:
+                dec_query = dec_query[: self.max_query_length_decoder + 1]
+            dec_input = dec_query[:-1]
+            labels = dec_query[1:]
+            if not template:
+                template = [self.tokenizer.pad_id]
         task_id = [example.task_id]
         prompt_id = [example.prompt_id]
         return {
@@ -532,10 +539,6 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
         labels = [item['labels'] for item in batch]
         task_ids = [item['task_id'] for item in batch]
         prompt_ids = [item['prompt_id'] for item in batch]
-        
-        if self.split_template:
-            max_template_length = max(self.prompt_seq_len, max([len(item) for item in template]))
-            enc_query = [item_q + [self.prompt_token_id] * (max_template_length - len(item_t)) for item_q, item_t in zip(enc_query, template)]
 
         max_dec_input_length = max([len(item) for item in dec_input])
         max_enc_query_length = max([len(item) for item in enc_query])
@@ -803,10 +806,6 @@ class T0DatasetBuilder(object):
     def assemble_datasets(self):
         if self.split == 'train':
             datasets_list = list(self.datasets.values())
-            #datasets = BlendableDataset(
-            #    datasets=datasets_list,
-            #    weights=self.get_sampling_probs()
-            #)
             datasets = InterleavedDataset(
                 datasets=datasets_list,
                 max_sampling_size=self.max_sampling_size
@@ -814,15 +813,6 @@ class T0DatasetBuilder(object):
             return datasets
         else:
             return self.datasets
-
-    def get_sampling_probs(self):
-        sampling_data_sizes = []
-        for dataset in self.datasets.values():
-            max_sampling_size = self.max_sampling_size//self.num_data_shards
-            sampling_data_sizes.append(min(len(dataset), max_sampling_size))
-        sampling_data_sizes = np.array(sampling_data_sizes)
-        sampling_probs = sampling_data_sizes / np.sum(sampling_data_sizes)
-        return sampling_probs.tolist()
 
     def __len__(self):
         return sum(len(dataset) for dataset in self.datasets.values())
@@ -1060,8 +1050,7 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
 
         loss_mask = [([1] * (len(item))) + ([0] * (max_label_length - len(item))) for item in labels]
         enc_query = [item + [self.tokenizer.pad_id] * (max_enc_query_length - len(item)) for item in enc_query]
-        template = [item[:self.prompt_seq_len] + [self.tokenizer.pad_id] * (self.prompt_seq_len - len(item)) for item in
-                    template]
+        template = [item[:self.prompt_seq_len] + [self.tokenizer.pad_id] * (self.prompt_seq_len - len(item)) for item in template]
         dec_input = [item + [self.tokenizer.pad_id] * (max_dec_input_length - len(item)) for item in dec_input]
         labels = [item + [self.tokenizer.pad_id] * (max_label_length - len(item)) for item in labels]
 

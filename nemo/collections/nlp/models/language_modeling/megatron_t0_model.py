@@ -25,7 +25,9 @@ from pytorch_lightning.trainer.trainer import Trainer
 from nemo.collections.nlp.data.language_modeling.t0_task_manager import get_task_name
 from nemo.collections.nlp.data.language_modeling.t0_dataset import (
     T0DatasetBuilder,
-    T0PrimeDatasetBuilder
+    T0PrimeDatasetBuilder,
+    T0HFDatasetBuilder,
+    T0PrimeHFDatasetBuilder
 )
 from nemo.collections.common.metrics.classification_accuracy import ExactStringPerCategoryMatchMetric
 from nemo.collections.nlp.models.language_modeling.megatron_glue_model import MegatronT5FineTuneModel
@@ -122,15 +124,14 @@ class MegatronT0Model(MegatronT5FineTuneModel):
     def inference_step(self, batch, batch_idx):
         loss = self.model.validation_step(batch, batch_idx)
 
-        if self.trainer.num_nodes == 1:
-            tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids \
-                = self.process_batch(batch)
+        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids \
+            = self.process_batch(batch)
 
-            predicted_token_ids, log_probs = self.model.decode(
-                tokens_enc=tokens_enc, enc_mask=enc_mask,
-                num_tokens_to_generate=self.decoder_seq_length
-            )
-            self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
+        predicted_token_ids, log_probs = self.model.decode(
+            tokens_enc=tokens_enc, enc_mask=enc_mask,
+            num_tokens_to_generate=self.decoder_seq_length
+        )
+        self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
 
         return {'loss': loss}
 
@@ -141,17 +142,16 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             loss = [x['loss'] for x in outputs]
             averaged_loss = average_losses_across_data_parallel_group(loss)
             accuracies_losses[task_name] = {'loss': averaged_loss[0]}
-        if self.trainer.num_nodes == 1:
-            for task_id in self.acc_metric_dict.keys():
-                task_name = get_task_name(task_id)
-                assert task_name in accuracies_losses
-                accuracies_losses[task_name]['accuracies'] = {}
-                for prompt_id in self.acc_metric_dict[task_id].keys():
-                    accuracy = self.acc_metric_dict[task_id][prompt_id].compute()['acc']
-                    if torch.any(torch.isnan(accuracy)):
-                        continue
-                    accuracies_losses[task_name]['accuracies'][str(prompt_id)] = accuracy
-                    self.acc_metric_dict[task_id][prompt_id].reset()
+        for task_id in self.acc_metric_dict.keys():
+            task_name = get_task_name(task_id)
+            assert task_name in accuracies_losses
+            accuracies_losses[task_name]['accuracies'] = {}
+            for prompt_id in self.acc_metric_dict[task_id].keys():
+                accuracy = self.acc_metric_dict[task_id][prompt_id].compute()['acc']
+                if torch.any(torch.isnan(accuracy)):
+                    continue
+                accuracies_losses[task_name]['accuracies'][str(prompt_id)] = accuracy
+                self.acc_metric_dict[task_id][prompt_id].reset()
         return accuracies_losses
 
     def validation_step(self, batch, batch_idx, dataloader_idx):
@@ -166,18 +166,16 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             avg_loss.append(loss)
             self.log(f'val_loss_{task_name}', loss, prog_bar=True)
             logging.info(f'Validation loss for {task_name}: {loss}')
-            if self.trainer.num_nodes == 1:
-                accuracies = val_accuracies_losses[task_name]['accuracies']
-                for prompt_id in accuracies.keys():
-                    self.log(f'validation_acc_{task_name}_{prompt_id}', accuracies[prompt_id], prog_bar=False)
-                avg_task_acc_list = list(accuracies.values())
-                avg_task_acc = torch.mean(torch.stack(avg_task_acc_list))
-                self.log(f'validation_acc_{task_name}', avg_task_acc, prog_bar=True)
-                logging.info(f'Validation accuracy for {task_name}: {avg_task_acc}')
-                avg_val_acc.extend(avg_task_acc_list)
+            accuracies = val_accuracies_losses[task_name]['accuracies']
+            for prompt_id in accuracies.keys():
+                self.log(f'validation_acc_{task_name}_{prompt_id}', accuracies[prompt_id], prog_bar=False)
+            avg_task_acc_list = list(accuracies.values())
+            avg_task_acc = torch.mean(torch.stack(avg_task_acc_list))
+            self.log(f'validation_acc_{task_name}', avg_task_acc, prog_bar=True)
+            logging.info(f'Validation accuracy for {task_name}: {avg_task_acc}')
+            avg_val_acc.extend(avg_task_acc_list)
         self.log('val_loss', torch.mean(torch.stack(avg_loss)), prog_bar=True)
-        if self.trainer.num_nodes == 1:
-            self.log('val_acc', torch.mean(torch.stack(avg_val_acc)), prog_bar=True)
+        self.log('val_acc', torch.mean(torch.stack(avg_val_acc)), prog_bar=True)
 
     def test_step(self, batch, batch_idx, dataloader_idx):
         return self.inference_step(batch, batch_idx)
@@ -200,21 +198,40 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         self.log('test_acc', torch.mean(torch.stack(avg_test_acc)), prog_bar=True)
 
     def get_datasetbuilder(self, split, seq_length):
-        datasetbuilder = T0DatasetBuilder(
-            t0_type=self.cfg.data.t0_type,
-            dir_path=self.cfg.data.dir_path,
-            max_sampling_size=self.cfg.data.max_sampling_size,
-            split=split,
-            tokenizer=self.model.tokenizer,
-            max_seq_length=seq_length,
-            seed=self.cfg.seed,
-            use_cache=self.cfg.data.use_cache,
-            max_samples=getattr(self.cfg.data, "max_samples", None),
-            num_proc=self.cfg.data.num_workers,
-            num_nodes=self.trainer.num_nodes,
-            num_gpus=self.trainer.gpus,
-            num_data_shards=self.cfg.data.num_data_shards
-        )
+        if not getattr(self.cfg.data, 'use_hf_data', False):
+            # Use NeMo dataset
+            datasetbuilder = T0DatasetBuilder(
+                t0_type=self.cfg.data.t0_type,
+                dir_path=self.cfg.data.dir_path,
+                max_sampling_size=self.cfg.data.max_sampling_size,
+                split=split,
+                tokenizer=self.model.tokenizer,
+                max_seq_length=seq_length,
+                seed=self.cfg.seed,
+                use_cache=self.cfg.data.use_cache,
+                max_samples=getattr(self.cfg.data, "max_samples", None),
+                num_proc=self.cfg.data.num_workers,
+                num_nodes=self.trainer.num_nodes,
+                num_gpus=self.trainer.gpus,
+                num_data_shards=self.cfg.data.num_data_shards
+            )
+        else:
+            # Use Huggingface dataset
+            datasetbuilder = T0HFDatasetBuilder(
+                t0_type=self.cfg.data.t0_type,
+                dir_path=self.cfg.data.dir_path,
+                max_sampling_size=self.cfg.data.max_sampling_size,
+                split=split,
+                tokenizer=self.model.tokenizer,
+                max_seq_length=seq_length,
+                seed=self.cfg.seed,
+                use_cache=self.cfg.data.use_cache,
+                distribute_datasets=getattr(self.cfg.data, "distribute_datasets", False),
+                max_samples=getattr(self.cfg.data, "max_samples", None),
+                num_proc=self.cfg.data.num_workers,
+                num_nodes=self.trainer.num_nodes,
+                num_gpus=self.trainer.gpus
+            )
         return datasetbuilder
 
     def build_data_loader(self, dataset, collate_fn, batch_size, shuffle, pin_memory):
@@ -388,9 +405,7 @@ class MegatronT0PrimeModel(MegatronT0Model):
         queries_for_embedding[(enc_input_id == self.pseudo_token_id)] = self.pad_token_id
         query_embeddings = self.word_embeddings(queries_for_embedding)
 
-        if self.cfg.prompt_encoder.task_dependent and self.cfg.data.split_template:
-            prompt_condition = self.word_embeddings(prompt_input_ids)
-        elif self.cfg.prompt_encoder.task_dependent:
+        if self.cfg.prompt_encoder.task_dependent:
             prompt_condition = query_embeddings
         else:
             prompt_condition = None
@@ -405,22 +420,8 @@ class MegatronT0PrimeModel(MegatronT0Model):
         encoder_position_ids = build_position_ids(enc_input_id)
         position_embeddings = self.position_embeddings(encoder_position_ids)
 
-        if self.cfg.data.split_template:
-            index = (
-                (enc_input_id == self.pseudo_token_id).nonzero().reshape((bz, -1, 2))[:, :, 1][:, :, None]
-            )
-            _, seq, _ = index.shape
-            _, _, emb = query_embeddings.shape
-            index = index.expand(bz, seq, emb)[:, :self.prompt_seq_len, :]
-
-            if prompt_condition is None:
-                _, replace_seq, _ = prompt_embeds.shape
-                prompt_embeds = prompt_embeds.expand(bz, replace_seq, emb)
-            query_embeddings.scatter_(1, index, prompt_embeds)
-            encoder_input = query_embeddings + position_embeddings
-        else:
-            encoder_input = torch.cat((prompt_embeds, query_embeddings + position_embeddings), dim=1)
-            enc_mask = torch.cat((torch.ones_like(prompt_embeds[:, :, 0]), enc_mask), dim=1)
+        encoder_input = torch.cat((prompt_embeds, query_embeddings + position_embeddings), dim=1)
+        enc_mask = torch.cat((torch.ones_like(prompt_embeds[:, :, 0]), enc_mask), dim=1)
 
         return encoder_input, enc_mask
 
@@ -453,34 +454,56 @@ class MegatronT0PrimeModel(MegatronT0Model):
         _, tokens_loss = self.get_loss(batch)
         loss = self.model.loss_func(loss_mask, tokens_loss)
         reduced_loss = average_losses_across_data_parallel_group([loss])
-        if self.trainer.num_nodes == 1:
-            predicted_token_ids, log_probs = self.model.decode(
-                tokens_enc=tokens_enc, enc_mask=enc_mask, enc_input=encoder_input,
-                num_tokens_to_generate=self.decoder_seq_length
-            )
-            self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
+        predicted_token_ids, log_probs = self.model.decode(
+            tokens_enc=tokens_enc, enc_mask=enc_mask, enc_input=encoder_input,
+            num_tokens_to_generate=self.decoder_seq_length
+        )
+        self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
 
         return {'loss': reduced_loss}
 
     def get_datasetbuilder(self, split, seq_length):
-        datasetbuilder = T0PrimeDatasetBuilder(
-            t0_type=self.cfg.data.t0_type,
-            dir_path=self.cfg.data.dir_path,
-            max_sampling_size=self.cfg.data.max_sampling_size,
-            split=split,
-            tokenizer=self.model.tokenizer,
-            max_seq_length=seq_length,
-            seed=self.cfg.seed,
-            use_cache=self.cfg.data.use_cache,
-            max_samples=getattr(self.cfg.data, "max_samples", None),
-            num_proc=self.cfg.data.num_workers,
-            num_nodes=self.trainer.num_nodes,
-            num_gpus=self.trainer.gpus,
-            num_data_shards=self.cfg.data.num_data_shards,
-            prompt_token_id=self.pseudo_token_id,
-            prompt_seq_len=self.prompt_seq_len,
-            split_template=self.cfg.data.split_template
-        )
+        if not getattr(self.cfg.data, 'use_hf_data', False):
+            # Use NeMo dataset
+            datasetbuilder = T0PrimeDatasetBuilder(
+                t0_type=self.cfg.data.t0_type,
+                dir_path=self.cfg.data.dir_path,
+                max_sampling_size=self.cfg.data.max_sampling_size,
+                split=split,
+                tokenizer=self.model.tokenizer,
+                max_seq_length=seq_length,
+                seed=self.cfg.seed,
+                use_cache=self.cfg.data.use_cache,
+                max_samples=getattr(self.cfg.data, "max_samples", None),
+                num_proc=self.cfg.data.num_workers,
+                num_nodes=self.trainer.num_nodes,
+                num_gpus=self.trainer.gpus,
+                num_data_shards=self.cfg.data.num_data_shards,
+                prompt_token_id=self.pseudo_token_id,
+                prompt_seq_len=self.prompt_seq_len,
+                split_template=self.cfg.data.split_template
+            )
+        else:
+            # Use Huggingface dataset
+            datasetbuilder = T0PrimeHFDatasetBuilder(
+                t0_type=self.cfg.data.t0_type,
+                dir_path=self.cfg.data.dir_path,
+                max_sampling_size=self.cfg.data.max_sampling_size,
+                split=split,
+                tokenizer=self.model.tokenizer,
+                max_seq_length=seq_length,
+                seed=self.cfg.seed,
+                use_cache=self.cfg.data.use_cache,
+                distribute_datasets=getattr(self.cfg.data, "distribute_datasets", False),
+                max_samples=getattr(self.cfg.data, "max_samples", None),
+                num_proc=self.cfg.data.num_workers,
+                num_nodes=self.trainer.num_nodes,
+                num_gpus=self.trainer.gpus,
+                prompt_token_id=self.pseudo_token_id,
+                prompt_seq_len=self.prompt_seq_len,
+                split_template=self.cfg.data.split_template
+            )
+
         return datasetbuilder
 
     def process_batch(self, batch):
