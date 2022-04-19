@@ -16,10 +16,11 @@ import json
 import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
+from nemo.collections.asr.parts.mixins import ASRBPEMixin
 
 import torch
 from hydra.utils import instantiate
-from omegaconf import DictConfig, OmegaConf, open_dict
+from omegaconf import DictConfig, OmegaConf, open_dict, ListConfig
 from pytorch_lightning import Trainer
 from torch import nn
 from tqdm import tqdm
@@ -30,7 +31,7 @@ from nemo.collections.asr.metrics.wer import word_error_rate
 from nemo.collections.asr.models import EncDecCTCModel
 from nemo.collections.asr.models.asr_model import ASRModel, ExportableEncDecModel
 from nemo.collections.common.tokenizers.char_tokenizer import CharTokenizer
-from nemo.collections.tts.data.datalayers import CTCG2PDataset
+from nemo.collections.tts.data.datalayers import CTCG2PBPEDataset
 from nemo.core.classes.common import PretrainedModelInfo, typecheck
 from nemo.core.classes.modelPT import ModelPT
 from nemo.core.neural_types import LabelsType, LossType, MaskType, NeuralType, TokenIndex
@@ -45,7 +46,7 @@ class CTCG2PConfig:
     validation_ds: Optional[Dict[Any, Any]] = None
 
 
-class CTCG2PModel(ModelPT):  # TODO: Check parent class
+class CTCG2PModel(ModelPT, ASRBPEMixin):  # TODO: Check parent class NLP?
     """
     CTC-based grapheme-to-phoneme model.
     """
@@ -78,11 +79,14 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
             ### T5
             # Load appropriate tokenizer from HuggingFace
             print(f"----------> Using model: {cfg.model_name}")
-            self.tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
+            self.tokenizer_grapheme = AutoTokenizer.from_pretrained(cfg.model_name)
 
             self.max_source_len = cfg.get("max_source_len", self.tokenizer.model_max_length)
             self.max_target_len = cfg.get("max_target_len", self.tokenizer.model_max_length)
         else:
+            self.max_source_len = cfg.get("max_source_len", 512)
+            self.max_target_len = cfg.get("max_target_len", 512)
+            # set up grapheme tokenizer
             chars = [
                 " ",
                 "a",
@@ -117,9 +121,14 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
             with open(vocab_file, "w") as f:
                 [f.write(f'"{ch}"\n') for ch in chars]
 
-            self.tokenizer = CharTokenizer(vocab_file=vocab_file)
-            self.max_source_len = cfg.get("max_source_len", 512)
-            self.max_target_len = cfg.get("max_target_len", 512)
+            self.tokenizer_grapheme = CharTokenizer(vocab_file=vocab_file)
+            if cfg.tokenizer is not None:
+                # Setup phoneme tokenizer
+                self._setup_tokenizer(cfg.tokenizer)
+
+                # Initialize a dummy vocabulary
+                vocabulary = self.tokenizer.tokenizer.get_vocab()
+                cfg.decoder.vocabulary = ListConfig(list(vocabulary.keys()))
 
         # Ensure passed cfg is compliant with schema
         schema = OmegaConf.structured(CTCG2PConfig)
@@ -297,9 +306,10 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
         Returns:
             A pytorch DataLoader.
         """
-        dataset = CTCG2PDataset(
+        dataset = CTCG2PBPEDataset(
             manifest_filepath=manifest_filepath,
-            tokenizer=self.tokenizer,
+            tokenizer_graphemes=self.tokenizer_grapheme,
+            tokenizer_phonemes=self.tokenizer,
             labels=self.vocabulary,
             max_source_len=self._cfg.max_source_len,
             with_labels=False,
@@ -419,9 +429,10 @@ class CTCG2PModel(ModelPT):  # TODO: Check parent class
         if "dataloader_params" not in cfg or not isinstance(cfg.dataloader_params, DictConfig):
             raise ValueError(f"No dataloader_params for {name}")
 
-        dataset = CTCG2PDataset(
+        dataset = CTCG2PBPEDataset(
             manifest_filepath=cfg.dataset.manifest_filepath,
-            tokenizer=self.tokenizer,
+            tokenizer_graphemes=self.tokenizer_grapheme,
+            tokenizer_phonemes=self.tokenizer,
             labels=self.vocabulary,
             max_source_len=self.max_source_len,
             max_target_len=self.max_target_len,
