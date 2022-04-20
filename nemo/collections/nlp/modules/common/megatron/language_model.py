@@ -29,7 +29,7 @@ from nemo.collections.nlp.modules.common.megatron.utils import (
 )
 
 try:
-    from apex.transformer import parallel_state, tensor_parallel
+    from apex.transformer import tensor_parallel
     from apex.transformer.enums import AttnMaskType, LayerType
 
     HAVE_APEX = True
@@ -75,6 +75,7 @@ def get_language_model(
     use_soft_prompts=False,
     num_prompt_tokens=10,
     existing_prompt_tags=None,
+    megatron_legacy=False,
 ):
     """Build language model and return along with the key to save."""
 
@@ -124,6 +125,7 @@ def get_language_model(
         use_soft_prompts=use_soft_prompts,
         num_prompt_tokens=num_prompt_tokens,
         existing_prompt_tags=existing_prompt_tags,
+        megatron_legacy=megatron_legacy,
     )
     # key used for checkpoints.
     language_model_key = 'language_model'
@@ -213,6 +215,16 @@ class Embedding(MegatronModule):
         # Embeddings dropout
         self.embedding_dropout = torch.nn.Dropout(embedding_dropout_prob)
 
+    def zero_parameters(self):
+        """Zero out all parameters in embedding."""
+        self.word_embeddings.weight.data.fill_(0)
+        self.word_embeddings.weight.shared = True
+        self.position_embeddings.weight.data.fill_(0)
+        self.position_embeddings.weight.shared = True
+        if self.num_tokentypes > 0:
+            self.tokentype_embeddings.weight.data.fill_(0)
+            self.tokentype_embeddings.weight.shared = True
+
     def add_tokentype_embeddings(self, num_tokentypes):
         """Add token-type embedding. This function is provided so we can add
         token-type embeddings in case the pretrained model does not have it.
@@ -227,7 +239,7 @@ class Embedding(MegatronModule):
         # Initialize the token-type embeddings.
         self.init_method(self.tokentype_embeddings.weight)
 
-    def forward(self, input_ids, position_ids, tokentype_ids=None, separate_embeddings=False):
+    def forward(self, input_ids, position_ids, token_type_ids=None, separate_embeddings=False):
         # Embeddings.
         words_embeddings = self.word_embeddings(input_ids)
         position_embeddings = self.position_embeddings(position_ids)
@@ -237,9 +249,9 @@ class Embedding(MegatronModule):
             return words_embeddings, position_embeddings
 
         embeddings = words_embeddings + position_embeddings
-        if tokentype_ids is not None:
+        if token_type_ids is not None:
             assert self.tokentype_embeddings is not None
-            embeddings = embeddings + self.tokentype_embeddings(tokentype_ids)
+            embeddings = embeddings + self.tokentype_embeddings(token_type_ids)
         else:
             assert self.tokentype_embeddings is None
 
@@ -363,7 +375,7 @@ class PromptEmbedding(MegatronModule):
 
         self.embedding_dropout = torch.nn.Dropout(prompt_embedding_dropout_prob)
 
-    def forward(self, tokentype_ids=None):
+    def forward(self, token_type_ids=None):
         # Embeddings.
         device = next(self.prompt_embeddings.parameters()).device
         prompt_embeddings = self.prompt_embeddings(self.ids.to(device))
@@ -569,6 +581,7 @@ class TransformerLanguageModel(MegatronModule):
         use_soft_prompts=False,
         num_prompt_tokens=100,
         existing_prompt_tags=None,
+        megatron_legacy=False,
     ):
         super(TransformerLanguageModel, self).__init__()
 
@@ -644,14 +657,12 @@ class TransformerLanguageModel(MegatronModule):
             openai_gelu=openai_gelu,
             onnx_safe=onnx_safe,
             masked_softmax_fusion=masked_softmax_fusion,
+            megatron_legacy=megatron_legacy,
         )
         self._encoder_key = 'encoder'
 
         # Decoder
         if self.add_decoder:
-            assert (
-                parallel_state.get_pipeline_model_parallel_world_size() == 1
-            ), 'pipeline parallelism is not supported in the presence of decoder'
             self.decoder = ParallelTransformer(
                 layer_type=LayerType.decoder,
                 self_attn_mask_type=self.decoder_attn_mask_type,
@@ -677,6 +688,7 @@ class TransformerLanguageModel(MegatronModule):
                 openai_gelu=openai_gelu,
                 onnx_safe=onnx_safe,
                 masked_softmax_fusion=masked_softmax_fusion,
+                megatron_legacy=megatron_legacy,
             )
             self._decoder_key = 'decoder'
 
@@ -705,17 +717,19 @@ class TransformerLanguageModel(MegatronModule):
         dec_position_ids=None,
         dec_attn_mask=None,
         enc_dec_attn_mask=None,
-        tokentype_ids=None,
+        token_type_ids=None,
         layer_past=None,
         get_key_value=False,
         pooling_sequence_index=0,
         enc_hidden_states=None,
         output_enc_hidden_only=False,
         encoder_input=None,
+        set_inference_key_value_memory=False,
+        inference_max_sequence_len=None,
     ):
         # Embeddings.
         if self.pre_process and encoder_input is None:
-            embedding_output = self.embedding(enc_input_ids, enc_position_ids, tokentype_ids=tokentype_ids)
+            embedding_output = self.embedding(enc_input_ids, enc_position_ids, token_type_ids=token_type_ids)
 
             # Soft prompts
             if self.use_soft_prompts and prompt_ids != None:
@@ -730,7 +744,12 @@ class TransformerLanguageModel(MegatronModule):
         # encoder.
         if enc_hidden_states is None:
             encoder_output = self.encoder(
-                encoder_input, enc_attn_mask, layer_past=layer_past, get_key_value=get_key_value
+                encoder_input,
+                enc_attn_mask,
+                layer_past=layer_past,
+                get_key_value=get_key_value,
+                set_inference_key_value_memory=set_inference_key_value_memory,
+                inference_max_sequence_len=inference_max_sequence_len,
             )
         else:
             encoder_output = enc_hidden_states.to(encoder_input.dtype)
@@ -758,6 +777,8 @@ class TransformerLanguageModel(MegatronModule):
             get_key_value=get_key_value,
             encoder_output=encoder_output,
             enc_dec_attn_mask=enc_dec_attn_mask,
+            set_inference_key_value_memory=set_inference_key_value_memory,
+            inference_max_sequence_len=inference_max_sequence_len,
         )
 
         if self.add_pooler and self.post_process:

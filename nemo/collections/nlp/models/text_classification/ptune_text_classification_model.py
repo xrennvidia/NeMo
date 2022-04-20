@@ -58,7 +58,7 @@ class PTuneTextClassificationModel(NLPModel, Exportable):
 
     def __init__(self, cfg: DictConfig, trainer: Trainer = None):
         """Initializes the PTune TextClassifier model."""
-        super().__init__(cfg=cfg, trainer=trainer)
+        super().__init__(cfg=cfg, trainer=trainer, no_lm_init=True)
 
         initialize_model_parallel_for_nemo(
             world_size=trainer.world_size,
@@ -77,7 +77,7 @@ class PTuneTextClassificationModel(NLPModel, Exportable):
             model_name=cfg.tokenizer.type,
             tokenizer_model=self.register_artifact("tokenizer.model", cfg.tokenizer.model),
             vocab_file=self.register_artifact("tokenizer.vocab_file", cfg.tokenizer.vocab_file),
-            merges_file=self.register_artifact("tokenizer.merges_file", cfg.tokenizer.merge_file),
+            merges_file=self.register_artifact("tokenizer.merge_file", cfg.tokenizer.merge_file),
         )
 
         self.class_weights = None
