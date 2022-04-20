@@ -91,7 +91,7 @@ model:
     # if evaluation data is not in the model.dataset.data_dir as the training data or multiple datasets are used for
     # evaluation is needed, specify ds_item, otherwise by default data_dir is used
     use_tarred_dataset: false
-    ds_item: /media/apeganov/DATA/TED_92_128_29.11.2021/for_upload/IWSLT_tst2019
+    ds_item: /media/apeganov/DATA/punctuation_and_capitalization/simplest/3_128/wiki_wmt_17.01.2022/for_upload/IWSLT_tst2019
     text_file: input.txt
     labels_file: bert_labels.txt
     shuffle: false
