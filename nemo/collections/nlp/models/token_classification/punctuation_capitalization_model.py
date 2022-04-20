@@ -121,6 +121,7 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
         else:
             self.no_token_types_in_input = True
             self.bert_model = automodel.get_encoder()
+            self.hidden_size = bert_model.config.hidden_size
 
         self.punct_classifier = TokenClassifier(
             hidden_size=self.hidden_size,
