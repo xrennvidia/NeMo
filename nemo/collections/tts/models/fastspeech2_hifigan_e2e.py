@@ -41,8 +41,10 @@ from nemo.core.neural_types.elements import (
 from nemo.core.neural_types.neural_type import NeuralType
 from nemo.core.optim.lr_scheduler import NoamAnnealing
 from nemo.utils import logging
+from nemo.utils.decorators import deprecated
 
 
+@deprecated(version="1.8", explanation="FastSpeech2HifiGanE2EModel will be removed.")
 class FastSpeech2HifiGanE2EModel(TextToWaveform):
     """An end-to-end speech synthesis model based on FastSpeech2 and HiFiGan that converts strings to audio without
     using the intermediate mel spectrogram representation."""
@@ -52,7 +54,7 @@ class FastSpeech2HifiGanE2EModel(TextToWaveform):
             cfg = OmegaConf.create(cfg)
         super().__init__(cfg=cfg, trainer=trainer)
 
-        self.audio_to_melspec_preprocessor = instantiate(cfg.preprocessor)
+        self.audio_to_melspec_precessor = instantiate(cfg.preprocessor)
         self.encoder = instantiate(cfg.encoder)
         self.variance_adapter = instantiate(cfg.variance_adaptor)
 
@@ -182,7 +184,7 @@ class FastSpeech2HifiGanE2EModel(TextToWaveform):
 
     def training_step(self, batch, batch_idx, optimizer_idx):
         f, fl, t, tl, durations, pitch, energies = batch
-        _, spec_len = self.audio_to_melspec_preprocessor(f, fl)
+        _, spec_len = self.audio_to_melspec_precessor(f, fl)
 
         # train discriminator
         if optimizer_idx == 0:
@@ -296,7 +298,7 @@ class FastSpeech2HifiGanE2EModel(TextToWaveform):
 
     def validation_step(self, batch, batch_idx):
         f, fl, t, tl, _, _, _ = batch
-        spec, spec_len = self.audio_to_melspec_preprocessor(f, fl)
+        spec, spec_len = self.audio_to_melspec_precessor(f, fl)
         audio_pred, _, _, _, _, _ = self(spec_len=spec_len, text=t, text_length=tl, splice=False)
         audio_pred.squeeze_()
         pred_spec, _ = self.melspec_fn(audio_pred, seq_len=spec_len)

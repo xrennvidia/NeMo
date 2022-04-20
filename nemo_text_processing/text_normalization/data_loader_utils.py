@@ -283,3 +283,19 @@ def write_manifest(manifest_items: List[Dict[str, Union[str, float]]], output_ma
     with open(output_manifest_path, 'w') as f:
         for item in manifest_items:
             f.write(json.dumps(item) + '\n')
+
+
+def check_installation():
+    try:
+        import pynini
+
+        PYNINI_AVAILABLE = True
+
+    except (ModuleNotFoundError, ImportError):
+        PYNINI_AVAILABLE = False
+    return PYNINI_AVAILABLE
+
+
+def get_installation_msg():
+    msg = "`pynini` is not installed ! \n Please run the `nemo_text_processing/setup.sh` script prior to usage of this toolkit."
+    return msg
