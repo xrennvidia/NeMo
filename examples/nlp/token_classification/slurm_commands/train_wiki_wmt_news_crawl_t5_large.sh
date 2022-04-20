@@ -65,6 +65,7 @@ echo "*******STARTING********" \
 	+model.common_dataset_parameters.add_cls_and_sep_tokens=false \
 	+trainer.num_nodes=${SLURM_JOB_NUM_NODES} \
 	trainer.gpus=${SLURM_NTASKS_PER_NODE} \
+	+trainer.num_processes=${SLURM_NTASKS_PER_NODE} \
 	trainer.max_steps=${MAX_STEPS} \
 	+trainer.val_check_interval=${VAL_CHECK_INTERVAL} \
 	trainer.precision=32 \
