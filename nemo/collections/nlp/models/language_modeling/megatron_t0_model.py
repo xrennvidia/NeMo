@@ -27,7 +27,9 @@ from nemo.collections.nlp.data.language_modeling.t0_dataset import (
     T0DatasetBuilder,
     T0PrimeDatasetBuilder,
     T0HFDatasetBuilder,
-    T0PrimeHFDatasetBuilder
+    T0PrimeHFDatasetBuilder,
+    T0SSLPrimeDatasetBuilder,
+    T0SSLPrimeHFDatasetBuilder
 )
 from nemo.collections.common.metrics.classification_accuracy import ExactStringPerCategoryMatchMetric
 from nemo.collections.nlp.models.language_modeling.megatron_glue_model import MegatronT5FineTuneModel
@@ -124,14 +126,15 @@ class MegatronT0Model(MegatronT5FineTuneModel):
     def inference_step(self, batch, batch_idx):
         loss = self.model.validation_step(batch, batch_idx)
 
-        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids \
-            = self.process_batch(batch)
+        if self.trainer.num_nodes == 1:
+            tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids \
+                = self.process_batch(batch)
 
-        predicted_token_ids, log_probs = self.model.decode(
-            tokens_enc=tokens_enc, enc_mask=enc_mask,
-            num_tokens_to_generate=self.decoder_seq_length
-        )
-        self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
+            predicted_token_ids, log_probs = self.model.decode(
+                tokens_enc=tokens_enc, enc_mask=enc_mask,
+                num_tokens_to_generate=self.decoder_seq_length
+            )
+            self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
 
         return {'loss': loss}
 
@@ -142,16 +145,17 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             loss = [x['loss'] for x in outputs]
             averaged_loss = average_losses_across_data_parallel_group(loss)
             accuracies_losses[task_name] = {'loss': averaged_loss[0]}
-        for task_id in self.acc_metric_dict.keys():
-            task_name = get_task_name(task_id)
-            assert task_name in accuracies_losses
-            accuracies_losses[task_name]['accuracies'] = {}
-            for prompt_id in self.acc_metric_dict[task_id].keys():
-                accuracy = self.acc_metric_dict[task_id][prompt_id].compute()['acc']
-                if torch.any(torch.isnan(accuracy)):
-                    continue
-                accuracies_losses[task_name]['accuracies'][str(prompt_id)] = accuracy
-                self.acc_metric_dict[task_id][prompt_id].reset()
+        if self.trainer.num_nodes == 1:
+            for task_id in self.acc_metric_dict.keys():
+                task_name = get_task_name(task_id)
+                assert task_name in accuracies_losses
+                accuracies_losses[task_name]['accuracies'] = {}
+                for prompt_id in self.acc_metric_dict[task_id].keys():
+                    accuracy = self.acc_metric_dict[task_id][prompt_id].compute()['acc']
+                    if torch.any(torch.isnan(accuracy)):
+                        continue
+                    accuracies_losses[task_name]['accuracies'][str(prompt_id)] = accuracy
+                    self.acc_metric_dict[task_id][prompt_id].reset()
         return accuracies_losses
 
     def validation_step(self, batch, batch_idx, dataloader_idx):
@@ -166,16 +170,18 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             avg_loss.append(loss)
             self.log(f'val_loss_{task_name}', loss, prog_bar=True)
             logging.info(f'Validation loss for {task_name}: {loss}')
-            accuracies = val_accuracies_losses[task_name]['accuracies']
-            for prompt_id in accuracies.keys():
-                self.log(f'validation_acc_{task_name}_{prompt_id}', accuracies[prompt_id], prog_bar=False)
-            avg_task_acc_list = list(accuracies.values())
-            avg_task_acc = torch.mean(torch.stack(avg_task_acc_list))
-            self.log(f'validation_acc_{task_name}', avg_task_acc, prog_bar=True)
-            logging.info(f'Validation accuracy for {task_name}: {avg_task_acc}')
-            avg_val_acc.extend(avg_task_acc_list)
+            if self.trainer.num_nodes == 1:
+                accuracies = val_accuracies_losses[task_name]['accuracies']
+                for prompt_id in accuracies.keys():
+                    self.log(f'validation_acc_{task_name}_{prompt_id}', accuracies[prompt_id], prog_bar=False)
+                avg_task_acc_list = list(accuracies.values())
+                avg_task_acc = torch.mean(torch.stack(avg_task_acc_list))
+                self.log(f'validation_acc_{task_name}', avg_task_acc, prog_bar=True)
+                logging.info(f'Validation accuracy for {task_name}: {avg_task_acc}')
+                avg_val_acc.extend(avg_task_acc_list)
         self.log('val_loss', torch.mean(torch.stack(avg_loss)), prog_bar=True)
-        self.log('val_acc', torch.mean(torch.stack(avg_val_acc)), prog_bar=True)
+        if self.trainer.num_nodes == 1:
+            self.log('val_acc', torch.mean(torch.stack(avg_val_acc)), prog_bar=True)
 
     def test_step(self, batch, batch_idx, dataloader_idx):
         return self.inference_step(batch, batch_idx)
@@ -454,11 +460,12 @@ class MegatronT0PrimeModel(MegatronT0Model):
         _, tokens_loss = self.get_loss(batch)
         loss = self.model.loss_func(loss_mask, tokens_loss)
         reduced_loss = average_losses_across_data_parallel_group([loss])
-        predicted_token_ids, log_probs = self.model.decode(
-            tokens_enc=tokens_enc, enc_mask=enc_mask, enc_input=encoder_input,
-            num_tokens_to_generate=self.decoder_seq_length
-        )
-        self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
+        if self.trainer.num_nodes == 1:
+            predicted_token_ids, log_probs = self.model.decode(
+                tokens_enc=tokens_enc, enc_mask=enc_mask, enc_input=encoder_input,
+                num_tokens_to_generate=self.decoder_seq_length
+            )
+            self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
 
         return {'loss': reduced_loss}
 
@@ -535,5 +542,109 @@ class MegatronT0PrimeModel(MegatronT0Model):
         # T0' specific
         tokens_prompt = data_b['template'].long()
 
+        return tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, \
+               task_ids, prompt_ids, tokens_prompt
+
+
+class MegatronT0SSLPrimeModel(MegatronT0Model):
+    """
+        Megatron t0 prime multitask fine tuning model using differentiable promtps and contrastive learning
+    """
+
+    def get_loss(self, batch):
+        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids, tokens_prompt \
+            = self.process_batch(batch)
+        # TODO: need contrastive learning here
+        encoder_input, enc_mask = self.embed_input(tokens_enc, tokens_prompt, enc_mask)
+        if self.float_type == torch.float32:
+            tokens_loss = itemgetter("tokens_loss")(self.model.enc_dec_model(
+                enc_input_ids=tokens_enc, dec_input_ids=tokens_dec,
+                enc_attn_mask=enc_mask, dec_attn_mask=dec_mask,
+                tokentype_ids=None, labels=labels,
+                enc_input=encoder_input
+            ))
+        else:
+            with torch.autocast(device_type="cuda", dtype=self.float_type):
+                tokens_loss = itemgetter("tokens_loss")(self.model.enc_dec_model(
+                    enc_input_ids=None, dec_input_ids=tokens_dec,
+                    enc_attn_mask=enc_mask, dec_attn_mask=dec_mask,
+                    tokentype_ids=None, labels=labels,
+                    enc_input=encoder_input
+                ))
+        return loss_mask, tokens_loss
+
+    def get_datasetbuilder(self, split, seq_length):
+        if not getattr(self.cfg.data, 'use_hf_data', False):
+            # Use NeMo dataset
+            datasetbuilder = T0SSLPrimeDatasetBuilder(
+                t0_type=self.cfg.data.t0_type,
+                dir_path=self.cfg.data.dir_path,
+                max_sampling_size=self.cfg.data.max_sampling_size,
+                split=split,
+                tokenizer=self.model.tokenizer,
+                max_seq_length=seq_length,
+                seed=self.cfg.seed,
+                use_cache=self.cfg.data.use_cache,
+                max_samples=getattr(self.cfg.data, "max_samples", None),
+                num_proc=self.cfg.data.num_workers,
+                num_nodes=self.trainer.num_nodes,
+                num_gpus=self.trainer.gpus,
+                num_data_shards=self.cfg.data.num_data_shards,
+                prompt_token_id=self.pseudo_token_id,
+                prompt_seq_len=self.prompt_seq_len,
+                split_template=self.cfg.data.split_template
+            )
+        else:
+            # Use Huggingface dataset
+            datasetbuilder = T0SSLPrimeHFDatasetBuilder(
+                t0_type=self.cfg.data.t0_type,
+                dir_path=self.cfg.data.dir_path,
+                max_sampling_size=self.cfg.data.max_sampling_size,
+                split=split,
+                tokenizer=self.model.tokenizer,
+                max_seq_length=seq_length,
+                seed=self.cfg.seed,
+                use_cache=self.cfg.data.use_cache,
+                distribute_datasets=getattr(self.cfg.data, "distribute_datasets", False),
+                max_samples=getattr(self.cfg.data, "max_samples", None),
+                num_proc=self.cfg.data.num_workers,
+                num_nodes=self.trainer.num_nodes,
+                num_gpus=self.trainer.gpus,
+                prompt_token_id=self.pseudo_token_id,
+                prompt_seq_len=self.prompt_seq_len,
+                split_template=self.cfg.data.split_template
+            )
+
+        return datasetbuilder
+
+    def process_batch(self, batch):
+        """Build the batch."""
+
+        keys = [
+            'text_enc', 'text_dec', 'template', 'labels',
+            'loss_mask', 'enc_mask', 'dec_mask',
+            'task_ids', 'prompt_ids'
+        ]
+        datatype = torch.int64
+
+        data = batch
+        data_b = tensor_parallel.broadcast_data(keys, data, datatype)
+
+        # Unpack.
+        tokens_enc = data_b['text_enc'].long()
+        tokens_dec = data_b['text_dec'].long()
+        labels = data_b['labels'].long()
+        loss_mask = data_b['loss_mask'].float()
+
+        enc_mask = data_b['enc_mask']
+        dec_mask = data_b['dec_mask']
+
+        # T0 specific
+        task_ids = data_b['task_ids'].long()
+        prompt_ids = data_b['prompt_ids'].long()
+
+        # T0' specific
+        tokens_prompt = data_b['template'].long()
+        # TODO: need positive negative examples here
         return tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, \
                task_ids, prompt_ids, tokens_prompt

@@ -324,14 +324,17 @@ class T0HFDatasetBuilder(object):
                 available_prompts.append(data_name.split("_")[-1])
         assert available_prompts
         prompt_num = np.random.choice(available_prompts)
-        chosen_features = {
-            'text_enc': features[f'text_enc_{prompt_num}'],
-            'text_dec': features[f'text_dec_{prompt_num}'],
-            'labels': features[f'labels_{prompt_num}'],
-            'task_id': features[f'task_id_{prompt_num}'],
-            'prompt_id': features[f'prompt_id_{prompt_num}']
+        return self.get_chosen_features(features, prompt_num)
+
+    @staticmethod
+    def get_chosen_features(feature_dict, prompt_num):
+        return {
+            'text_enc': feature_dict[f'text_enc_{prompt_num}'],
+            'text_dec': feature_dict[f'text_dec_{prompt_num}'],
+            'labels': feature_dict[f'labels_{prompt_num}'],
+            'task_id': feature_dict[f'task_id_{prompt_num}'],
+            'prompt_id': feature_dict[f'prompt_id_{prompt_num}']
         }
-        return chosen_features
 
     @staticmethod
     def create_example(data, task_id, prompt_id):
@@ -468,6 +471,17 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
         )
 
     @staticmethod
+    def get_chosen_features(feature_dict, prompt_num):
+        return {
+            'text_enc': feature_dict[f'text_enc_{prompt_num}'],
+            'template': feature_dict[f'template_{prompt_num}'],
+            'text_dec': feature_dict[f'text_dec_{prompt_num}'],
+            'labels': feature_dict[f'labels_{prompt_num}'],
+            'task_id': feature_dict[f'task_id_{prompt_num}'],
+            'prompt_id': feature_dict[f'prompt_id_{prompt_num}']
+        }
+
+    @staticmethod
     def create_example(data, task_id, prompt_id):
         return InputPromptedExample(
             task_id=task_id,
@@ -488,7 +502,7 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
             text_chunks = []
             for chunk in chunked_idx.split(","):
                 chunk_name, chunk_start, chunk_end = chunk.split("-")
-                text_chunks.append((chunk_name, input_text[int(chunk_start):int(chunk_end)]))
+                text_chunks.append((chunk_name.strip(), input_text[int(chunk_start):int(chunk_end)]))
             return text_chunks
         if example.input_text is None:
             enc_query = [self.empty_prompt_token_id]
@@ -540,6 +554,10 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
         task_ids = [item['task_id'] for item in batch]
         prompt_ids = [item['prompt_id'] for item in batch]
 
+        if self.split_template:
+            max_template_length = max(self.prompt_seq_len, max([len(item) for item in template]))
+            enc_query = [item_q + [self.prompt_token_id] * (max_template_length - len(item_t)) for item_q, item_t in zip(enc_query, template)]
+
         max_dec_input_length = max([len(item) for item in dec_input])
         max_enc_query_length = max([len(item) for item in enc_query])
         max_label_length = max([len(item) for item in labels])
@@ -558,6 +576,10 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
         prompt_ids = torch.LongTensor(prompt_ids)
         loss_mask = torch.LongTensor(loss_mask)
 
+        if self.split_template:
+            index = (enc_query == self.prompt_token_id).nonzero()
+            index = index.reshape((enc_query.size(0), -1, 2))[:, :, 1][:, :, None]
+
         enc_mask = (enc_query != self.tokenizer.pad_id).long()
         dec_mask = (dec_input != self.tokenizer.pad_id).long()
 
@@ -572,6 +594,17 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
             'task_ids': task_ids,
             'prompt_ids': prompt_ids
         }
+
+class T0SSLPrimeHFDatasetBuilder(T0PrimeHFDatasetBuilder):
+
+
+    def collate_fn(self, batch):
+        new_batch = []
+        for features in batch:
+            feature = self.choose_template(features)
+            new_batch.append(feature)
+        return self.collate_fn2(new_batch)
+
 
 
 class InterleavedDataset(torch.utils.data.Dataset):
@@ -620,10 +653,12 @@ class TaskDataset(Dataset):
             task: Task,
             features: List[Dict[str, List[int]]],
             empty_prompt_token_id: int,
+            include_positive_samples: False
     ):
         self.task = task
         self.features = features
         self.empty_prompt_token_id = empty_prompt_token_id
+        self.include_positive_samples = include_positive_samples
 
     def __len__(self):
         return len(self.features)
@@ -645,6 +680,7 @@ class TaskDataset(Dataset):
                 available_prompts.append(data_name.split("_")[-1])
         assert available_prompts
         prompt_num = np.random.choice(available_prompts)
+        # TODO: add choosing positive examples
         return self.get_chosen_features(feature_dict, prompt_num)
 
 
@@ -1039,11 +1075,6 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
         task_ids = [item['task_id'] for item in batch]
         prompt_ids = [item['prompt_id'] for item in batch]
 
-        if self.split_template:
-            max_template_length = max(self.prompt_seq_len, max([len(item) for item in template]))
-            enc_query = [item_q + [self.prompt_token_id] * (max_template_length - len(item_t)) for item_q, item_t in
-                         zip(enc_query, template)]
-
         max_dec_input_length = max([len(item) for item in dec_input])
         max_enc_query_length = max([len(item) for item in enc_query])
         max_label_length = max([len(item) for item in labels])
@@ -1062,6 +1093,10 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
         prompt_ids = torch.LongTensor(prompt_ids)
         loss_mask = torch.LongTensor(loss_mask)
 
+        if self.split_template:
+            index = (enc_query == self.prompt_token_id).nonzero()
+            index = index.reshape((enc_query.size(0), -1, 2))[:, :, 1][:, :, None]
+
         enc_mask = (enc_query != self.tokenizer.pad_id).long()
         dec_mask = (dec_input != self.tokenizer.pad_id).long()
 
@@ -1076,3 +1111,10 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
             'task_ids': task_ids,
             'prompt_ids': prompt_ids
         }
+
+class T0SSLPrimeDatasetBuilder(T0PrimeDatasetBuilder):
+
+    def collate_fn(self, batch):
+        batch = super().collate_fn(batch)
+        # TODO: make negative examples here
+        return batch
