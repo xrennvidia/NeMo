@@ -578,7 +578,8 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
 
         if self.split_template:
             index = (enc_query == self.prompt_token_id).nonzero()
-            index = index.reshape((enc_query.size(0), -1, 2))[:, :, 1][:, :, None]
+            index = index.reshape((enc_query.size(0), -1, 2))[:, :, 1].squeeze(-1)
+            enc_query = enc_query.scatter_(1, index, template)
 
         enc_mask = (enc_query != self.tokenizer.pad_id).long()
         dec_mask = (dec_input != self.tokenizer.pad_id).long()
@@ -653,7 +654,7 @@ class TaskDataset(Dataset):
             task: Task,
             features: List[Dict[str, List[int]]],
             empty_prompt_token_id: int,
-            include_positive_samples: False
+            include_positive_samples: Optional[bool] = False
     ):
         self.task = task
         self.features = features
