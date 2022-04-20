@@ -101,25 +101,26 @@ class PunctuationCapitalizationModel(NLPModel, Exportable):
         self.label_ids_are_set: bool = False
         self.punct_label_ids: Optional[Dict[str, int]] = None
         self.capit_label_ids: Optional[Dict[str, int]] = None
-        super().__init__(cfg=cfg, trainer=trainer)
+        initialize_lm_here = any([n in cfg.language_model.pretrained_model_name for n in ['t5', 'bart']])
+        super().__init__(
+            cfg=cfg,
+            trainer=trainer,
+            no_lm_init=initialize_lm_here,
+        )
         if not self.label_ids_are_set:
             self._set_label_ids()
-        try:
-            automodel = AutoModel.from_pretrained(cfg.language_model.pretrained_model_name)
-        except Exception as e:
-            raise ValueError(f"{cfg.language_model.pretrained_model_name} is not supported by HuggingFace. {e}")
-        if isinstance(automodel, (MBartPreTrainedModel, T5PreTrainedModel)):
+        if initialize_lm_here:
+            try:
+                automodel = AutoModel.from_pretrained(cfg.language_model.pretrained_model_name)
+            except Exception as e:
+                raise ValueError(f"{cfg.language_model.pretrained_model_name} is not supported by HuggingFace. {e}")
+        else:
+            automodel = None
+        if automodel is None:
+            self.no_token_types_in_input = False
+        else:
             self.no_token_types_in_input = True
             self.bert_model = automodel.get_encoder()
-        else:
-            self.no_token_types_in_input = False
-            self.bert_model = get_lm_model(
-                pretrained_model_name=cfg.language_model.pretrained_model_name,
-                config_file=self.register_artifact('language_model.config_file', cfg.language_model.config_file),
-                config_dict=OmegaConf.to_container(cfg.language_model.config) if cfg.language_model.config else None,
-                checkpoint_file=cfg.language_model.lm_checkpoint,
-                vocab_file=self.register_artifact('tokenizer.vocab_file', cfg.tokenizer.vocab_file),
-            )
 
         self.punct_classifier = TokenClassifier(
             hidden_size=self.hidden_size,
