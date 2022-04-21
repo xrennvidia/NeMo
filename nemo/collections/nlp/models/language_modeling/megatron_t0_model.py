@@ -265,7 +265,10 @@ class MegatronT0Model(MegatronT5FineTuneModel):
 
     def create_acc_metric_dict(self, dataset):
         task_id = dataset.task.task_id
-        prompt_ids = [int(n.split('_')[-1].strip()) for n in dataset.data.column_names if 'prompt_id' in n]
+        if not getattr(self.cfg.data, 'use_hf_data', False):
+            prompt_ids = [int(n.split('_')[-1].strip()) for n in dataset.features[0].keys() if 'prompt_id' in n]
+        else:
+            prompt_ids = [int(n.split('_')[-1].strip()) for n in dataset.data.column_names if 'prompt_id' in n]
         if not self.acc_metric_dict.__contains__(task_id):
             self.acc_metric_dict[task_id] = {}
         self.acc_metric_dict[task_id].update({
