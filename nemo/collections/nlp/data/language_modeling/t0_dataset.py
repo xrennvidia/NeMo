@@ -142,12 +142,530 @@ class InputPromptedExample(object):
         )
 
 
-class T0HFDatasetBuilder(object):
+class InterleavedDataset(torch.utils.data.Dataset):
+    def __init__(self, datasets, max_sampling_size):
+        self.datasets = datasets
+        num_datasets = len(datasets)
+        sampling_data_sizes = []
+        data_sizes = []
+        for dataset in self.datasets:
+            data_size = len(dataset)
+            data_sizes.append(data_size)
+            sampling_data_sizes.append(min(data_size, max_sampling_size))
+        sampling_data_sizes = np.array(sampling_data_sizes)
+        sampling_probs = sampling_data_sizes / np.sum(sampling_data_sizes)
+
+        self.size = sum(sampling_data_sizes)
+
+        self.dataset_index = np.random.choice(num_datasets, size=self.size, p=sampling_probs)
+        self.dataset_sample_iterator = []
+        for sampling_size, data_size in zip(sampling_data_sizes, data_sizes):
+            self.dataset_sample_iterator.append(np.nditer(
+                np.random.choice(data_size, size=sampling_size, replace=False)
+            ))
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        dataset_idx = self.dataset_index[idx]
+        try:
+            sample_idx = next(self.dataset_sample_iterator[dataset_idx])
+        except StopIteration:
+            self.dataset_sample_iterator[dataset_idx].reset()
+            sample_idx = next(self.dataset_sample_iterator[dataset_idx])
+        return self.datasets[int(dataset_idx)][int(sample_idx)]
+
+
+class TaskDataset(Dataset):
+
+    @property
+    def output_types(self) -> Optional[Dict[str, NeuralType]]:
+        return
+
+    def __init__(
+            self,
+            task: Task,
+            features: List[Dict[str, List[int]]],
+            empty_prompt_token_id: int,
+    ):
+        self.task = task
+        self.features = features
+        self.empty_prompt_token_id = empty_prompt_token_id
+
+    def __len__(self):
+        return len(self.features)
+
+    def __getitem__(self, idx):
+        return self.features[idx]
+
+
+class T0DatasetBuilder(object):
     """T0 Dataset Builder in a text-to-text format."""
 
     @property
     def output_types(self) -> Optional[Dict[str, NeuralType]]:
         return
+
+    def __init__(
+            self,
+            t0_type: str,
+            dir_path: str,
+            max_sampling_size: int,
+            split: str,
+            tokenizer: TokenizerSpec,
+            max_seq_length: int,
+            max_seq_length_decoder: int = 128,
+            seed: int = 43,
+            use_cache: bool = True,
+            extension: str = 'json',
+            max_samples: int = None,
+            num_proc: int = None,
+            num_gpus: int = None,
+            num_nodes: int = 1,
+            num_data_shards: int = 1
+    ):
+        """
+        Processes T0 dataset
+        Args:
+            t0_type: [train_t0, train_t0p, train_t0pp, t0_debug]
+            split: train, test, eval
+            max_sampling_size: caps probabilities at max size for a specific dataset
+            dir_path: path to data directory for train, evaluation or test
+            tokenizer: such as AutoTokenizer
+            max_seq_length: max sequence length minus 2 for [CLS] and [SEP]
+            max_seq_length_decoder: max sequence length
+            buffer_size: size of the buffer, chunks of data to suffle
+            use_cache: whether to use data cache
+            max_samples: limit size of dataset (not implemented)
+            num_proc: number of processes to load data
+        """
+        self.t0_type = t0_type
+        self.dir_path = dir_path
+        self.max_sampling_size = max_sampling_size
+        self.split = split
+        self.tokenizer = tokenizer
+        self.max_query_length = max_seq_length
+        self.max_query_length_decoder = max_seq_length_decoder
+        self.seed = seed
+        self.use_cache = use_cache
+        self.extension = extension
+        self.max_samples = max_samples
+        self.num_proc = num_proc if num_proc > 0 else None
+        self.num_gpus = num_gpus
+        self.num_nodes = num_nodes
+        self.num_data_shards = num_data_shards if split == 'train' else 1
+        self.tasks = []
+        self.empty_prompt_token_id = -1
+        self.set_data_dict()
+        self.dt_id2name = {dt.task.task_id: dt_name for dt_name, dt in self.datasets.items()}
+
+    def set_data_dict(self, shard=0):
+        if self.split == 'train':
+            data_dict = DATA_ORG[self.t0_type]
+        else:
+            data_dict = t0_all_evaldt_names_subset
+        dataset_dict = {}
+        for dt_name in data_dict.keys():
+            logging.info('Dataset name %s.' % dt_name)
+            subsets = data_dict[dt_name]
+            if not isinstance(subsets, list):
+                subsets = [subsets]
+            for subset in subsets:
+                logging.info('Subset name %s.' % subset)
+                if "/" in dt_name:
+                    dt_name = dt_name.split("/")[-1]
+                file_name = "_%s_%s.jsonl" % (dt_name, "" if subset is None else subset)
+                _, data_paths = get_data_paths_and_splits(self.split, self.dir_path, file_name, dt_name)
+                for file_path in data_paths:
+                    task = self.get_task(file_path, dt_name, subset)
+                    task_name = "%s_%s" % (dt_name, "" if subset is None else subset)
+                    dataset_dict[task_name] = self.get_dataset(task, shard)
+        self.datasets = dataset_dict
+
+    def get_task(self, file_path, dt_name, subset):
+        task = Task(file_path, dt_name, subset)
+        task.create_example = self.create_example
+        task.tokenize = self.tokenize
+        self.tasks.append(task)
+        return task
+
+    def get_dataset(self, task, shard):
+        features_dir_name = f'cache_{task.dt_name}'
+        if task.subset is not None:
+            features_dir_name += f'_{task.subset}'
+        if getattr(self, 'split_template', False):
+            features_dir_name += '_seperated'
+        features_dir = os.path.join(self.dir_path, self.split, features_dir_name)
+        cached_features_files = [os.path.join(
+            features_dir, f"cached_{self.tokenizer.name}_{self.max_query_length}_{shard}"
+        ) for shard in range(self.num_data_shards)]
+        rank = parallel_state.get_data_parallel_rank()
+        if os.path.isdir(features_dir):
+            cache_exists = all(os.path.exists(cache) for cache in cached_features_files)
+        else:
+            if rank == 0:
+                os.mkdir(features_dir)
+            cache_exists = False
+        if not self.use_cache or not cache_exists:
+            self.map_features(task, rank, cached_features_files)
+        logging.info(f"loading from {cached_features_files[shard]}")
+        with open(cached_features_files[shard], "rb") as reader:
+            features = pickle.load(reader)
+        dataset = TaskDataset(task, features, self.empty_prompt_token_id)
+        return dataset
+
+    def map_features(self, task, rank, cached_features_files):
+        """
+        We use Huggingface datasets map to creates features.
+        """
+        logging.info('Waiting for main process to perform the feature processing.')
+        if rank == 0:
+            dataset = load_dataset(
+                self.extension, data_files=task.file_path, split='train'
+            )
+            if self.max_samples is not None:
+                dataset = dataset.select(range(min(len(dataset), self.max_samples)))
+            original_column_names = dataset.column_names
+            dataset = dataset.map(
+                function=task.map_fn_train if self.split == 'train' else task.map_fn_eval,
+                num_proc=self.num_proc,
+                remove_columns=original_column_names,
+                load_from_cache_file=False
+            )
+            self.shard_save_features(dataset, cached_features_files)
+        torch.distributed.barrier()
+        logging.info('Finished waiting for main process in map_dataset().')
+
+    def shard_save_features(self, dataset, cached_features_files):
+        """
+        Converting huggingface / pyarrow datasets to pickled features allows
+        us to use NeMo datasets annd avoids locks and other multi-gpu weird behavior.
+        """
+        logging.info('Waiting for main process to shard and save features.')
+        num_examples = len(dataset)
+        shard_size = num_examples // self.num_data_shards
+        start = 0
+        for shard_idx, file_name in enumerate(cached_features_files):
+            end = start + shard_size
+            dataset_shard = dataset.select(range(start, end))
+            features = dataset_shard.to_dict()
+            features = [{k: v[i] for k, v in features.items()} for i in range(shard_size)]
+            start = end
+            with open(file_name, "wb") as writer:
+                pickle.dump(features, writer)
+
+    def assemble_datasets(self):
+        if self.split == 'train':
+            datasets_list = list(self.datasets.values())
+            datasets = InterleavedDataset(
+                datasets=datasets_list,
+                max_sampling_size=self.max_sampling_size // self.num_data_shards
+            )
+            return datasets
+        else:
+            return self.datasets
+
+    def __len__(self):
+        return sum(len(dataset) for dataset in self.datasets.values())
+
+    @staticmethod
+    def create_example(data, task_id, prompt_id):
+        return InputPromptedExample(
+            task_id=task_id,
+            text=data['input'],
+            prompt_id=prompt_id,
+            label=data['output']
+        )
+
+    def tokenize(self, example):
+        if example.input_text is None:
+            enc_query = [self.empty_prompt_token_id]
+            dec_input = [self.empty_prompt_token_id]
+            labels = [self.empty_prompt_token_id]
+        else:
+            enc_query = self.tokenizer.text_to_ids(example.input_text)
+            if len(enc_query) > self.max_query_length:
+                enc_query = enc_query[: self.max_query_length]
+            dec_query = (
+                    [self.tokenizer.cls_id]
+                    + self.tokenizer.text_to_ids(example.label)
+                    + [self.tokenizer.eos_id]
+            )
+            if len(dec_query) > self.max_query_length_decoder + 1:
+                dec_query = dec_query[: self.max_query_length_decoder + 1]
+            dec_input = dec_query[:-1]
+            labels = dec_query[1:]
+        task_id = [example.task_id]
+        prompt_id = [example.prompt_id]
+        return {
+            'text_enc': enc_query,
+            'text_dec': dec_input,
+            'labels': labels,
+            'task_id': task_id,
+            'prompt_id': prompt_id
+        }
+
+    def collate_fn(self, batch):
+        new_batch = []
+        for features in batch:
+            feature = self.choose_template(features)
+            new_batch.append(feature)
+        return self.collate_fn2(new_batch)
+
+    def choose_template(self, features):
+        available_prompts = []
+        for data_name in features.keys():
+            if data_name.startswith("text_enc") and (
+                features[data_name] is not None and
+                not np.any(np.array(features[data_name]) == self.empty_prompt_token_id)
+            ):
+                available_prompts.append(data_name.split("_")[-1])
+        assert available_prompts
+        prompt_num = np.random.choice(available_prompts)
+        # TODO: add choose positive example
+        return self.get_chosen_features(features, prompt_num)
+
+    @staticmethod
+    def get_chosen_features(feature_dict, prompt_num):
+        return {
+            'text_enc': feature_dict[f'text_enc_{prompt_num}'],
+            'text_dec': feature_dict[f'text_dec_{prompt_num}'],
+            'labels': feature_dict[f'labels_{prompt_num}'],
+            'task_id': feature_dict[f'task_id_{prompt_num}'],
+            'prompt_id': feature_dict[f'prompt_id_{prompt_num}']
+        }
+
+    def collate_fn2(self, batch):
+        enc_query = [item['text_enc'] for item in batch]
+        dec_input = [item['text_dec'] for item in batch]
+        labels = [item['labels'] for item in batch]
+        task_ids = [item['task_id'] for item in batch]
+        prompt_ids = [item['prompt_id'] for item in batch]
+
+        max_dec_input_length = max([len(item) for item in dec_input])
+        max_enc_query_length = max([len(item) for item in enc_query])
+        max_label_length = max([len(item) for item in labels])
+
+        loss_mask = [([1] * (len(item))) + ([0] * (max_label_length - len(item))) for item in labels]
+        enc_query = [item + [self.tokenizer.pad_id] * (max_enc_query_length - len(item)) for item in enc_query]
+        dec_input = [item + [self.tokenizer.pad_id] * (max_dec_input_length - len(item)) for item in dec_input]
+        labels = [item + [self.tokenizer.pad_id] * (max_label_length - len(item)) for item in labels]
+
+        enc_query = torch.LongTensor(enc_query)
+        dec_input = torch.LongTensor(dec_input)
+        labels = torch.LongTensor(labels)
+        task_ids = torch.LongTensor(task_ids)
+        prompt_ids = torch.LongTensor(prompt_ids)
+        loss_mask = torch.LongTensor(loss_mask)
+
+        enc_mask = (enc_query != self.tokenizer.pad_id).long()
+        dec_mask = (dec_input != self.tokenizer.pad_id).long()
+
+        return {
+            'text_enc': enc_query[:, :self.max_query_length],
+            'text_dec': dec_input[:, :self.max_query_length_decoder],
+            'labels': labels[:, :self.max_query_length_decoder],
+            'loss_mask': loss_mask[:, :self.max_query_length_decoder],
+            'enc_mask': enc_mask[:, :self.max_query_length],
+            'dec_mask': dec_mask[:, :self.max_query_length_decoder],
+            'task_ids': task_ids,
+            'prompt_ids': prompt_ids
+        }
+
+
+class T0PrimeDatasetBuilder(T0DatasetBuilder):
+    """T0' Dataset Builder in a text-to-text format."""
+
+    @property
+    def output_types(self) -> Optional[Dict[str, NeuralType]]:
+        return
+
+    def __init__(
+            self,
+            t0_type: str,
+            dir_path: str,
+            max_sampling_size: int,
+            split: str,
+            tokenizer: TokenizerSpec,
+            max_seq_length: int,
+            prompt_token_id: int,
+            prompt_seq_len: int,
+            max_seq_length_decoder: int = 128,
+            seed: int = 43,
+            use_cache: bool = True,
+            extension: str = 'json',
+            max_samples: int = None,
+            num_proc: int = None,
+            num_gpus: int = None,
+            num_nodes: int = None,
+            num_data_shards: int = 1,
+            split_template: bool = True,
+            add_in_context_ex: bool = False
+    ):
+        """
+        Processes T0' dataset using differentiable prompts
+        Args:
+            t0_type: [train_t0, train_t0p, train_t0pp, t0_debug]
+            split: train, test, eval
+            max_sampling_size: caps probabilities at max size for a specific dataset
+            dir_path: path to data directory for train, evaluation or test
+            tokenizer: such as AutoTokenizer
+            max_seq_length: max sequence length minus 2 for [CLS] and [SEP]
+            max_seq_length_decoder: max sequence length
+            use_cache: whether to use data cache
+            max_samples: limit size of dataset (not implemented)
+            prompt_token_id: tokenizer id for [PROMPT] token
+            prompt_seq_len: sequence lenght of prompt
+            split_template: whether to seperate template tokens
+            add_in_context_ex: randomly take in-context examples to be encoded
+        """
+        self.prompt_token_id = prompt_token_id
+        self.prompt_seq_len = prompt_seq_len if split_template else 1
+        self.split_template = split_template
+        self.add_in_context_ex = add_in_context_ex
+        super().__init__(
+            t0_type, dir_path, max_sampling_size, split, tokenizer,
+            max_seq_length, max_seq_length_decoder, seed, use_cache,
+            extension, max_samples, num_proc, num_gpus, num_nodes, num_data_shards
+        )
+
+    @staticmethod
+    def create_example(data, task_id, prompt_id):
+        return InputPromptedExample(
+            task_id=task_id,
+            text=data['input'],
+            prompt_id=prompt_id,
+            label=data['output'],
+            chunked_idx=data['chunked_idx']
+        )
+
+    def tokenize(self, example):
+        def get_text_chunks(input_text, chunked_idx):
+            """
+            Splits in the input text into chunks such that:
+            chunked(input_text) = [[orig_txt_part1], [template_part1], [orig_txt_part2], [template_part2], ...]
+            or other interleaved patterns of template and original text.
+            Assumes already sorted lists of index ranges.
+            """
+            text_chunks = []
+            for chunk in chunked_idx.split(","):
+                chunk_name, chunk_start, chunk_end = chunk.split("-")
+                text_chunks.append((chunk_name, input_text[int(chunk_start):int(chunk_end)]))
+            return text_chunks
+        if example.input_text is None:
+            enc_query = [self.empty_prompt_token_id]
+            template = [self.empty_prompt_token_id]
+            dec_input = [self.empty_prompt_token_id]
+            labels = [self.empty_prompt_token_id]
+        else:
+            input_text_chunks = get_text_chunks(example.input_text, example.chunked_idx)
+            enc_query = []
+            template = []
+            for chunk in input_text_chunks:
+                chunk_name = chunk[0]
+                chunk_tokens = self.tokenizer.text_to_ids(chunk[1])
+                if chunk_name == TEMPLATE_CHUNK_NAME and self.split_template:
+                    remain = max(0, self.prompt_seq_len - len(template) - len(chunk_tokens))
+                    template.extend(chunk_tokens[:remain])
+                    enc_query.extend([self.prompt_token_id] * len(chunk_tokens[:remain]))
+                else:
+                    max_length = self.max_query_length + (0 if self.split_template else self.prompt_seq_len)
+                    remain = max(0, max_length - len(enc_query) - len(chunk_tokens))
+                    enc_query.extend(chunk_tokens[:remain])  # only reduce original chunk
+            dec_query = (
+                    [self.tokenizer.cls_id]
+                    + self.tokenizer.text_to_ids(example.label)
+                    + [self.tokenizer.eos_id]
+            )
+            if len(dec_query) > self.max_query_length_decoder + 1:
+                dec_query = dec_query[: self.max_query_length_decoder + 1]
+            dec_input = dec_query[:-1]
+            labels = dec_query[1:]
+            if not template:
+                template = [self.tokenizer.pad_id]
+        task_id = [example.task_id]
+        prompt_id = [example.prompt_id]
+        return {
+            'text_enc': enc_query,
+            'template': template,
+            'text_dec': dec_input,
+            'labels': labels,
+            'task_id': task_id,
+            'prompt_id': prompt_id
+        }
+
+    @staticmethod
+    def get_chosen_features(feature_dict, prompt_num):
+        return {
+            'text_enc': feature_dict[f'text_enc_{prompt_num}'],
+            'template': feature_dict[f'template_{prompt_num}'],
+            'text_dec': feature_dict[f'text_dec_{prompt_num}'],
+            'labels': feature_dict[f'labels_{prompt_num}'],
+            'task_id': feature_dict[f'task_id_{prompt_num}'],
+            'prompt_id': feature_dict[f'prompt_id_{prompt_num}']
+        }
+
+    def collate_fn2(self, batch):
+        enc_query = [item['text_enc'] for item in batch]
+        template = [item['template'] for item in batch]
+        dec_input = [item['text_dec'] for item in batch]
+        labels = [item['labels'] for item in batch]
+        task_ids = [item['task_id'] for item in batch]
+        prompt_ids = [item['prompt_id'] for item in batch]
+
+        if self.split_template:
+            max_template_length = max(self.prompt_seq_len, max([len(item) for item in template]))
+            enc_query = [item_q + [self.prompt_token_id] * (max_template_length - len(item_t)) for item_q, item_t in zip(enc_query, template)]
+
+        max_dec_input_length = max([len(item) for item in dec_input])
+        max_enc_query_length = max([len(item) for item in enc_query])
+        max_label_length = max([len(item) for item in labels])
+
+        loss_mask = [([1] * (len(item))) + ([0] * (max_label_length - len(item))) for item in labels]
+        enc_query = [item + [self.tokenizer.pad_id] * (max_enc_query_length - len(item)) for item in enc_query]
+        template = [item[:self.prompt_seq_len] + [self.tokenizer.pad_id] * (self.prompt_seq_len - len(item)) for item in template]
+        dec_input = [item + [self.tokenizer.pad_id] * (max_dec_input_length - len(item)) for item in dec_input]
+        labels = [item + [self.tokenizer.pad_id] * (max_label_length - len(item)) for item in labels]
+
+        enc_query = torch.LongTensor(enc_query)
+        template = torch.LongTensor(template)
+        dec_input = torch.LongTensor(dec_input)
+        labels = torch.LongTensor(labels)
+        task_ids = torch.LongTensor(task_ids)
+        prompt_ids = torch.LongTensor(prompt_ids)
+        loss_mask = torch.LongTensor(loss_mask)
+
+        if self.split_template:
+            index = (enc_query == self.prompt_token_id).nonzero()
+            index = index.reshape((enc_query.size(0), -1, 2))[:, :, 1].squeeze(-1)
+            enc_query = enc_query.scatter_(1, index, template)
+
+        enc_mask = (enc_query != self.tokenizer.pad_id).long()
+        dec_mask = (dec_input != self.tokenizer.pad_id).long()
+        # TODO: add in-context examples option
+        return {
+            'text_enc': enc_query[:, :self.max_query_length],
+            'text_dec': dec_input[:, :self.max_query_length_decoder],
+            'template': template[:, :self.prompt_seq_len],
+            'labels': labels[:, :self.max_query_length_decoder],
+            'loss_mask': loss_mask[:, :self.max_query_length_decoder],
+            'enc_mask': enc_mask[:, :self.max_query_length],
+            'dec_mask': dec_mask[:, :self.max_query_length_decoder],
+            'task_ids': task_ids,
+            'prompt_ids': prompt_ids
+        }
+
+class T0SSLPrimeDatasetBuilder(T0PrimeDatasetBuilder):
+
+    def collate_fn(self, batch):
+        batch = super().collate_fn(batch)
+        # TODO: make positive example here
+        return batch
+
+
+class T0HFDatasetBuilder(T0DatasetBuilder):
+    """T0 Dataset Builder in a text-to-text format."""
 
     def __init__(
             self,
@@ -200,6 +718,7 @@ class T0HFDatasetBuilder(object):
         self.tasks = []
         self.empty_prompt_token_id = -1
         self.datasets = self.get_data_dict()
+        self.dt_id2name = {dt.task.task_id: dt_name for dt_name, dt in self.datasets.items()}
 
     def get_data_dict(self):
         if self.split == 'train':
@@ -223,13 +742,6 @@ class T0HFDatasetBuilder(object):
                     task_name = "%s_%s" % (dt_name, "" if subset is None else subset)
                     dataset_dict[task_name] = self.get_dataset(task)
         return dataset_dict
-
-    def get_task(self, file_path, dt_name, subset):
-        task = Task(file_path, dt_name, subset)
-        task.create_example = self.create_example
-        task.tokenize = self.tokenize
-        self.tasks.append(task)
-        return task
 
     def get_dataset(self, task):
         features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
@@ -311,125 +823,9 @@ class T0HFDatasetBuilder(object):
         sampling_probs = sampling_data_sizes / np.sum(sampling_data_sizes)
         return sampling_probs.tolist()
 
-    def __len__(self):
-        return sum(len(dataset) for dataset in self.datasets.values())
-
-    def choose_template(self, features, num_prompts=1, replace=True):
-        available_prompts = []
-        for data_name in features.keys():
-            if data_name.startswith("text_enc") and (
-                features[data_name] is not None and
-                not np.any(np.array(features[data_name]) == self.empty_prompt_token_id)
-            ):
-                available_prompts.append(data_name.split("_")[-1])
-        assert available_prompts
-        prompt_num = np.random.choice(
-            available_prompts,
-            size=num_prompts,
-            replace=replace
-        )
-        return self.get_chosen_features(features, prompt_num)
-
-    @staticmethod
-    def get_chosen_features(feature_dict, prompt_num):
-        main_prompt = prompt_num[0]
-        features = {
-            'text_enc': feature_dict[f'text_enc_{main_prompt}'],
-            'text_dec': feature_dict[f'text_dec_{main_prompt}'],
-            'labels': feature_dict[f'labels_{main_prompt}'],
-            'task_id': feature_dict[f'task_id_{main_prompt}'],
-            'prompt_id': feature_dict[f'prompt_id_{main_prompt}']
-        }
-        return features
-
-    @staticmethod
-    def create_example(data, task_id, prompt_id):
-        return InputPromptedExample(
-            task_id=task_id,
-            text=data['input'],
-            prompt_id=prompt_id,
-            label=data['output']
-        )
-
-    def collate_fn(self, batch):
-        new_batch = []
-        for features in batch:
-            feature = self.choose_template(features)
-            new_batch.append(feature)
-        return self.collate_fn2(new_batch)
-
-    def tokenize(self, example):
-        if example.input_text is None:
-            enc_query = [self.empty_prompt_token_id]
-            dec_input = [self.empty_prompt_token_id]
-            labels = [self.empty_prompt_token_id]
-        else:
-            enc_query = self.tokenizer.text_to_ids(example.input_text)
-            if len(enc_query) > self.max_query_length:
-                enc_query = enc_query[: self.max_query_length]
-            dec_query = (
-                    [self.tokenizer.cls_id]
-                    + self.tokenizer.text_to_ids(example.label)
-                    + [self.tokenizer.eos_id]
-            )
-            if len(dec_query) > self.max_query_length_decoder + 1:
-                dec_query = dec_query[: self.max_query_length_decoder + 1]
-            dec_input = dec_query[:-1]
-            labels = dec_query[1:]
-        task_id = [example.task_id]
-        prompt_id = [example.prompt_id]
-        return {
-            'text_enc': enc_query,
-            'text_dec': dec_input,
-            'labels': labels,
-            'task_id': task_id,
-            'prompt_id': prompt_id
-        }
-
-    def collate_fn2(self, batch):
-        enc_query = [item['text_enc'] for item in batch]
-        dec_input = [item['text_dec'] for item in batch]
-        labels = [item['labels'] for item in batch]
-        task_ids = [item['task_id'] for item in batch]
-        prompt_ids = [item['prompt_id'] for item in batch]
-
-        max_dec_input_length = max([len(item) for item in dec_input])
-        max_enc_query_length = max([len(item) for item in enc_query])
-        max_label_length = max([len(item) for item in labels])
-
-        loss_mask = [([1] * (len(item))) + ([0] * (max_label_length - len(item))) for item in labels]
-        enc_query = [item + [self.tokenizer.pad_id] * (max_enc_query_length - len(item)) for item in enc_query]
-        dec_input = [item + [self.tokenizer.pad_id] * (max_dec_input_length - len(item)) for item in dec_input]
-        labels = [item + [self.tokenizer.pad_id] * (max_label_length - len(item)) for item in labels]
-
-        enc_query = torch.LongTensor(enc_query)
-        dec_input = torch.LongTensor(dec_input)
-        labels = torch.LongTensor(labels)
-        task_ids = torch.LongTensor(task_ids)
-        prompt_ids = torch.LongTensor(prompt_ids)
-        loss_mask = torch.LongTensor(loss_mask)
-
-        enc_mask = (enc_query != self.tokenizer.pad_id).long()
-        dec_mask = (dec_input != self.tokenizer.pad_id).long()
-
-        return {
-            'text_enc': enc_query[:, :self.max_query_length],
-            'text_dec': dec_input[:, :self.max_query_length_decoder],
-            'labels': labels[:, :self.max_query_length_decoder],
-            'loss_mask': loss_mask[:, :self.max_query_length_decoder],
-            'enc_mask': enc_mask[:, :self.max_query_length],
-            'dec_mask': dec_mask[:, :self.max_query_length_decoder],
-            'task_ids': task_ids,
-            'prompt_ids': prompt_ids
-        }
-
 
 class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
     """T0' Dataset Builder in a text-to-text format."""
-
-    @property
-    def output_types(self) -> Optional[Dict[str, NeuralType]]:
-        return
 
     def __init__(
             self,
@@ -451,6 +847,7 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
             num_gpus: int = None,
             num_nodes: int = None,
             split_template: bool = True,
+            add_in_context_ex: bool = False
     ):
         """
         Processes T0' dataset using differentiable prompts
@@ -467,10 +864,12 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
             prompt_token_id: tokenizer id for [PROMPT] token
             prompt_seq_len: sequence lenght of prompt
             split_template: whether to seperate template tokens
+            add_in_context_ex: randomly take in-context examples to be encoded
         """
         self.prompt_token_id = prompt_token_id
         self.prompt_seq_len = prompt_seq_len
         self.split_template = split_template
+        self.add_in_context_ex = add_in_context_ex
         super().__init__(
             t0_type, dir_path, max_sampling_size, split, tokenizer, max_seq_length, max_seq_length_decoder,
             seed, use_cache, distribute_datasets, extension, max_samples, num_proc, num_gpus, num_nodes
@@ -478,14 +877,13 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
 
     @staticmethod
     def get_chosen_features(feature_dict, prompt_num):
-        main_prompt = prompt_num[0]
         features = {
-            'text_enc': feature_dict[f'text_enc_{main_prompt}'],
-            'template': feature_dict[f'template_{main_prompt}'],
-            'text_dec': feature_dict[f'text_dec_{main_prompt}'],
-            'labels': feature_dict[f'labels_{main_prompt}'],
-            'task_id': feature_dict[f'task_id_{main_prompt}'],
-            'prompt_id': feature_dict[f'prompt_id_{main_prompt}']
+            'text_enc': feature_dict[f'text_enc_{prompt_num}'],
+            'template': feature_dict[f'template_{prompt_num}'],
+            'text_dec': feature_dict[f'text_dec_{prompt_num}'],
+            'labels': feature_dict[f'labels_{prompt_num}'],
+            'task_id': feature_dict[f'task_id_{prompt_num}'],
+            'prompt_id': feature_dict[f'prompt_id_{prompt_num}']
         }
         return features
 
@@ -498,6 +896,14 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
             label=data['output'],
             chunked_idx=data['chunked_idx']
         )
+
+    def collate_fn(self, batch):
+        new_batch = []
+        for features in batch:
+            feature = self.choose_template(features)
+            new_batch.append(feature)
+        #TODO: add in-context examples option
+        return self.collate_fn2(new_batch)
 
     def tokenize(self, example):
         def get_text_chunks(input_text, chunked_idx):
@@ -604,6 +1010,7 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
             'prompt_ids': prompt_ids
         }
 
+
 class T0SSLPrimeHFDatasetBuilder(T0PrimeHFDatasetBuilder):
 
 
@@ -613,528 +1020,3 @@ class T0SSLPrimeHFDatasetBuilder(T0PrimeHFDatasetBuilder):
             feature = self.choose_template(features)
             new_batch.append(feature)
         return self.collate_fn2(new_batch)
-
-
-
-class InterleavedDataset(torch.utils.data.Dataset):
-    def __init__(self, datasets, max_sampling_size):
-        self.datasets = datasets
-        num_datasets = len(datasets)
-        sampling_data_sizes = []
-        data_sizes = []
-        for dataset in self.datasets:
-            data_size = len(dataset)
-            data_sizes.append(data_size)
-            sampling_data_sizes.append(min(data_size, max_sampling_size))
-        sampling_data_sizes = np.array(sampling_data_sizes)
-        sampling_probs = sampling_data_sizes / np.sum(sampling_data_sizes)
-
-        self.size = sum(sampling_data_sizes)
-
-        self.dataset_index = np.random.choice(num_datasets, size=self.size, p=sampling_probs)
-        self.dataset_sample_iterator = []
-        for sampling_size, data_size in zip(sampling_data_sizes, data_sizes):
-            self.dataset_sample_iterator.append(np.nditer(
-                np.random.choice(data_size, size=sampling_size, replace=False)
-            ))
-
-    def __len__(self):
-        return self.size
-
-    def __getitem__(self, idx):
-        dataset_idx = self.dataset_index[idx]
-        try:
-            sample_idx = next(self.dataset_sample_iterator[dataset_idx])
-        except StopIteration:
-            self.dataset_sample_iterator[dataset_idx].reset()
-            sample_idx = next(self.dataset_sample_iterator[dataset_idx])
-        return self.datasets[int(dataset_idx)][int(sample_idx)]
-
-
-class TaskDataset(Dataset):
-
-    @property
-    def output_types(self) -> Optional[Dict[str, NeuralType]]:
-        return
-
-    def __init__(
-            self,
-            task: Task,
-            features: List[Dict[str, List[int]]],
-            empty_prompt_token_id: int,
-            include_positive_samples: Optional[bool] = False
-    ):
-        self.task = task
-        self.features = features
-        self.empty_prompt_token_id = empty_prompt_token_id
-        self.include_positive_samples = include_positive_samples
-
-    def __len__(self):
-        return len(self.features)
-
-    def __getitem__(self, idx):
-        feature = self.features[idx]
-        return self.choose_template(feature)
-
-    def get_chosen_features(self, feature_dict, prompt_num):
-        raise "Dataset `get_chosen_features` not implemented"
-
-    def choose_template(self, feature_dict, num_prompts=1, replace=True):
-        available_prompts = []
-        for data_name in feature_dict.keys():
-            if data_name.startswith("text_enc") and (
-                feature_dict[data_name] is not None and
-                not np.any(np.array(feature_dict[data_name]) == self.empty_prompt_token_id)
-            ):
-                available_prompts.append(data_name.split("_")[-1])
-        assert available_prompts
-        prompt_num = np.random.choice(
-            available_prompts,
-            size=num_prompts,
-            replace=replace
-        )
-        # TODO: add choosing positive examples
-        return self.get_chosen_features(feature_dict, prompt_num)
-
-
-class T0DatasetBuilder(object):
-    """T0 Dataset Builder in a text-to-text format."""
-
-    @property
-    def output_types(self) -> Optional[Dict[str, NeuralType]]:
-        return
-
-    def __init__(
-            self,
-            t0_type: str,
-            dir_path: str,
-            max_sampling_size: int,
-            split: str,
-            tokenizer: TokenizerSpec,
-            max_seq_length: int,
-            max_seq_length_decoder: int = 128,
-            seed: int = 43,
-            use_cache: bool = True,
-            extension: str = 'json',
-            max_samples: int = None,
-            num_proc: int = None,
-            num_gpus: int = None,
-            num_nodes: int = 1,
-            num_data_shards: int = 1
-    ):
-        """
-        Processes T0 dataset
-        Args:
-            t0_type: [train_t0, train_t0p, train_t0pp, t0_debug]
-            split: train, test, eval
-            max_sampling_size: caps probabilities at max size for a specific dataset
-            dir_path: path to data directory for train, evaluation or test
-            tokenizer: such as AutoTokenizer
-            max_seq_length: max sequence length minus 2 for [CLS] and [SEP]
-            max_seq_length_decoder: max sequence length
-            buffer_size: size of the buffer, chunks of data to suffle
-            use_cache: whether to use data cache
-            max_samples: limit size of dataset (not implemented)
-            num_proc: number of processes to load data
-        """
-        self.t0_type = t0_type
-        self.dir_path = dir_path
-        self.max_sampling_size = max_sampling_size
-        self.split = split
-        self.tokenizer = tokenizer
-        self.max_query_length = max_seq_length
-        self.max_query_length_decoder = max_seq_length_decoder
-        self.seed = seed
-        self.use_cache = use_cache
-        self.extension = extension
-        self.max_samples = max_samples
-        self.num_proc = num_proc if num_proc > 0 else None
-        self.num_gpus = num_gpus
-        self.num_nodes = num_nodes
-        self.num_data_shards = num_data_shards if split == 'train' else 1
-        self.tasks = []
-        self.empty_prompt_token_id = -1
-        self.set_data_dict()
-
-    def set_data_dict(self, shard=0):
-        if self.split == 'train':
-            data_dict = DATA_ORG[self.t0_type]
-        else:
-            data_dict = t0_all_evaldt_names_subset
-        dataset_dict = {}
-        for dt_name in data_dict.keys():
-            logging.info('Dataset name %s.' % dt_name)
-            subsets = data_dict[dt_name]
-            if not isinstance(subsets, list):
-                subsets = [subsets]
-            for subset in subsets:
-                logging.info('Subset name %s.' % subset)
-                if "/" in dt_name:
-                    dt_name = dt_name.split("/")[-1]
-                file_name = "_%s_%s.jsonl" % (dt_name, "" if subset is None else subset)
-                _, data_paths = get_data_paths_and_splits(self.split, self.dir_path, file_name, dt_name)
-                for file_path in data_paths:
-                    task = self.get_task(file_path, dt_name, subset)
-                    task_name = "%s_%s" % (dt_name, "" if subset is None else subset)
-                    dataset_dict[task_name] = self.get_dataset(task, shard)
-        self.datasets = dataset_dict
-
-    def get_task(self, file_path, dt_name, subset):
-        task = Task(file_path, dt_name, subset)
-        task.create_example = self.create_example
-        task.tokenize = self.tokenize
-        self.tasks.append(task)
-        return task
-
-    def get_dataset(self, task, shard):
-        features_dir_name = f'cache_{task.dt_name}'
-        if task.subset is not None:
-            features_dir_name += f'_{task.subset}'
-        if getattr(self, 'split_template', False):
-            features_dir_name += '_seperated'
-        features_dir = os.path.join(self.dir_path, self.split, features_dir_name)
-        cached_features_files = [os.path.join(
-            features_dir, f"cached_{self.tokenizer.name}_{self.max_query_length}_{shard}"
-        ) for shard in range(self.num_data_shards)]
-        rank = parallel_state.get_data_parallel_rank()
-        if os.path.isdir(features_dir):
-            cache_exists = all(os.path.exists(cache) for cache in cached_features_files)
-        else:
-            if rank == 0:
-                os.mkdir(features_dir)
-            cache_exists = False
-        if not self.use_cache or not cache_exists:
-            self.map_features(task, rank, cached_features_files)
-        logging.info(f"loading from {cached_features_files[shard]}")
-        with open(cached_features_files[shard], "rb") as reader:
-            features = pickle.load(reader)
-        dataset = TaskDataset(task, features, self.empty_prompt_token_id)
-        dataset.get_chosen_features = self.get_chosen_features
-        return dataset
-
-    def map_features(self, task, rank, cached_features_files):
-        """
-        We use Huggingface datasets map to creates features.
-        """
-        logging.info('Waiting for main process to perform the feature processing.')
-        if rank == 0:
-            dataset = load_dataset(
-                self.extension, data_files=task.file_path, split='train'
-            )
-            if self.max_samples is not None:
-                dataset = dataset.select(range(min(len(dataset), self.max_samples)))
-            original_column_names = dataset.column_names
-            dataset = dataset.map(
-                function=task.map_fn_train if self.split == 'train' else task.map_fn_eval,
-                num_proc=self.num_proc,
-                remove_columns=original_column_names,
-                load_from_cache_file=False
-            )
-            self.shard_save_features(dataset, cached_features_files)
-        torch.distributed.barrier()
-        logging.info('Finished waiting for main process in map_dataset().')
-
-    def shard_save_features(self, dataset, cached_features_files):
-        """
-        Converting huggingface / pyarrow datasets to pickled features allows
-        us to use NeMo datasets annd avoids locks and other multi-gpu weird behavior.
-        """
-        logging.info('Waiting for main process to shard and save features.')
-        num_examples = len(dataset)
-        shard_size = num_examples // self.num_data_shards
-        start = 0
-        for shard_idx, file_name in enumerate(cached_features_files):
-            end = start + shard_size
-            dataset_shard = dataset.select(range(start, end))
-            features = dataset_shard.to_dict()
-            features = [{k: v[i] for k, v in features.items()} for i in range(shard_size)]
-            start = end
-            with open(file_name, "wb") as writer:
-                pickle.dump(features, writer)
-
-    def assemble_datasets(self):
-        if self.split == 'train':
-            datasets_list = list(self.datasets.values())
-            datasets = InterleavedDataset(
-                datasets=datasets_list,
-                max_sampling_size=self.max_sampling_size
-            )
-            return datasets
-        else:
-            return self.datasets
-
-    def __len__(self):
-        return sum(len(dataset) for dataset in self.datasets.values())
-
-    @staticmethod
-    def get_chosen_features(feature_dict, prompt_num):
-        main_prompt = prompt_num[0]
-        return {
-            'text_enc': feature_dict[f'text_enc_{main_prompt}'],
-            'text_dec': feature_dict[f'text_dec_{main_prompt}'],
-            'labels': feature_dict[f'labels_{main_prompt}'],
-            'task_id': feature_dict[f'task_id_{main_prompt}'],
-            'prompt_id': feature_dict[f'prompt_id_{main_prompt}']
-        }
-
-    @staticmethod
-    def create_example(data, task_id, prompt_id):
-        return InputPromptedExample(
-            task_id=task_id,
-            text=data['input'],
-            prompt_id=prompt_id,
-            label=data['output']
-        )
-
-    def tokenize(self, example):
-        if example.input_text is None:
-            enc_query = [self.empty_prompt_token_id]
-            dec_input = [self.empty_prompt_token_id]
-            labels = [self.empty_prompt_token_id]
-        else:
-            enc_query = self.tokenizer.text_to_ids(example.input_text)
-            if len(enc_query) > self.max_query_length:
-                enc_query = enc_query[: self.max_query_length]
-            dec_query = (
-                    [self.tokenizer.cls_id]
-                    + self.tokenizer.text_to_ids(example.label)
-                    + [self.tokenizer.eos_id]
-            )
-            if len(dec_query) > self.max_query_length_decoder + 1:
-                dec_query = dec_query[: self.max_query_length_decoder + 1]
-            dec_input = dec_query[:-1]
-            labels = dec_query[1:]
-        task_id = [example.task_id]
-        prompt_id = [example.prompt_id]
-        return {
-            'text_enc': enc_query,
-            'text_dec': dec_input,
-            'labels': labels,
-            'task_id': task_id,
-            'prompt_id': prompt_id
-        }
-
-    def collate_fn(self, batch):
-        enc_query = [item['text_enc'] for item in batch]
-        dec_input = [item['text_dec'] for item in batch]
-        labels = [item['labels'] for item in batch]
-        task_ids = [item['task_id'] for item in batch]
-        prompt_ids = [item['prompt_id'] for item in batch]
-
-        max_dec_input_length = max([len(item) for item in dec_input])
-        max_enc_query_length = max([len(item) for item in enc_query])
-        max_label_length = max([len(item) for item in labels])
-
-        loss_mask = [([1] * (len(item))) + ([0] * (max_label_length - len(item))) for item in labels]
-        enc_query = [item + [self.tokenizer.pad_id] * (max_enc_query_length - len(item)) for item in enc_query]
-        dec_input = [item + [self.tokenizer.pad_id] * (max_dec_input_length - len(item)) for item in dec_input]
-        labels = [item + [self.tokenizer.pad_id] * (max_label_length - len(item)) for item in labels]
-
-        enc_query = torch.LongTensor(enc_query)
-        dec_input = torch.LongTensor(dec_input)
-        labels = torch.LongTensor(labels)
-        task_ids = torch.LongTensor(task_ids)
-        prompt_ids = torch.LongTensor(prompt_ids)
-        loss_mask = torch.LongTensor(loss_mask)
-
-        enc_mask = (enc_query != self.tokenizer.pad_id).long()
-        dec_mask = (dec_input != self.tokenizer.pad_id).long()
-
-        return {
-            'text_enc': enc_query[:, :self.max_query_length],
-            'text_dec': dec_input[:, :self.max_query_length_decoder],
-            'labels': labels[:, :self.max_query_length_decoder],
-            'loss_mask': loss_mask[:, :self.max_query_length_decoder],
-            'enc_mask': enc_mask[:, :self.max_query_length],
-            'dec_mask': dec_mask[:, :self.max_query_length_decoder],
-            'task_ids': task_ids,
-            'prompt_ids': prompt_ids
-        }
-
-
-class T0PrimeDatasetBuilder(T0DatasetBuilder):
-    """T0' Dataset Builder in a text-to-text format."""
-
-    @property
-    def output_types(self) -> Optional[Dict[str, NeuralType]]:
-        return
-
-    def __init__(
-            self,
-            t0_type: str,
-            dir_path: str,
-            max_sampling_size: int,
-            split: str,
-            tokenizer: TokenizerSpec,
-            max_seq_length: int,
-            prompt_token_id: int,
-            prompt_seq_len: int,
-            max_seq_length_decoder: int = 128,
-            seed: int = 43,
-            use_cache: bool = True,
-            extension: str = 'json',
-            max_samples: int = None,
-            num_proc: int = None,
-            num_gpus: int = None,
-            num_nodes: int = None,
-            num_data_shards: int = 1,
-            split_template: bool = True,
-    ):
-        """
-        Processes T0' dataset using differentiable prompts
-        Args:
-            t0_type: [train_t0, train_t0p, train_t0pp, t0_debug]
-            split: train, test, eval
-            max_sampling_size: caps probabilities at max size for a specific dataset
-            dir_path: path to data directory for train, evaluation or test
-            tokenizer: such as AutoTokenizer
-            max_seq_length: max sequence length minus 2 for [CLS] and [SEP]
-            max_seq_length_decoder: max sequence length
-            use_cache: whether to use data cache
-            max_samples: limit size of dataset (not implemented)
-            prompt_token_id: tokenizer id for [PROMPT] token
-            prompt_seq_len: sequence lenght of prompt
-            split_template: whether to seperate template tokens
-        """
-        self.prompt_token_id = prompt_token_id
-        self.prompt_seq_len = prompt_seq_len if split_template else 1
-        self.split_template = split_template
-        super().__init__(
-            t0_type, dir_path, max_sampling_size, split, tokenizer,
-            max_seq_length, max_seq_length_decoder, seed, use_cache,
-            extension, max_samples, num_proc, num_gpus, num_nodes, num_data_shards
-        )
-
-    @staticmethod
-    def get_chosen_features(feature_dict, prompt_num):
-        main_prompt = prompt_num[0]
-        return {
-            'text_enc': feature_dict[f'text_enc_{main_prompt}'],
-            'template': feature_dict[f'template_{main_prompt}'],
-            'text_dec': feature_dict[f'text_dec_{main_prompt}'],
-            'labels': feature_dict[f'labels_{main_prompt}'],
-            'task_id': feature_dict[f'task_id_{main_prompt}'],
-            'prompt_id': feature_dict[f'prompt_id_{main_prompt}']
-        }
-
-    @staticmethod
-    def create_example(data, task_id, prompt_id):
-        return InputPromptedExample(
-            task_id=task_id,
-            text=data['input'],
-            prompt_id=prompt_id,
-            label=data['output'],
-            chunked_idx=data['chunked_idx']
-        )
-
-    def tokenize(self, example):
-        def get_text_chunks(input_text, chunked_idx):
-            """
-            Splits in the input text into chunks such that:
-            chunked(input_text) = [[orig_txt_part1], [template_part1], [orig_txt_part2], [template_part2], ...]
-            or other interleaved patterns of template and original text.
-            Assumes already sorted lists of index ranges.
-            """
-            text_chunks = []
-            for chunk in chunked_idx.split(","):
-                chunk_name, chunk_start, chunk_end = chunk.split("-")
-                text_chunks.append((chunk_name, input_text[int(chunk_start):int(chunk_end)]))
-            return text_chunks
-        if example.input_text is None:
-            enc_query = [self.empty_prompt_token_id]
-            template = [self.empty_prompt_token_id]
-            dec_input = [self.empty_prompt_token_id]
-            labels = [self.empty_prompt_token_id]
-        else:
-            input_text_chunks = get_text_chunks(example.input_text, example.chunked_idx)
-            enc_query = []
-            template = []
-            for chunk in input_text_chunks:
-                chunk_name = chunk[0]
-                chunk_tokens = self.tokenizer.text_to_ids(chunk[1])
-                if chunk_name == TEMPLATE_CHUNK_NAME and self.split_template:
-                    remain = max(0, self.prompt_seq_len - len(template) - len(chunk_tokens))
-                    template.extend(chunk_tokens[:remain])
-                    enc_query.extend([self.prompt_token_id] * len(chunk_tokens[:remain]))
-                else:
-                    max_length = self.max_query_length + (0 if self.split_template else self.prompt_seq_len)
-                    remain = max(0, max_length - len(enc_query) - len(chunk_tokens))
-                    enc_query.extend(chunk_tokens[:remain])  # only reduce original chunk
-            dec_query = (
-                    [self.tokenizer.cls_id]
-                    + self.tokenizer.text_to_ids(example.label)
-                    + [self.tokenizer.eos_id]
-            )
-            if len(dec_query) > self.max_query_length_decoder + 1:
-                dec_query = dec_query[: self.max_query_length_decoder + 1]
-            dec_input = dec_query[:-1]
-            labels = dec_query[1:]
-            if not template:
-                template = [self.tokenizer.pad_id]
-        task_id = [example.task_id]
-        prompt_id = [example.prompt_id]
-        return {
-            'text_enc': enc_query,
-            'template': template,
-            'text_dec': dec_input,
-            'labels': labels,
-            'task_id': task_id,
-            'prompt_id': prompt_id
-        }
-
-    def collate_fn(self, batch):
-        enc_query = [item['text_enc'] for item in batch]
-        template = [item['template'] for item in batch]
-        dec_input = [item['text_dec'] for item in batch]
-        labels = [item['labels'] for item in batch]
-        task_ids = [item['task_id'] for item in batch]
-        prompt_ids = [item['prompt_id'] for item in batch]
-
-        if self.split_template:
-            max_template_length = max(self.prompt_seq_len, max([len(item) for item in template]))
-            enc_query = [item_q + [self.prompt_token_id] * (max_template_length - len(item_t)) for item_q, item_t in zip(enc_query, template)]
-
-        max_dec_input_length = max([len(item) for item in dec_input])
-        max_enc_query_length = max([len(item) for item in enc_query])
-        max_label_length = max([len(item) for item in labels])
-
-        loss_mask = [([1] * (len(item))) + ([0] * (max_label_length - len(item))) for item in labels]
-        enc_query = [item + [self.tokenizer.pad_id] * (max_enc_query_length - len(item)) for item in enc_query]
-        template = [item[:self.prompt_seq_len] + [self.tokenizer.pad_id] * (self.prompt_seq_len - len(item)) for item in template]
-        dec_input = [item + [self.tokenizer.pad_id] * (max_dec_input_length - len(item)) for item in dec_input]
-        labels = [item + [self.tokenizer.pad_id] * (max_label_length - len(item)) for item in labels]
-
-        enc_query = torch.LongTensor(enc_query)
-        template = torch.LongTensor(template)
-        dec_input = torch.LongTensor(dec_input)
-        labels = torch.LongTensor(labels)
-        task_ids = torch.LongTensor(task_ids)
-        prompt_ids = torch.LongTensor(prompt_ids)
-        loss_mask = torch.LongTensor(loss_mask)
-
-        if self.split_template:
-            index = (enc_query == self.prompt_token_id).nonzero()
-            index = index.reshape((enc_query.size(0), -1, 2))[:, :, 1].squeeze(-1)
-            enc_query = enc_query.scatter_(1, index, template)
-
-        enc_mask = (enc_query != self.tokenizer.pad_id).long()
-        dec_mask = (dec_input != self.tokenizer.pad_id).long()
-
-        return {
-            'text_enc': enc_query[:, :self.max_query_length],
-            'text_dec': dec_input[:, :self.max_query_length_decoder],
-            'template': template[:, :self.prompt_seq_len],
-            'labels': labels[:, :self.max_query_length_decoder],
-            'loss_mask': loss_mask[:, :self.max_query_length_decoder],
-            'enc_mask': enc_mask[:, :self.max_query_length],
-            'dec_mask': dec_mask[:, :self.max_query_length_decoder],
-            'task_ids': task_ids,
-            'prompt_ids': prompt_ids
-        }
-
-class T0SSLPrimeDatasetBuilder(T0PrimeDatasetBuilder):
-
-    def collate_fn(self, batch):
-        batch = super().collate_fn(batch)
-        # TODO: make negative examples here
-        return batch

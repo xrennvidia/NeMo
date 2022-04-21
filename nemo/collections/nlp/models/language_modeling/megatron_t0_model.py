@@ -563,7 +563,7 @@ class MegatronT0PrimeModel(MegatronT0Model):
                task_ids, prompt_ids, tokens_prompt
 
 
-class MegatronT0SSLPrimeModel(MegatronT0Model):
+class MegatronT0SSLPrimeModel(MegatronT0PrimeModel):
     """
         Megatron t0 prime multitask fine tuning model using differentiable promtps and contrastive learning
     """
