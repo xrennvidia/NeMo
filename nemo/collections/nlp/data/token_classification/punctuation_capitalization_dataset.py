@@ -959,9 +959,9 @@ class BertPunctuationCapitalizationDataset(Dataset):
         if capit_label_vocab_file is not None:
             capit_label_vocab_file = Path(capit_label_vocab_file).expanduser()
             capit_label_ids = load_label_ids(capit_label_vocab_file)
-        text_file, labels_file = Path(text_file).expanduser(), Path(labels_file).expanduser()
+        self.text_file, self.labels_file = Path(text_file).expanduser(), Path(labels_file).expanduser()
         if label_info_save_dir is None:
-            self.label_info_save_dir = text_file.parent
+            self.label_info_save_dir = self.text_file.parent
         else:
             self.label_info_save_dir = Path(label_info_save_dir).expanduser()
 
@@ -977,22 +977,22 @@ class BertPunctuationCapitalizationDataset(Dataset):
         self.batch_building_progress_queue = batch_building_progress_queue
 
         master_device = is_global_rank_zero()
-        self.features_pkl = self._get_path_to_pkl_features(text_file, cache_dir, max_seq_length, num_samples)
+        self.features_pkl = self._get_path_to_pkl_features(self.text_file, cache_dir, max_seq_length, num_samples)
         features = None
         if master_device and not (self.features_pkl.is_file() and use_cache):
             if verbose:
-                logging.info(f'Processing {text_file}')
-            res = self._read_dataset(text_file, labels_file, num_samples)
+                logging.info(f'Processing {self.text_file}')
+            res = self._read_dataset(self.text_file, self.labels_file, num_samples)
             text_lines, punct_label_lines, capit_label_lines, punct_unique_labels, capit_unique_labels = res
             if punct_label_ids:
                 self._check_label_ids_vs_unique_labels(
-                    punct_label_ids, punct_unique_labels, 'punct', 'punctuation', labels_file
+                    punct_label_ids, punct_unique_labels, 'punct', 'punctuation', self.labels_file
                 )
             else:
                 punct_label_ids = create_label_ids(punct_unique_labels, self.pad_label)
             if capit_label_ids:
                 self._check_label_ids_vs_unique_labels(
-                    capit_label_ids, capit_unique_labels, 'capit', 'capitalzation', labels_file
+                    capit_label_ids, capit_unique_labels, 'capit', 'capitalzation', self.labels_file
                 )
             else:
                 capit_label_ids = create_label_ids(capit_unique_labels, self.pad_label)
@@ -1264,7 +1264,7 @@ class BertPunctuationCapitalizationDataset(Dataset):
             batch_sizes: a list of numbers of samples in batches
             batch_seq_lengths: a list of sequence lengths after padding for every batch
         """
-        batch_beginnings, batch_sizes, batch_seq_lengths = batch_beginnings.copy(), batch_sizes.copy()
+        batch_beginnings, batch_sizes = batch_beginnings.copy(), batch_sizes.copy()
         batch_seq_lengths = batch_seq_lengths.copy()
         num_missing_batches = (
             self.number_of_batches_is_multiple_of - len(batch_sizes) % self.number_of_batches_is_multiple_of
@@ -1385,6 +1385,10 @@ class BertPunctuationCapitalizationDataset(Dataset):
             batch_seq_lengths.append(seq_length)
             if self.batch_mark_up_progress_queue is not None:
                 self.batch_mark_up_progress_queue.put(progress_made)
+        if len(batch_beginnings) % self.number_of_batches_is_multiple_of:
+            batch_beginnings, batch_sizes, batch_seq_lengths = self._adjust_number_of_batches(
+                input_ids, batch_beginnings, batch_sizes, batch_seq_lengths
+            )
         assert sum(batch_sizes) == len(input_ids)
         for i in range(len(batch_beginnings) - 1):
             assert batch_beginnings[i] + batch_sizes[i] == batch_beginnings[i + 1]
