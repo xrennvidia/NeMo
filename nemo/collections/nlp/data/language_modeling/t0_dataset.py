@@ -314,7 +314,7 @@ class T0HFDatasetBuilder(object):
     def __len__(self):
         return sum(len(dataset) for dataset in self.datasets.values())
 
-    def choose_template(self, features):
+    def choose_template(self, features, num_prompts=1, replace=True):
         available_prompts = []
         for data_name in features.keys():
             if data_name.startswith("text_enc") and (
@@ -323,18 +323,24 @@ class T0HFDatasetBuilder(object):
             ):
                 available_prompts.append(data_name.split("_")[-1])
         assert available_prompts
-        prompt_num = np.random.choice(available_prompts)
+        prompt_num = np.random.choice(
+            available_prompts,
+            size=num_prompts,
+            replace=replace
+        )
         return self.get_chosen_features(features, prompt_num)
 
     @staticmethod
     def get_chosen_features(feature_dict, prompt_num):
-        return {
-            'text_enc': feature_dict[f'text_enc_{prompt_num}'],
-            'text_dec': feature_dict[f'text_dec_{prompt_num}'],
-            'labels': feature_dict[f'labels_{prompt_num}'],
-            'task_id': feature_dict[f'task_id_{prompt_num}'],
-            'prompt_id': feature_dict[f'prompt_id_{prompt_num}']
+        main_prompt = prompt_num[0]
+        features = {
+            'text_enc': feature_dict[f'text_enc_{main_prompt}'],
+            'text_dec': feature_dict[f'text_dec_{main_prompt}'],
+            'labels': feature_dict[f'labels_{main_prompt}'],
+            'task_id': feature_dict[f'task_id_{main_prompt}'],
+            'prompt_id': feature_dict[f'prompt_id_{main_prompt}']
         }
+        return features
 
     @staticmethod
     def create_example(data, task_id, prompt_id):
@@ -472,14 +478,16 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
 
     @staticmethod
     def get_chosen_features(feature_dict, prompt_num):
-        return {
-            'text_enc': feature_dict[f'text_enc_{prompt_num}'],
-            'template': feature_dict[f'template_{prompt_num}'],
-            'text_dec': feature_dict[f'text_dec_{prompt_num}'],
-            'labels': feature_dict[f'labels_{prompt_num}'],
-            'task_id': feature_dict[f'task_id_{prompt_num}'],
-            'prompt_id': feature_dict[f'prompt_id_{prompt_num}']
+        main_prompt = prompt_num[0]
+        features = {
+            'text_enc': feature_dict[f'text_enc_{main_prompt}'],
+            'template': feature_dict[f'template_{main_prompt}'],
+            'text_dec': feature_dict[f'text_dec_{main_prompt}'],
+            'labels': feature_dict[f'labels_{main_prompt}'],
+            'task_id': feature_dict[f'task_id_{main_prompt}'],
+            'prompt_id': feature_dict[f'prompt_id_{main_prompt}']
         }
+        return features
 
     @staticmethod
     def create_example(data, task_id, prompt_id):
@@ -585,13 +593,13 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
         dec_mask = (dec_input != self.tokenizer.pad_id).long()
 
         return {
-            'text_enc': enc_query,
-            'text_dec': dec_input,
-            'template': template,
-            'labels': labels,
-            'loss_mask': loss_mask,
-            'enc_mask': enc_mask,
-            'dec_mask': dec_mask,
+            'text_enc': enc_query[:, :self.max_query_length],
+            'text_dec': dec_input[:, :self.max_query_length_decoder],
+            'template': template[:, :self.prompt_seq_len],
+            'labels': labels[:, :self.max_query_length_decoder],
+            'loss_mask': loss_mask[:, :self.max_query_length_decoder],
+            'enc_mask': enc_mask[:, :self.max_query_length],
+            'dec_mask': dec_mask[:, :self.max_query_length_decoder],
             'task_ids': task_ids,
             'prompt_ids': prompt_ids
         }
@@ -671,7 +679,7 @@ class TaskDataset(Dataset):
     def get_chosen_features(self, feature_dict, prompt_num):
         raise "Dataset `get_chosen_features` not implemented"
 
-    def choose_template(self, feature_dict):
+    def choose_template(self, feature_dict, num_prompts=1, replace=True):
         available_prompts = []
         for data_name in feature_dict.keys():
             if data_name.startswith("text_enc") and (
@@ -680,7 +688,11 @@ class TaskDataset(Dataset):
             ):
                 available_prompts.append(data_name.split("_")[-1])
         assert available_prompts
-        prompt_num = np.random.choice(available_prompts)
+        prompt_num = np.random.choice(
+            available_prompts,
+            size=num_prompts,
+            replace=replace
+        )
         # TODO: add choosing positive examples
         return self.get_chosen_features(feature_dict, prompt_num)
 
@@ -856,12 +868,13 @@ class T0DatasetBuilder(object):
 
     @staticmethod
     def get_chosen_features(feature_dict, prompt_num):
+        main_prompt = prompt_num[0]
         return {
-            'text_enc': feature_dict[f'text_enc_{prompt_num}'],
-            'text_dec': feature_dict[f'text_dec_{prompt_num}'],
-            'labels': feature_dict[f'labels_{prompt_num}'],
-            'task_id': feature_dict[f'task_id_{prompt_num}'],
-            'prompt_id': feature_dict[f'prompt_id_{prompt_num}']
+            'text_enc': feature_dict[f'text_enc_{main_prompt}'],
+            'text_dec': feature_dict[f'text_dec_{main_prompt}'],
+            'labels': feature_dict[f'labels_{main_prompt}'],
+            'task_id': feature_dict[f'task_id_{main_prompt}'],
+            'prompt_id': feature_dict[f'prompt_id_{main_prompt}']
         }
 
     @staticmethod
@@ -994,13 +1007,14 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
 
     @staticmethod
     def get_chosen_features(feature_dict, prompt_num):
+        main_prompt = prompt_num[0]
         return {
-            'text_enc': feature_dict[f'text_enc_{prompt_num}'],
-            'template': feature_dict[f'template_{prompt_num}'],
-            'text_dec': feature_dict[f'text_dec_{prompt_num}'],
-            'labels': feature_dict[f'labels_{prompt_num}'],
-            'task_id': feature_dict[f'task_id_{prompt_num}'],
-            'prompt_id': feature_dict[f'prompt_id_{prompt_num}']
+            'text_enc': feature_dict[f'text_enc_{main_prompt}'],
+            'template': feature_dict[f'template_{main_prompt}'],
+            'text_dec': feature_dict[f'text_dec_{main_prompt}'],
+            'labels': feature_dict[f'labels_{main_prompt}'],
+            'task_id': feature_dict[f'task_id_{main_prompt}'],
+            'prompt_id': feature_dict[f'prompt_id_{main_prompt}']
         }
 
     @staticmethod
@@ -1076,6 +1090,10 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
         task_ids = [item['task_id'] for item in batch]
         prompt_ids = [item['prompt_id'] for item in batch]
 
+        if self.split_template:
+            max_template_length = max(self.prompt_seq_len, max([len(item) for item in template]))
+            enc_query = [item_q + [self.prompt_token_id] * (max_template_length - len(item_t)) for item_q, item_t in zip(enc_query, template)]
+
         max_dec_input_length = max([len(item) for item in dec_input])
         max_enc_query_length = max([len(item) for item in enc_query])
         max_label_length = max([len(item) for item in labels])
@@ -1096,7 +1114,8 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
 
         if self.split_template:
             index = (enc_query == self.prompt_token_id).nonzero()
-            index = index.reshape((enc_query.size(0), -1, 2))[:, :, 1][:, :, None]
+            index = index.reshape((enc_query.size(0), -1, 2))[:, :, 1].squeeze(-1)
+            enc_query = enc_query.scatter_(1, index, template)
 
         enc_mask = (enc_query != self.tokenizer.pad_id).long()
         dec_mask = (dec_input != self.tokenizer.pad_id).long()

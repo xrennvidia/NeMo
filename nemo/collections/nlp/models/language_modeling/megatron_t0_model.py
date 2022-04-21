@@ -117,16 +117,12 @@ class MegatronT0Model(MegatronT5FineTuneModel):
 
             task_id = task_id.item()
             prompt_id = prompt_id.item()
-            if not self.acc_metric_dict.__contains__(task_id):
-                self.acc_metric_dict[task_id] = {}
-            if not self.acc_metric_dict[task_id].__contains__(prompt_id):
-                self.acc_metric_dict[task_id][prompt_id] = ExactStringPerCategoryMatchMetric().to(self.device)
             _ = self.acc_metric_dict[task_id][prompt_id](pred, label)
 
     def inference_step(self, batch, batch_idx):
         loss = self.model.validation_step(batch, batch_idx)
 
-        if self.trainer.num_nodes == 1:
+        if self.trainer.num_nodes == 1 or True:
             tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids \
                 = self.process_batch(batch)
 
@@ -145,7 +141,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             loss = [x['loss'] for x in outputs]
             averaged_loss = average_losses_across_data_parallel_group(loss)
             accuracies_losses[task_name] = {'loss': averaged_loss[0]}
-        if self.trainer.num_nodes == 1:
+        if self.trainer.num_nodes == 1 or True:
             for task_id in self.acc_metric_dict.keys():
                 task_name = get_task_name(task_id)
                 assert task_name in accuracies_losses
@@ -170,7 +166,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             avg_loss.append(loss)
             self.log(f'val_loss_{task_name}', loss, prog_bar=True)
             logging.info(f'Validation loss for {task_name}: {loss}')
-            if self.trainer.num_nodes == 1:
+            if self.trainer.num_nodes == 1 or True:
                 accuracies = val_accuracies_losses[task_name]['accuracies']
                 for prompt_id in accuracies.keys():
                     self.log(f'validation_acc_{task_name}_{prompt_id}', accuracies[prompt_id], prog_bar=False)
@@ -180,7 +176,7 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                 logging.info(f'Validation accuracy for {task_name}: {avg_task_acc}')
                 avg_val_acc.extend(avg_task_acc_list)
         self.log('val_loss', torch.mean(torch.stack(avg_loss)), prog_bar=True)
-        if self.trainer.num_nodes == 1:
+        if self.trainer.num_nodes == 1 or True:
             self.log('val_acc', torch.mean(torch.stack(avg_val_acc)), prog_bar=True)
 
     def test_step(self, batch, batch_idx, dataloader_idx):
@@ -266,6 +262,24 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             pin_memory=pin_memory,
             drop_last=True,
         )
+
+    def create_acc_metric_dict(self, dataset):
+        task_id = dataset.task.task_id
+        prompt_ids = [int(n.split('_')[-1].strip()) for n in dataset.data.column_names if 'prompt_id' in n]
+        if not self.acc_metric_dict.__contains__(task_id):
+            self.acc_metric_dict[task_id] = {}
+        self.acc_metric_dict[task_id].update({
+            prompt_id: ExactStringPerCategoryMatchMetric().to(self.device)
+            for prompt_id in prompt_ids
+        })
+
+    def on_sanity_check_start(self):
+        for vdl in self._validation_dl:
+            self.create_acc_metric_dict(vdl.dataset)
+
+    def on_test_epoch_start(self):
+        for tdl in self._test_dl:
+            self.create_acc_metric_dict(tdl.dataset)
 
     def setup(self, stage: Optional[str] = None):
         """A PTL method to setup the training, validation and test datasets."""
@@ -460,7 +474,7 @@ class MegatronT0PrimeModel(MegatronT0Model):
         _, tokens_loss = self.get_loss(batch)
         loss = self.model.loss_func(loss_mask, tokens_loss)
         reduced_loss = average_losses_across_data_parallel_group([loss])
-        if self.trainer.num_nodes == 1:
+        if self.trainer.num_nodes == 1 or True:
             predicted_token_ids, log_probs = self.model.decode(
                 tokens_enc=tokens_enc, enc_mask=enc_mask, enc_input=encoder_input,
                 num_tokens_to_generate=self.decoder_seq_length
