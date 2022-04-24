@@ -148,7 +148,7 @@ ALL_PARENTHESES = re.compile(r'\([^()]*\)')
 ALL_PARENTHESES_WITH_PRECEDING_AND_FOLLOWING_SPACES = re.compile(' *' + ALL_PARENTHESES.pattern + f" *(?![{WC}'])")
 # QUOTE_THEN_COMMA_OR_PERIOD = re.compile('"([,.])([^.])')
 # COMMA_OR_PERIOD_THEN_QUOTE = re.compile('([^.])([,.])"')
-SPACE_NEW_LINE = re.compile(' \n ?')
+SPACE_NEW_LINE = re.compile(' +\n *')
 EMPTY_LINE = re.compile('^[() .,!;?|&#%^@$"\'<>{}/\\\\*~\\][]*$', flags=re.MULTILINE)
 REPEATED_HYPHENS = re.compile('(-- )+')
 

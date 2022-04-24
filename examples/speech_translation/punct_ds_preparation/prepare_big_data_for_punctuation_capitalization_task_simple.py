@@ -40,6 +40,12 @@ WIKI_EXTRACTED_NOT_EMPTY_DOC = re.compile('^<doc id="[^\n]+\n[^\n]+\n+[^\n]+')
 WIKI_EXTRACTED_HEADER = re.compile(r'^<doc id="([^"]+)" url="([^"]+)" title="([^"]+)">$', flags=re.MULTILINE)
 WIKI_EXTRACTED_DOC_PROGRESS_PERIOD = 100
 
+SEVERAL_NEW_LINES_PATTERN = re.compile('(?:\n[ \t]*){2,}')
+LIST_PATTERN = re.compile(f'^ *(?:{small.ROMAN_NUMERAL.pattern}|[0-9]+|[a-z]) *[.)]', flags=re.I | re.MULTILINE)
+NEW_LINE_WITH_SPACES_PATTERN = re.compile(' *\n *')
+DOUBLE_HYPHEN_PATTERN = re.compile(' *-- *')
+SQUARE_BRACKETS_PATTERN = re.compile(r' ?\[.{1,2}] *')
+
 NUM_LINES_PER_NEWS_CRAWL_TMP_FILE = 10 ** 6
 
 MAX_NUM_CHARACTERS_IN_1_FILE = 10 ** 9
@@ -47,6 +53,8 @@ BUFFER_SIZE = 2 ** 24
 REPORT_PROGRESS_PERIOD = 5000
 
 INTACT_SENTENCES_PROGRESS_PERIOD = 10000
+
+PG_19_MIN_PARAGRAPH_LEN = 100
 
 
 def count_in_blocks(files, size=BUFFER_SIZE, specific_to_count=None, num_characters=None):
@@ -856,7 +864,7 @@ def preprocess_news_crawl(
         tmp_files, source_files, start_lines, end_lines = split_large_files_into_small_files(
             dir_path, Path(tmp_dir), NUM_LINES_PER_NEWS_CRAWL_TMP_FILE
         )
-        doc_ids = list(range(start_file_id, start_doc_id + len(tmp_files)))
+        doc_ids = list(range(start_doc_id, start_doc_id + len(tmp_files)))
         file_ids = list(range(start_file_id, start_file_id + len(tmp_files)))
         with Progress(len(tmp_files), "Preparing news-crawl", "doc") as progress_queues:
             with mp.Pool(num_jobs, initializer=tokenizability_initializer) as pool:
@@ -864,6 +872,61 @@ def preprocess_news_crawl(
                     NewsCrawlWorker(document_dir, lang, tokenizer, progress_queues[0]),
                     zip(tmp_files, file_ids, doc_ids, source_files, start_lines, end_lines, range(len(tmp_files))),
                 )
+    return dict(zip(doc_ids, file_ids))
+
+
+class PG19Worker:
+    def __init__(self, document_dir: Path, lang: str, tokenizer: TokenizerSpec, progress_queue: mp.Queue) -> None:
+        self.document_dir = document_dir
+        self.lang = lang
+        self.tokenizer = tokenizer
+        self.progress_queue = progress_queue
+
+    def __call__(self, file: Path, file_id: int, doc_id: int, idx: int) -> None:
+        with file.open() as f:
+            text = big.ALL_PARENTHESES.sub(' ', SQUARE_BRACKETS_PATTERN.sub(' ', f.read()))
+        paragraphs = [
+            NEW_LINE_WITH_SPACES_PATTERN.sub(' ', p) for p in SEVERAL_NEW_LINES_PATTERN.split(text)
+            if len(p) > PG_19_MIN_PARAGRAPH_LEN and LIST_PATTERN.search(p) is None
+        ]
+        paragraphs = [DOUBLE_HYPHEN_PATTERN.sub(' - ', p) for p in paragraphs]
+        paragraphs = [p for p in paragraphs if big.SUSPICIOUS_LINE.match(p) is not None]
+        num_lines = 0
+        text = '\n'.join(paragraphs) + '\n'
+        if not text:
+            return
+        prepared_docs = {
+            doc_id: {
+                "text": text + ('' if text[-1] == '\n' else '\n'),
+                "start_line": 0,
+                "end_line": num_lines,
+                "source": file,
+                "title": f"pg19-{idx}",
+            }
+        }
+        self.progress_queue.put(1)
+        big.write_docs_to_file(prepared_docs, self.document_dir / (str(file_id) + '.xml'))
+
+
+def preprocess_pg19(
+    dir_path: Path,
+    document_dir: Path,
+    lang: str,
+    start_doc_id: int,
+    start_file_id: int,
+    tokenizer: TokenizerSpec,
+    num_jobs: int,
+) -> Dict[int, int]:
+    files = list(dir_path.iterdir())
+    nf = len(files)
+    doc_ids = list(range(start_doc_id, start_doc_id + len(files)))
+    file_ids = list(range(start_file_id, start_file_id + len(files)))
+    with Progress(nf, "Preparing PG-19", "doc") as progress_queues:
+        with mp.Pool(num_jobs, initializer=tokenizability_initializer) as pool:
+            pool.starmap(
+                PG19Worker(document_dir, lang, tokenizer, progress_queues[0]),
+                zip(files, file_ids, doc_ids, range(nf)),
+            )
     return dict(zip(doc_ids, file_ids))
 
 
