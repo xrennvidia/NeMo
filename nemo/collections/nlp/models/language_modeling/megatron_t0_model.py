@@ -604,7 +604,7 @@ class MegatronT0SSLPrimeModel(MegatronT0PrimeModel):
             hidden_size=self.hidden_size,
             num_virtual_classes=cfg.ssl.num_virtual_classes,  # perhaps = num_task * num_prompts?
             nlayers=cfg.ssl.nlayers,
-            use_bn=cfg.ssl.use_bn
+            use_ln=cfg.ssl.use_ln
         )
         self.ssl_loss = SSLPromptLoss(
             num_virtual_classes=cfg.ssl.num_virtual_classes,

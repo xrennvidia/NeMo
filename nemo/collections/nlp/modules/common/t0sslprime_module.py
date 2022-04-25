@@ -45,15 +45,15 @@ class AttentiveMaxPooling(NeuralModule, Exportable):
 
 
 class SeqProjectionNetwork(NeuralModule, Exportable):
-    def __init__(self, hidden_size, num_virtual_classes, nlayers=3, use_bn=False):
+    def __init__(self, hidden_size, num_virtual_classes, nlayers=3, use_ln=False):
         super().__init__()
 
         self.attn_max_pool = AttentiveMaxPooling(hidden_size)
         layers = []
         for _ in range(nlayers):
             layers.append(nn.Linear(hidden_size, hidden_size))
-            if use_bn:
-                layers.append(nn.BatchNorm1d(hidden_size))
+            if use_ln:
+                layers.append(nn.LayerNorm(hidden_size))
             layers.append(nn.GELU())
         self.mlp = nn.Sequential(*layers)
         self.output_layer = nn.Linear(hidden_size, num_virtual_classes, bias=False)
