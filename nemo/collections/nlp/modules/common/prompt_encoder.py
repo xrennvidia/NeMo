@@ -70,7 +70,7 @@ class PromptEncoder(NeuralModule, Exportable):
         }
         if self.reparametrize:
             PromptGen = PromptGenModels[prompt_gen_type]
-            self.prompt_generator = PromptGen(hidden_size, prompt_dropout, num_layers, trainer)
+            self.prompt_generator = PromptGen(hidden_size, prompt_dropout, prompt_seq_len, num_layers, trainer)
 
     @typecheck()
     def forward(self, prompt_condition=None) -> torch.Tensor:
@@ -87,7 +87,14 @@ class PromptEncoder(NeuralModule, Exportable):
 
 
 class LinearPromptGenerator(NeuralModule, Exportable):
-    def __init__(self, hidden_size: int, prompt_dropout: float, num_layers: int, trainer: Trainer):
+    def __init__(
+            self,
+            hidden_size: int,
+            prompt_dropout: float,
+            prompt_seq_len: float,
+            num_layers: int,
+            trainer: Trainer
+    ):
         """
         Initializes the PromptEncoder module.
         Args:
@@ -96,6 +103,7 @@ class LinearPromptGenerator(NeuralModule, Exportable):
             num_layers: number of layers used in the LSTM
         """
         super().__init__()
+        self.prompt_seq_len = prompt_seq_len
         self.mlp_head = nn.Sequential(
             nn.Linear(hidden_size, hidden_size),
             nn.ReLU(), nn.Linear(hidden_size, hidden_size)
@@ -103,12 +111,19 @@ class LinearPromptGenerator(NeuralModule, Exportable):
 
     @typecheck()
     def forward(self, prompt_embeds) -> torch.Tensor:
-        prompt_embeds = self.mlp_head(prompt_embeds)
+        prompt_embeds = self.mlp_head(prompt_embeds[:, 0:self.prompt_seq_len, :])
         return prompt_embeds
 
 
 class SeqPromptGenerator(NeuralModule, Exportable):
-    def __init__(self, hidden_size: int, prompt_dropout: float, num_layers: int, trainer: Trainer):
+    def __init__(
+            self,
+            hidden_size: int,
+            prompt_dropout: float,
+            prompt_seq_len: float,
+            num_layers: int,
+            trainer: Trainer
+    ):
         """
         Initializes the PromptEncoder module.
         Args:
@@ -118,6 +133,7 @@ class SeqPromptGenerator(NeuralModule, Exportable):
             num_layers: number of layers used in the LSTM
         """
         super().__init__()
+        self.prompt_seq_len = prompt_seq_len
         self.lstm_head = torch.nn.LSTM(
             input_size=hidden_size,
             hidden_size=hidden_size // 2,
@@ -133,12 +149,19 @@ class SeqPromptGenerator(NeuralModule, Exportable):
 
     @typecheck()
     def forward(self, prompt_embeds) -> torch.Tensor:
-        prompt_embeds = self.mlp_head(self.lstm_head(prompt_embeds)[0])
+        prompt_embeds = self.mlp_head(self.lstm_head(prompt_embeds)[0][:, -self.prompt_seq_len:, :])
         return prompt_embeds
 
 
 class BertPromptGenerator(NeuralModule, Exportable):
-    def __init__(self, hidden_size: int, prompt_dropout: float, num_layers: int, trainer: Trainer):
+    def __init__(
+            self,
+            hidden_size: int,
+            prompt_dropout: float,
+            prompt_seq_len: float,
+            num_layers: int,
+            trainer: Trainer
+    ):
         """
         Initializes the PromptEncoder module.
         Args:
@@ -148,6 +171,7 @@ class BertPromptGenerator(NeuralModule, Exportable):
             num_layers: number of layers used in the LSTM
         """
         super().__init__()
+        self.prompt_seq_len = prompt_seq_len
         self.bert = BERTLMModel.restore_from(
             "bertbaseuncased",
             trainer=trainer

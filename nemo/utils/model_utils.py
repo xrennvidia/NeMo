@@ -589,6 +589,9 @@ def inject_model_parallel_rank(filepath):
     Injects tensor/pipeline model parallel ranks into the filepath.
     Does nothing if not using model parallelism.
     """
+    # first make sure filepath does not have rank
+    filepath = uninject_model_parallel_rank(filepath)
+
     app_state = AppState()
     if app_state.model_parallel_size is not None and app_state.model_parallel_size > 1:
         # filepath needs to be updated to include mp_rank

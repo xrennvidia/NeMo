@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
-import re
+import copy
 from operator import itemgetter
 from typing import Dict, Optional
 
@@ -34,6 +34,7 @@ from nemo.collections.nlp.data.language_modeling.t0_dataset import (
 from nemo.collections.common.metrics.classification_accuracy import ExactStringPerCategoryMatchMetric
 from nemo.collections.nlp.models.language_modeling.megatron_glue_model import MegatronT5FineTuneModel
 from nemo.collections.nlp.modules.common.prompt_encoder import PromptEncoder
+from nemo.collections.nlp.modules.common.t0sslprime_module import SeqProjectionNetwork, SSLPromptLoss
 
 from nemo.collections.nlp.modules.common.megatron.utils import (
     average_losses_across_data_parallel_group,
@@ -64,23 +65,20 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         self._reduced_loss_buffer = []
 
     def get_loss(self, batch):
-        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids \
+        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, \
+        prompt_ids, ctx_ex_prompt, ctx_ex_mask \
             = self.process_batch(batch)
         tokens_loss = itemgetter("tokens_loss")(self.model(
             encoder_input_ids=tokens_enc, decoder_input_ids=tokens_dec,
             encoder_attn_mask=enc_mask, decoder_attn_mask=dec_mask,
             tokentype_ids=None, lm_labels=labels
         ))
-        return loss_mask, tokens_loss
+        loss = self.model.loss_func(loss_mask, tokens_loss)
+        return loss
 
     def training_step(self, batch, batch_idx):
 
-        #logging.info(f'text_dec {batch["text_dec"].shape}')
-        #logging.info(f'text_enc {batch["text_enc"].shape}')
-        #logging.info(f'train dataloader {self.trainer.train_dataloader}')
-        loss_mask, tokens_loss = self.get_loss(batch)
-        loss = self.model.loss_func(loss_mask, tokens_loss)
-        self.log('train_loss', loss)
+        loss = self.get_loss(batch)
         # Reduced loss for logging. Averages the loss across all workers unlike above which is specific to a DDP rank.
         reduced_loss = average_losses_across_data_parallel_group([loss])
         # cache reduced loss while accumulating gradients
@@ -122,15 +120,15 @@ class MegatronT0Model(MegatronT5FineTuneModel):
     def inference_step(self, batch, batch_idx):
         loss = self.model.validation_step(batch, batch_idx)
 
-        if self.trainer.num_nodes == 1 or True:
-            tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids \
-                = self.process_batch(batch)
+        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, \
+        prompt_ids, ctx_ex_prompt, ctx_ex_mask \
+            = self.process_batch(batch)
 
-            predicted_token_ids, log_probs = self.model.decode(
-                tokens_enc=tokens_enc, enc_mask=enc_mask,
-                num_tokens_to_generate=self.decoder_seq_length
-            )
-            self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
+        predicted_token_ids, log_probs = self.model.decode(
+            tokens_enc=tokens_enc, enc_mask=enc_mask,
+            num_tokens_to_generate=self.decoder_seq_length
+        )
+        self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
 
         return {'loss': loss}
 
@@ -141,17 +139,16 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             loss = [x['loss'] for x in outputs]
             averaged_loss = average_losses_across_data_parallel_group(loss)
             accuracies_losses[task_name] = {'loss': averaged_loss[0]}
-        if self.trainer.num_nodes == 1 or True:
-            for task_id in self.acc_metric_dict.keys():
-                task_name = get_task_name(task_id)
-                assert task_name in accuracies_losses
-                accuracies_losses[task_name]['accuracies'] = {}
-                for prompt_id in self.acc_metric_dict[task_id].keys():
-                    accuracy = self.acc_metric_dict[task_id][prompt_id].compute()['acc']
-                    if torch.any(torch.isnan(accuracy)):
-                        continue
-                    accuracies_losses[task_name]['accuracies'][str(prompt_id)] = accuracy
-                    self.acc_metric_dict[task_id][prompt_id].reset()
+        for task_id in self.acc_metric_dict.keys():
+            task_name = get_task_name(task_id)
+            assert task_name in accuracies_losses
+            accuracies_losses[task_name]['accuracies'] = {}
+            for prompt_id in self.acc_metric_dict[task_id].keys():
+                accuracy = self.acc_metric_dict[task_id][prompt_id].compute()['acc']
+                if torch.any(torch.isnan(accuracy)):
+                    continue
+                accuracies_losses[task_name]['accuracies'][str(prompt_id)] = accuracy
+                self.acc_metric_dict[task_id][prompt_id].reset()
         return accuracies_losses
 
     def validation_step(self, batch, batch_idx, dataloader_idx):
@@ -166,18 +163,16 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             avg_loss.append(loss)
             self.log(f'val_loss_{task_name}', loss, prog_bar=True)
             logging.info(f'Validation loss for {task_name}: {loss}')
-            if self.trainer.num_nodes == 1 or True:
-                accuracies = val_accuracies_losses[task_name]['accuracies']
-                for prompt_id in accuracies.keys():
-                    self.log(f'validation_acc_{task_name}_{prompt_id}', accuracies[prompt_id], prog_bar=False)
-                avg_task_acc_list = list(accuracies.values())
-                avg_task_acc = torch.mean(torch.stack(avg_task_acc_list))
-                self.log(f'validation_acc_{task_name}', avg_task_acc, prog_bar=True)
-                logging.info(f'Validation accuracy for {task_name}: {avg_task_acc}')
-                avg_val_acc.extend(avg_task_acc_list)
+            accuracies = val_accuracies_losses[task_name]['accuracies']
+            for prompt_id in accuracies.keys():
+                self.log(f'validation_acc_{task_name}_{prompt_id}', accuracies[prompt_id], prog_bar=False)
+            avg_task_acc_list = list(accuracies.values())
+            avg_task_acc = torch.mean(torch.stack(avg_task_acc_list))
+            self.log(f'validation_acc_{task_name}', avg_task_acc, prog_bar=True)
+            logging.info(f'Validation accuracy for {task_name}: {avg_task_acc}')
+            avg_val_acc.extend(avg_task_acc_list)
         self.log('val_loss', torch.mean(torch.stack(avg_loss)), prog_bar=True)
-        if self.trainer.num_nodes == 1 or True:
-            self.log('val_acc', torch.mean(torch.stack(avg_val_acc)), prog_bar=True)
+        self.log('val_acc', torch.mean(torch.stack(avg_val_acc)), prog_bar=True)
 
     def test_step(self, batch, batch_idx, dataloader_idx):
         return self.inference_step(batch, batch_idx)
@@ -215,7 +210,8 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                 num_proc=self.cfg.data.num_workers,
                 num_nodes=self.trainer.num_nodes,
                 num_gpus=self.trainer.gpus,
-                num_data_shards=self.cfg.data.num_data_shards
+                num_data_shards=self.cfg.data.num_data_shards,
+                num_in_context_ex=getattr(self.cfg.data, "num_in_context_ex", None)
             )
         else:
             # Use Huggingface dataset
@@ -228,11 +224,12 @@ class MegatronT0Model(MegatronT5FineTuneModel):
                 max_seq_length=seq_length,
                 seed=self.cfg.seed,
                 use_cache=self.cfg.data.use_cache,
-                distribute_datasets=getattr(self.cfg.data, "distribute_datasets", False),
                 max_samples=getattr(self.cfg.data, "max_samples", None),
                 num_proc=self.cfg.data.num_workers,
                 num_nodes=self.trainer.num_nodes,
-                num_gpus=self.trainer.gpus
+                num_gpus=self.trainer.gpus,
+                distribute_datasets = getattr(self.cfg.data, "distribute_datasets", False),
+                num_in_context_ex= getattr(self.cfg.data, "num_in_context_ex", None)
             )
         return datasetbuilder
 
@@ -357,6 +354,9 @@ class MegatronT0Model(MegatronT5FineTuneModel):
             'loss_mask', 'enc_mask', 'dec_mask',
             'task_ids', 'prompt_ids'
         ]
+        if getattr(self.cfg.data, "num_in_context_ex", None) is not None:
+            keys.append('ctx_ex_prompt')
+            keys.append('ctx_ex_mask')
         datatype = torch.int64
 
         data = batch
@@ -375,8 +375,14 @@ class MegatronT0Model(MegatronT5FineTuneModel):
         task_ids = data_b['task_ids'].long()
         prompt_ids = data_b['prompt_ids'].long()
 
+        if getattr(self.cfg.data, "num_in_context_ex", None) is not None:
+            ctx_ex_prompt = data_b['ctx_ex_prompt'].long()
+            ctx_ex_mask = data_b['ctx_ex_mask'].float()
+        else:
+            ctx_ex_prompt = ctx_ex_mask = None
+
         return tokens_enc, tokens_dec, loss_mask, labels, \
-               enc_mask, dec_mask, task_ids, prompt_ids
+               enc_mask, dec_mask, task_ids, prompt_ids, ctx_ex_prompt, ctx_ex_mask
 
 
 class MegatronT0PrimeModel(MegatronT0Model):
@@ -410,22 +416,11 @@ class MegatronT0PrimeModel(MegatronT0Model):
         self.pad_token_id = self.model.tokenizer.pad_id if self.model.tokenizer.pad_id is not None \
             else self.model.tokenizer.unk_id
 
-    def embed_input(self, enc_input_id, prompt_input_ids, enc_mask):
-        """
-        This method will replace the virtual tokens in the enc_input_id with
-        embeddings calculated from `prompt_encoder`. If the `prompt_input_ids` is
-        not None, the computed virtual token embeddings are depenedent on it.
-        The virtual token placeholders has the token_id `self.pseudo_token_id`.
-        params:
-            enc_input_id: the input token ids
-            prompt_input_ids: the task specific template token ids
-        returns:
-            the token embedding for the LM model.
-        """
-        bz, seq_len = enc_input_id.shape
+    def get_prompt_embeddings(self, enc_input_id, ctx_ex_prompt, prompt_encoder=None):
         queries_for_embedding = enc_input_id.clone()
-
-        queries_for_embedding[(enc_input_id == self.pseudo_token_id)] = self.pad_token_id
+        if ctx_ex_prompt is not None:
+            queries_for_embedding = torch.cat((queries_for_embedding, ctx_ex_prompt.clone()), dim=1)
+        queries_for_embedding[(queries_for_embedding == self.pseudo_token_id)] = self.pad_token_id
         query_embeddings = self.word_embeddings(queries_for_embedding)
 
         if self.cfg.prompt_encoder.task_dependent:
@@ -434,25 +429,50 @@ class MegatronT0PrimeModel(MegatronT0Model):
             prompt_condition = None
 
         if self.float_type == torch.float32:
-            prompt_embeds = self.prompt_encoder(prompt_condition=prompt_condition)
+            if prompt_encoder is None:
+                prompt_embeds = self.prompt_encoder(prompt_condition=prompt_condition)
+            else:
+                prompt_embeds = prompt_encoder(prompt_condition=prompt_condition)
         else:
             with torch.autocast(device_type="cuda", dtype=self.float_type):
-                prompt_embeds = self.prompt_encoder(prompt_condition=prompt_condition)
+                if prompt_encoder is None:
+                    prompt_embeds = self.prompt_encoder(prompt_condition=prompt_condition)
+                else:
+                    prompt_embeds = prompt_encoder(prompt_condition=prompt_condition)
+        return prompt_embeds, query_embeddings
 
-        query_embeddings = query_embeddings.clone().type(self.float_type)
+    def embed_input(self, enc_input_id, ctx_ex_prompt, prompt_input_ids, enc_mask):
+        """
+        This method will replace the virtual tokens in the enc_input_id with
+        embeddings calculated from `prompt_encoder`. If the `prompt_input_ids` is
+        not None, the computed virtual token embeddings are depenedent on it.
+        The virtual token placeholders has the token_id `self.pseudo_token_id`.
+        params:
+            enc_input_id: the input token ids
+            ctx_ex_prompt: token ids of in-context examples
+            prompt_input_ids: the task specific template token ids
+        returns:
+            the token embedding for the LM model.
+        """
+        bz, seq_len = enc_input_id.shape
+
+        prompt_embeds, query_embeddings = self.get_prompt_embeddings(enc_input_id, ctx_ex_prompt)
+
+        query_embeddings = query_embeddings[:, :seq_len, :].clone().type(self.float_type)
         encoder_position_ids = build_position_ids(enc_input_id)
         position_embeddings = self.position_embeddings(encoder_position_ids)
 
         encoder_input = torch.cat((prompt_embeds, query_embeddings + position_embeddings), dim=1)
         enc_mask = torch.cat((torch.ones_like(prompt_embeds[:, :, 0]), enc_mask), dim=1)
 
-        return encoder_input, enc_mask
+        return prompt_embeds, encoder_input, enc_mask
 
     def get_loss(self, batch):
-        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids, tokens_prompt \
+        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, \
+        prompt_ids, tokens_prompt, ctx_ex_prompt, ctx_ex_mask \
             = self.process_batch(batch)
 
-        encoder_input, enc_mask = self.embed_input(tokens_enc, tokens_prompt, enc_mask)
+        prompt_emb, encoder_input, enc_mask = self.embed_input(tokens_enc, ctx_ex_prompt, tokens_prompt, enc_mask)
         if self.float_type == torch.float32:
             tokens_loss = itemgetter("tokens_loss")(self.model.enc_dec_model(
                 enc_input_ids=tokens_enc, dec_input_ids=tokens_dec,
@@ -468,21 +488,21 @@ class MegatronT0PrimeModel(MegatronT0Model):
                     tokentype_ids=None, labels=labels,
                     enc_input=encoder_input
                 ))
-        return loss_mask, tokens_loss
+        loss = self.model.loss_func(loss_mask, tokens_loss)
+        return loss
 
     def inference_step(self, batch, batch_idx):
-        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids, tokens_prompt \
+        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, \
+        prompt_ids, tokens_prompt, ctx_ex_prompt, ctx_ex_mask \
             = self.process_batch(batch)
-        encoder_input, enc_mask = self.embed_input(tokens_enc, tokens_prompt, enc_mask)
-        _, tokens_loss = self.get_loss(batch)
-        loss = self.model.loss_func(loss_mask, tokens_loss)
+        prompt_emb, encoder_input, enc_mask = self.embed_input(tokens_enc, ctx_ex_prompt, tokens_prompt, enc_mask)
+        loss = self.get_loss(batch)
         reduced_loss = average_losses_across_data_parallel_group([loss])
-        if self.trainer.num_nodes == 1 or True:
-            predicted_token_ids, log_probs = self.model.decode(
-                tokens_enc=tokens_enc, enc_mask=enc_mask, enc_input=encoder_input,
-                num_tokens_to_generate=self.decoder_seq_length
-            )
-            self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
+        predicted_token_ids, log_probs = self.model.decode(
+            tokens_enc=tokens_enc, enc_mask=enc_mask, enc_input=encoder_input,
+            num_tokens_to_generate=self.decoder_seq_length
+        )
+        self.get_accuracy(predicted_token_ids, labels, task_ids, prompt_ids)
 
         return {'loss': reduced_loss}
 
@@ -505,7 +525,8 @@ class MegatronT0PrimeModel(MegatronT0Model):
                 num_data_shards=self.cfg.data.num_data_shards,
                 prompt_token_id=self.pseudo_token_id,
                 prompt_seq_len=self.prompt_seq_len,
-                split_template=self.cfg.data.split_template
+                split_template=self.cfg.data.split_template,
+                num_in_context_ex=getattr(self.cfg.data, "num_in_context_ex", None)
             )
         else:
             # Use Huggingface dataset
@@ -518,16 +539,16 @@ class MegatronT0PrimeModel(MegatronT0Model):
                 max_seq_length=seq_length,
                 seed=self.cfg.seed,
                 use_cache=self.cfg.data.use_cache,
-                distribute_datasets=getattr(self.cfg.data, "distribute_datasets", False),
                 max_samples=getattr(self.cfg.data, "max_samples", None),
                 num_proc=self.cfg.data.num_workers,
                 num_nodes=self.trainer.num_nodes,
                 num_gpus=self.trainer.gpus,
+                distribute_datasets=getattr(self.cfg.data, "distribute_datasets", False),
                 prompt_token_id=self.pseudo_token_id,
                 prompt_seq_len=self.prompt_seq_len,
-                split_template=self.cfg.data.split_template
+                split_template=self.cfg.data.split_template,
+                num_in_context_ex=getattr(self.cfg.data, "num_in_context_ex", None)
             )
-
         return datasetbuilder
 
     def process_batch(self, batch):
@@ -538,8 +559,10 @@ class MegatronT0PrimeModel(MegatronT0Model):
             'loss_mask', 'enc_mask', 'dec_mask',
             'task_ids', 'prompt_ids'
         ]
+        if getattr(self.cfg.data, "num_in_context_ex", None) is not None:
+            keys.append('ctx_ex_prompt')
+            keys.append('ctx_ex_mask')
         datatype = torch.int64
-
         data = batch
         data_b = tensor_parallel.broadcast_data(keys, data, datatype)
 
@@ -559,8 +582,14 @@ class MegatronT0PrimeModel(MegatronT0Model):
         # T0' specific
         tokens_prompt = data_b['template'].long()
 
+        if getattr(self.cfg.data, "num_in_context_ex", None) is not None:
+            ctx_ex_prompt = data_b['ctx_ex_prompt'].long()
+            ctx_ex_mask = data_b['ctx_ex_mask'].float()
+        else:
+            ctx_ex_prompt = ctx_ex_mask = None
+
         return tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, \
-               task_ids, prompt_ids, tokens_prompt
+               task_ids, prompt_ids, tokens_prompt, ctx_ex_prompt, ctx_ex_mask
 
 
 class MegatronT0SSLPrimeModel(MegatronT0PrimeModel):
@@ -568,11 +597,58 @@ class MegatronT0SSLPrimeModel(MegatronT0PrimeModel):
         Megatron t0 prime multitask fine tuning model using differentiable promtps and contrastive learning
     """
 
+    def __init__(self, cfg: DictConfig, trainer: Trainer):
+        super().__init__(cfg=cfg, trainer=trainer)
+
+        self.ssl_proj_student = SeqProjectionNetwork(
+            hidden_size=self.hidden_size,
+            num_virtual_classes=cfg.ssl.num_virtual_classes,  # perhaps = num_task * num_prompts?
+            nlayers=cfg.ssl.nlayers,
+            use_bn=cfg.ssl.use_bn
+        )
+        self.ssl_loss = SSLPromptLoss(
+            num_virtual_classes=cfg.ssl.num_virtual_classes,
+            teacher_temp_init=cfg.ssl.teacher_temp_init,
+            teacher_temp_final=cfg.ssl.teacher_temp_final,
+            epochs=trainer.max_epochs,
+            student_temp=cfg.ssl.student_temp,
+            center_momentum=cfg.ssl.center_momentum
+        )
+        self.ssl_proj_teacher = copy.deepcopy(self.ssl_proj_student)
+        self.ssl_proj_teacher.freeze()
+        #self.prompt_encoder.attribute = list(self.prompt_encoder.attribute)?
+        self.teacher_net = copy.deepcopy(self.prompt_encoder)
+        self.teacher_net.freeze()
+
+    def on_before_zero_grad(self, optimizer):
+        # Exponential Moving Average update of teacher network
+        student_modules = [self.ssl_proj_student, self.prompt_encoder]
+        teacher_modules = [self.ssl_proj_teacher, self.teacher_net]
+        alpha = self.cfg.ssl.teacher_grad_momentum
+        for student, teacher in zip(student_modules, teacher_modules):
+            student_params = student.parameters()
+            teacher_params = teacher.parameters()
+            for sparam, tparam in zip(student_params, teacher_params):
+                with torch.no_grad():
+                    tparam *= alpha
+                    tparam += (1 - alpha) * sparam
+
     def get_loss(self, batch):
-        tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, prompt_ids, tokens_prompt \
-            = self.process_batch(batch)
-        # TODO: need contrastive learning here
-        encoder_input, enc_mask = self.embed_input(tokens_enc, tokens_prompt, enc_mask)
+        if self.trainer.training:
+            tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, \
+            prompt_ids, tokens_prompt, ctx_ex_prompt, ctx_ex_mask, \
+            tokens_enc_2, enc_mask_2, tokens_prompt_2, ctx_ex_prompt_2, ctx_ex_mask_2 \
+                = self.process_batch(batch)
+        else:
+            tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, task_ids, \
+            prompt_ids, tokens_prompt, ctx_ex_prompt, ctx_ex_mask \
+                = self.process_batch(batch)
+        prompt_embeds, encoder_input, enc_mask = self.embed_input(tokens_enc, ctx_ex_prompt, tokens_prompt, enc_mask)
+
+        if self.trainer.training:
+            ssl_loss = self.compute_ssl_loss(prompt_embeds, tokens_enc, ctx_ex_prompt, tokens_enc_2, ctx_ex_prompt_2)
+            self.log('ssl_loss', ssl_loss)
+
         if self.float_type == torch.float32:
             tokens_loss = itemgetter("tokens_loss")(self.model.enc_dec_model(
                 enc_input_ids=tokens_enc, dec_input_ids=tokens_dec,
@@ -588,7 +664,30 @@ class MegatronT0SSLPrimeModel(MegatronT0PrimeModel):
                     tokentype_ids=None, labels=labels,
                     enc_input=encoder_input
                 ))
-        return loss_mask, tokens_loss
+        loss = self.model.loss_func(loss_mask, tokens_loss)
+        if self.trainer.training:
+            return loss + ssl_loss
+        else:
+            return loss
+
+    def compute_ssl_loss(self, prompt_embeds, tokens_enc_1, ctx_ex_prompt_1, tokens_enc_2, ctx_ex_prompt_2):
+
+        prompt_embeds_s1 = prompt_embeds
+        prompt_embeds_s2, _ = self.get_prompt_embeddings(tokens_enc_2, ctx_ex_prompt_2)
+        student_out1 = self.ssl_proj_student(prompt_embeds_s1)
+        student_out2 = self.ssl_proj_student(prompt_embeds_s2)
+
+        with torch.no_grad():
+            prompt_embeds_t1, _ = self.get_prompt_embeddings(tokens_enc_1, ctx_ex_prompt_1, self.teacher_net)
+            prompt_embeds_t2, _ = self.get_prompt_embeddings(tokens_enc_2, ctx_ex_prompt_2, self.teacher_net)
+            teacher_out1 = self.ssl_proj_teacher(prompt_embeds_t1)
+            teacher_out2 = self.ssl_proj_teacher(prompt_embeds_t2)
+
+        ssl_loss1 = self.ssl_loss(student_out1, teacher_out2, self.trainer.current_epoch)
+        ssl_loss2 = self.ssl_loss(student_out2, teacher_out1, self.trainer.current_epoch)
+        ssl_loss = 0.5 * (ssl_loss1 + ssl_loss2)
+        self.ssl_loss.update_center(teacher_out1, teacher_out2)
+        return ssl_loss
 
     def get_datasetbuilder(self, split, seq_length):
         if not getattr(self.cfg.data, 'use_hf_data', False):
@@ -609,7 +708,8 @@ class MegatronT0SSLPrimeModel(MegatronT0PrimeModel):
                 num_data_shards=self.cfg.data.num_data_shards,
                 prompt_token_id=self.pseudo_token_id,
                 prompt_seq_len=self.prompt_seq_len,
-                split_template=self.cfg.data.split_template
+                split_template=self.cfg.data.split_template,
+                num_in_context_ex=getattr(self.cfg.data, "num_in_context_ex", None)
             )
         else:
             # Use Huggingface dataset
@@ -622,28 +722,34 @@ class MegatronT0SSLPrimeModel(MegatronT0PrimeModel):
                 max_seq_length=seq_length,
                 seed=self.cfg.seed,
                 use_cache=self.cfg.data.use_cache,
-                distribute_datasets=getattr(self.cfg.data, "distribute_datasets", False),
                 max_samples=getattr(self.cfg.data, "max_samples", None),
                 num_proc=self.cfg.data.num_workers,
                 num_nodes=self.trainer.num_nodes,
                 num_gpus=self.trainer.gpus,
+                distribute_datasets=getattr(self.cfg.data, "distribute_datasets", False),
                 prompt_token_id=self.pseudo_token_id,
                 prompt_seq_len=self.prompt_seq_len,
-                split_template=self.cfg.data.split_template
+                split_template=self.cfg.data.split_template,
+                num_in_context_ex=getattr(self.cfg.data, "num_in_context_ex", None)
             )
-
         return datasetbuilder
 
     def process_batch(self, batch):
         """Build the batch."""
-
+        if not self.trainer.training:
+            return super().process_batch(batch)
         keys = [
             'text_enc', 'text_dec', 'template', 'labels',
             'loss_mask', 'enc_mask', 'dec_mask',
-            'task_ids', 'prompt_ids'
+            'task_ids', 'prompt_ids',
+            'ssl_text_enc', 'ssl_template', 'ssl_enc_mask', 'ssl_prompt_ids'
         ]
+        if getattr(self.cfg.data, "num_in_context_ex", None) is not None:
+            keys.append('ctx_ex_prompt')
+            keys.append('ctx_ex_mask')
+            keys.append('ssl_ctx_ex_prompt')
+            keys.append('ssl_ctx_ex_mask')
         datatype = torch.int64
-
         data = batch
         data_b = tensor_parallel.broadcast_data(keys, data, datatype)
 
@@ -652,9 +758,11 @@ class MegatronT0SSLPrimeModel(MegatronT0PrimeModel):
         tokens_dec = data_b['text_dec'].long()
         labels = data_b['labels'].long()
         loss_mask = data_b['loss_mask'].float()
+        tokens_enc_2 = data_b['ssl_text_enc'].long()
 
         enc_mask = data_b['enc_mask']
         dec_mask = data_b['dec_mask']
+        enc_mask_2 = data_b['ssl_enc_mask']
 
         # T0 specific
         task_ids = data_b['task_ids'].long()
@@ -662,6 +770,15 @@ class MegatronT0SSLPrimeModel(MegatronT0PrimeModel):
 
         # T0' specific
         tokens_prompt = data_b['template'].long()
-        # TODO: need positive negative examples here
+        tokens_prompt_2 = data_b['ssl_template'].long()
+
+        if getattr(self.cfg.data, "num_in_context_ex", None) is not None:
+            ctx_ex_prompt = data_b['ctx_ex_prompt'].long()
+            ctx_ex_mask = data_b['ctx_ex_mask']
+            ctx_ex_prompt_2 = data_b['ssl_ctx_ex_prompt'].long()
+            ctx_ex_mask_2 = data_b['ssl_ctx_ex_mask']
+        else:
+            ctx_ex_prompt = ctx_ex_mask = ctx_ex_prompt_2 = ctx_ex_mask_2 = None
         return tokens_enc, tokens_dec, loss_mask, labels, enc_mask, dec_mask, \
-               task_ids, prompt_ids, tokens_prompt
+               task_ids, prompt_ids, tokens_prompt, ctx_ex_prompt, ctx_ex_mask, \
+               tokens_enc_2, enc_mask_2, tokens_prompt_2, ctx_ex_prompt_2, ctx_ex_mask_2

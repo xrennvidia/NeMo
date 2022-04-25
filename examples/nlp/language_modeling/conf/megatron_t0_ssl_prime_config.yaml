@@ -1,4 +1,4 @@
-name: megatron_t0_prime
+name: megatron_t0_ssl_prime
 
 trainer:
   gpus: 2
@@ -18,7 +18,7 @@ trainer:
 exp_manager:
   explicit_log_dir: null
   exp_dir: null  #TODO: does this allow me to specify which dict to save to
-  name: megatron_t0_prime
+  name: megatron_t0_ssl_prime
   create_wandb_logger: False
   wandb_logger_kwargs:
     project: null
@@ -55,6 +55,16 @@ model:
     reparametrize: True
     task_dependent: True
     prompt_gen_type: linear
+
+  ssl:
+    num_virtual_classes: 32
+    teacher_temp_init: 0.04
+    teacher_temp_final: 0.07
+    student_temp: 0.1
+    nlayers: 4
+    use_bn: True
+    center_momentum: 0.9
+    teacher_grad_momentum: 0.996 # TODO: add cosine schedule from 0.996 to 1 during training
 
   data:
     dir_path: '/home/jpilault/datasets/T0_prompted'

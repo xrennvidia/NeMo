@@ -21,7 +21,7 @@ import os
 import mmap
 import glob
 import pickle
-import pyarrow as pa
+import itertools
 from typing import Dict, Optional, List, Iterator, TypeVar, Callable
 from multiprocessing import Lock
 
@@ -223,7 +223,8 @@ class T0DatasetBuilder(object):
             num_proc: int = None,
             num_gpus: int = None,
             num_nodes: int = 1,
-            num_data_shards: int = 1
+            num_data_shards: int = 1,
+            num_in_context_ex: int = None
     ):
         """
         Processes T0 dataset
@@ -235,10 +236,13 @@ class T0DatasetBuilder(object):
             tokenizer: such as AutoTokenizer
             max_seq_length: max sequence length minus 2 for [CLS] and [SEP]
             max_seq_length_decoder: max sequence length
-            buffer_size: size of the buffer, chunks of data to suffle
             use_cache: whether to use data cache
             max_samples: limit size of dataset (not implemented)
             num_proc: number of processes to load data
+            num_gpus: number of gpus used during training
+            num_nodes: number of nodes used during training
+            num_data_shards: number of sub-file to create (data shards)
+            num_in_context_ex: number of random in-context examples to add to prompts
         """
         self.t0_type = t0_type
         self.dir_path = dir_path
@@ -255,10 +259,17 @@ class T0DatasetBuilder(object):
         self.num_gpus = num_gpus
         self.num_nodes = num_nodes
         self.num_data_shards = num_data_shards if split == 'train' else 1
+        self.num_in_context_ex = num_in_context_ex
         self.tasks = []
         self.empty_prompt_token_id = -1
         self.set_data_dict()
         self.dt_id2name = {dt.task.task_id: dt_name for dt_name, dt in self.datasets.items()}
+        if self.num_in_context_ex is not None:
+            self.example_sep_token = self.tokenizer.text_to_ids('Example: ')
+            self.answer_sep_token = self.tokenizer.text_to_ids('Answer: ')
+            self.num_tries_in_context_samples = 10
+            if 'train' not in self.split:
+                self.fixed_eval_in_ctx_ex = {}
 
     def set_data_dict(self, shard=0):
         if self.split == 'train':
@@ -411,7 +422,10 @@ class T0DatasetBuilder(object):
         for features in batch:
             feature = self.choose_template(features)
             new_batch.append(feature)
-        return self.collate_fn2(new_batch)
+        processed_batch = self.collate_fn2(new_batch)
+        if self.num_in_context_ex is not None:
+            processed_batch = self.add_in_context_examples(processed_batch)
+        return processed_batch
 
     def choose_template(self, features):
         available_prompts = []
@@ -423,7 +437,6 @@ class T0DatasetBuilder(object):
                 available_prompts.append(data_name.split("_")[-1])
         assert available_prompts
         prompt_num = np.random.choice(available_prompts)
-        # TODO: add choose positive example
         return self.get_chosen_features(features, prompt_num)
 
     @staticmethod
@@ -473,6 +486,89 @@ class T0DatasetBuilder(object):
             'prompt_ids': prompt_ids
         }
 
+    def add_in_context_examples(self, batch):
+        in_context_ex = []
+        for task_id, prompt_id in zip(batch['task_ids'], batch['prompt_ids']):
+            if self.split == 'train':
+                in_context_ex.append(self.get_random_examples(task_id, prompt_id))
+            else:
+                in_context_ex.append(self.get_fixed_examples(task_id, prompt_id))
+        max_in_context_ex_len = max([len(item) for item in in_context_ex])
+        in_context_ex = [item + [self.tokenizer.pad_id] * (max_in_context_ex_len - len(item)) for item in in_context_ex]
+        in_context_ex = torch.LongTensor(in_context_ex)
+        in_context_mask = (in_context_ex != self.tokenizer.pad_id).long()
+        batch['ctx_ex_prompt'] = in_context_ex[:, :self.max_query_length]
+        batch['ctx_ex_mask'] = in_context_mask[:, :self.max_query_length]
+        return batch
+
+    def get_random_examples(self, task_id, prompt_id):
+        """
+        Using the same task_id and prompt_id, randomly find examples with same input/outputs.
+        Since we only sample `num_tries_in_context_samples`, it is possible that no
+        in-context examples are found but this is by design to regularize the model.
+        """
+        dataset = self.datasets[self.dt_id2name[task_id.item()]]
+        random_examples = []
+        selected_features = np.random.choice(
+            dataset.features,
+            size=min(self.num_tries_in_context_samples, len(dataset)),
+            replace=False
+        )
+        prompt_num = prompt_id.item()
+        for feature_dict in selected_features:
+            if len(random_examples) == self.num_in_context_ex:
+                break
+            text_enc= feature_dict[f'text_enc_{prompt_num}']
+            text_dec = feature_dict[f'text_dec_{prompt_num}']
+            if not np.any(np.array(text_enc) == self.empty_prompt_token_id) and not np.any(np.array(text_dec) == self.empty_prompt_token_id):
+                example = self.example_sep_token + text_enc + self.answer_sep_token + text_dec
+                random_examples.append(example)
+        random_examples = list(itertools.chain(*random_examples))
+        return random_examples
+
+    def get_fixed_examples(self, task_id, prompt_id):
+        """
+        Using the same task_id and prompt_id, find a fixed list of examples with same input/outputs.
+        Eval should have a deterministic amount of in-context examples (takes the first found).
+        This method runs slowly when first called but then is O(1) after.
+        """
+        dataset = self.datasets[self.dt_id2name[task_id.item()]]
+        task_id = task_id.item()
+        prompt_num = prompt_id.item()
+        if not self.fixed_eval_in_ctx_ex.__contains__(task_id):
+            self.fixed_eval_in_ctx_ex[task_id] = {}
+        if not self.fixed_eval_in_ctx_ex[task_id].__contains__(prompt_num):
+            self.fixed_eval_in_ctx_ex[task_id][prompt_num] = []
+
+        for feature_dict in dataset.features:
+            if all(
+                    [len(self.fixed_eval_in_ctx_ex[task_id][pn]) == self.num_in_context_ex
+                     for pn in self.fixed_eval_in_ctx_ex[task_id].keys()]
+            ):
+                break
+            available_prompts = []
+            for feature_name in feature_dict.keys():
+                if feature_name.startswith("text_enc") and (
+                    feature_dict[feature_name] is not None and
+                    not np.any(np.array(feature_dict[feature_name]) == self.empty_prompt_token_id)
+                ):
+                    available_prompts.append(int(feature_name.split("_")[-1]))
+            for other_prompt_num in available_prompts:
+                if not self.fixed_eval_in_ctx_ex[task_id].__contains__(other_prompt_num):
+                    self.fixed_eval_in_ctx_ex[task_id][other_prompt_num] = []
+                if len(self.fixed_eval_in_ctx_ex[task_id][other_prompt_num]) == self.num_in_context_ex:
+                    continue
+                text_enc = feature_dict[f'text_enc_{other_prompt_num}']
+                text_dec = feature_dict[f'text_dec_{other_prompt_num}']
+                example = self.example_sep_token + text_enc + self.answer_sep_token + text_dec
+                self.fixed_eval_in_ctx_ex[task_id][other_prompt_num].append(example)
+
+        if not self.fixed_eval_in_ctx_ex[task_id][prompt_num]:
+            self.fixed_eval_in_ctx_ex[task_id][prompt_num] = [[] for _ in range(self.num_in_context_ex)]
+        fixed_in_ctx_examples = self.fixed_eval_in_ctx_ex[task_id][prompt_num]
+        fixed_in_ctx_examples = list(itertools.chain(*fixed_in_ctx_examples))
+        return fixed_in_ctx_examples
+
 
 class T0PrimeDatasetBuilder(T0DatasetBuilder):
     """T0' Dataset Builder in a text-to-text format."""
@@ -501,7 +597,7 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
             num_nodes: int = None,
             num_data_shards: int = 1,
             split_template: bool = True,
-            add_in_context_ex: bool = False
+            num_in_context_ex: int = None
     ):
         """
         Processes T0' dataset using differentiable prompts
@@ -518,16 +614,16 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
             prompt_token_id: tokenizer id for [PROMPT] token
             prompt_seq_len: sequence lenght of prompt
             split_template: whether to seperate template tokens
-            add_in_context_ex: randomly take in-context examples to be encoded
+            num_in_context_ex: number of random in-context examples to add to prompts
         """
         self.prompt_token_id = prompt_token_id
         self.prompt_seq_len = prompt_seq_len if split_template else 1
         self.split_template = split_template
-        self.add_in_context_ex = add_in_context_ex
         super().__init__(
             t0_type, dir_path, max_sampling_size, split, tokenizer,
             max_seq_length, max_seq_length_decoder, seed, use_cache,
-            extension, max_samples, num_proc, num_gpus, num_nodes, num_data_shards
+            extension, max_samples, num_proc, num_gpus, num_nodes,
+            num_data_shards, num_in_context_ex
         )
 
     @staticmethod
@@ -643,7 +739,6 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
 
         enc_mask = (enc_query != self.tokenizer.pad_id).long()
         dec_mask = (dec_input != self.tokenizer.pad_id).long()
-        # TODO: add in-context examples option
         return {
             'text_enc': enc_query[:, :self.max_query_length],
             'text_dec': dec_input[:, :self.max_query_length_decoder],
@@ -658,10 +753,96 @@ class T0PrimeDatasetBuilder(T0DatasetBuilder):
 
 class T0SSLPrimeDatasetBuilder(T0PrimeDatasetBuilder):
 
-    def collate_fn(self, batch):
-        batch = super().collate_fn(batch)
-        # TODO: make positive example here
-        return batch
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def choose_template(self, features):
+        """
+        Same as original `choose_template` except we get a source example and a positive
+        example. Ideally, the positive example has the same label but different template.
+        """
+        prompt_grp = {}
+        for data_name in features.keys():
+            if data_name.startswith("text_enc") and (
+                features[data_name] is not None and
+                not np.any(np.array(features[data_name]) == self.empty_prompt_token_id)
+            ):
+                prompt_id = data_name.split("_")[-1]
+                key = tuple(features[f'labels_{prompt_id}'])
+                prompt_grp[key] = prompt_grp.get(key, []) + [prompt_id]
+
+        assert prompt_grp
+        prompt_grp_idx = np.random.choice(list(range(len(prompt_grp.keys()))))
+        chosen_prompt_grp = list(prompt_grp.keys())[prompt_grp_idx]
+        available_prompts = prompt_grp[chosen_prompt_grp]
+        prompt_num = np.random.choice(
+            available_prompts,
+            size=2, replace=True  # allow a positive example to be the same as source
+        )
+        return self.get_chosen_features(features, prompt_num)
+
+    @staticmethod
+    def get_chosen_features(feature_dict, prompt_num):
+        src_prompt_num = prompt_num[0]
+        ssl_prompt_num = prompt_num[1]
+        return {
+            'text_enc': feature_dict[f'text_enc_{src_prompt_num}'],
+            'template': feature_dict[f'template_{src_prompt_num}'],
+            'text_dec': feature_dict[f'text_dec_{src_prompt_num}'],
+            'labels': feature_dict[f'labels_{src_prompt_num}'],
+            'task_id': feature_dict[f'task_id_{src_prompt_num}'],
+            'prompt_id': feature_dict[f'prompt_id_{src_prompt_num}'],
+            'ssl_text_enc': feature_dict[f'text_enc_{ssl_prompt_num}'],
+            'ssl_template': feature_dict[f'template_{ssl_prompt_num}'],
+            'ssl_prompt_id': feature_dict[f'prompt_id_{ssl_prompt_num}'],
+        }
+
+    def collate_fn2(self, batch):
+        processed_batch = super().collate_fn2(batch)
+
+        prompt_ids = [item['ssl_prompt_id'] for item in batch]
+        if self.split == 'train':
+            enc_query = [item['ssl_text_enc'] for item in batch]
+            template = [item['ssl_template'] for item in batch]
+
+            if self.split_template:
+                max_template_length = max(self.prompt_seq_len, max([len(item) for item in template]))
+                enc_query = [item_q + [self.prompt_token_id] * (max_template_length - len(item_t)) for item_q, item_t in zip(enc_query, template)]
+
+            max_enc_query_length = max([len(item) for item in enc_query])
+            enc_query = [item + [self.tokenizer.pad_id] * (max_enc_query_length - len(item)) for item in enc_query]
+            template = [item[:self.prompt_seq_len] + [self.tokenizer.pad_id] * (self.prompt_seq_len - len(item)) for item in template]
+
+            enc_query = torch.LongTensor(enc_query)
+            template = torch.LongTensor(template)
+
+            if self.split_template:
+                index = (enc_query == self.prompt_token_id).nonzero()
+                index = index.reshape((enc_query.size(0), -1, 2))[:, :, 1].squeeze(-1)
+                enc_query = enc_query.scatter_(1, index, template)
+
+        else:
+            enc_query = torch.LongTensor([self.tokenizer.pad_id])
+            template = torch.LongTensor([self.tokenizer.pad_id])
+
+        prompt_ids = torch.LongTensor(prompt_ids)
+        enc_mask = (enc_query != self.tokenizer.pad_id).long()
+        processed_batch['ssl_text_enc'] = enc_query
+        processed_batch['ssl_template'] = template
+        processed_batch['ssl_enc_mask'] = enc_mask
+        processed_batch['ssl_prompt_ids'] = prompt_ids
+        return processed_batch
+
+    def add_in_context_examples(self, processed_batch):
+        processed_batch = super().add_in_context_examples(processed_batch)
+        ssl_batch_ctx_ex_prompt = {
+            'task_ids': processed_batch['task_ids'],  # task ids are the same for all
+            'prompt_ids': processed_batch['ssl_prompt_ids']
+        }
+        ssl_batch_ctx_ex_prompt = super().add_in_context_examples(ssl_batch_ctx_ex_prompt)
+        processed_batch['ssl_ctx_ex_prompt'] = ssl_batch_ctx_ex_prompt['ctx_ex_prompt']
+        processed_batch['ssl_ctx_ex_mask'] = ssl_batch_ctx_ex_prompt['ctx_ex_mask']
+        return processed_batch
 
 
 class T0HFDatasetBuilder(T0DatasetBuilder):
@@ -678,12 +859,13 @@ class T0HFDatasetBuilder(T0DatasetBuilder):
             max_seq_length_decoder: int = 128,
             seed: int = 43,
             use_cache: bool = True,
-            distribute_datasets: bool = False,
             extension: str = 'json',
             max_samples: int = None,
             num_proc: int = None,
             num_gpus: int = None,
-            num_nodes: int = 1
+            num_nodes: int = 1,
+            distribute_datasets: bool = False,
+            num_in_context_ex: bool = False
     ):
         """
         Processes T0 dataset
@@ -709,16 +891,23 @@ class T0HFDatasetBuilder(T0DatasetBuilder):
         self.max_query_length_decoder = max_seq_length_decoder
         self.seed = seed
         self.use_cache = use_cache
-        self.distribute_datasets = distribute_datasets
         self.extension = extension
         self.max_samples = max_samples
         self.num_proc = num_proc if num_proc > 0 else None
         self.num_gpus = num_gpus
         self.num_nodes = num_nodes
+        self.distribute_datasets = distribute_datasets
+        self.num_in_context_ex = num_in_context_ex
         self.tasks = []
         self.empty_prompt_token_id = -1
         self.datasets = self.get_data_dict()
         self.dt_id2name = {dt.task.task_id: dt_name for dt_name, dt in self.datasets.items()}
+        if self.num_in_context_ex is not None:
+            self.example_sep_token = self.tokenizer.text_to_ids('Example: ')
+            self.answer_sep_token = self.tokenizer.text_to_ids('Answer: ')
+            self.num_tries_in_context_samples = 10
+            if 'train' not in self.split:
+                self.fixed_eval_in_ctx_ex = {}
 
     def get_data_dict(self):
         if self.split == 'train':
@@ -745,10 +934,7 @@ class T0HFDatasetBuilder(T0DatasetBuilder):
 
     def get_dataset(self, task):
         features_dir = os.path.join(self.dir_path, self.split, f'features_{task.task_id}')
-        app_state = AppState()
-        #rank = app_state.global_rank
         rank = parallel_state.get_data_parallel_rank()
-        #world_size = app_state.world_size
         world_size = parallel_state.get_data_parallel_world_size()
         node = rank // self.num_gpus
         if not os.path.isdir(features_dir) or not self.use_cache:
@@ -847,7 +1033,7 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
             num_gpus: int = None,
             num_nodes: int = None,
             split_template: bool = True,
-            add_in_context_ex: bool = False
+            num_in_context_ex: int = None
     ):
         """
         Processes T0' dataset using differentiable prompts
@@ -864,159 +1050,29 @@ class T0PrimeHFDatasetBuilder(T0HFDatasetBuilder):
             prompt_token_id: tokenizer id for [PROMPT] token
             prompt_seq_len: sequence lenght of prompt
             split_template: whether to seperate template tokens
-            add_in_context_ex: randomly take in-context examples to be encoded
+            num_in_context_ex: randomly take in-context examples to be encoded
         """
         self.prompt_token_id = prompt_token_id
         self.prompt_seq_len = prompt_seq_len
         self.split_template = split_template
-        self.add_in_context_ex = add_in_context_ex
+        self.create_example = T0PrimeDatasetBuilder.create_example
+        self.tokenize = T0PrimeDatasetBuilder.tokenize
+        self.get_chosen_features = T0PrimeDatasetBuilder.get_chosen_features
+        self.collate_fn2 = T0PrimeDatasetBuilder.collate_fn2
         super().__init__(
-            t0_type, dir_path, max_sampling_size, split, tokenizer, max_seq_length, max_seq_length_decoder,
-            seed, use_cache, distribute_datasets, extension, max_samples, num_proc, num_gpus, num_nodes
+            t0_type, dir_path, max_sampling_size, split, tokenizer,
+            max_seq_length, max_seq_length_decoder, seed, use_cache,
+            extension, max_samples, num_proc, num_gpus, num_nodes,
+            distribute_datasets, num_in_context_ex
         )
-
-    @staticmethod
-    def get_chosen_features(feature_dict, prompt_num):
-        features = {
-            'text_enc': feature_dict[f'text_enc_{prompt_num}'],
-            'template': feature_dict[f'template_{prompt_num}'],
-            'text_dec': feature_dict[f'text_dec_{prompt_num}'],
-            'labels': feature_dict[f'labels_{prompt_num}'],
-            'task_id': feature_dict[f'task_id_{prompt_num}'],
-            'prompt_id': feature_dict[f'prompt_id_{prompt_num}']
-        }
-        return features
-
-    @staticmethod
-    def create_example(data, task_id, prompt_id):
-        return InputPromptedExample(
-            task_id=task_id,
-            text=data['input'],
-            prompt_id=prompt_id,
-            label=data['output'],
-            chunked_idx=data['chunked_idx']
-        )
-
-    def collate_fn(self, batch):
-        new_batch = []
-        for features in batch:
-            feature = self.choose_template(features)
-            new_batch.append(feature)
-        #TODO: add in-context examples option
-        return self.collate_fn2(new_batch)
-
-    def tokenize(self, example):
-        def get_text_chunks(input_text, chunked_idx):
-            """
-            Splits in the input text into chunks such that:
-            chunked(input_text) = [[orig_txt_part1], [template_part1], [orig_txt_part2], [template_part2], ...]
-            or other interleaved patterns of template and original text.
-            Assumes already sorted lists of index ranges.
-            """
-            text_chunks = []
-            for chunk in chunked_idx.split(","):
-                chunk_name, chunk_start, chunk_end = chunk.split("-")
-                text_chunks.append((chunk_name.strip(), input_text[int(chunk_start):int(chunk_end)]))
-            return text_chunks
-        if example.input_text is None:
-            enc_query = [self.empty_prompt_token_id]
-            template = [self.empty_prompt_token_id]
-            dec_input = [self.empty_prompt_token_id]
-            labels = [self.empty_prompt_token_id]
-        else:
-            input_text_chunks = get_text_chunks(example.input_text, example.chunked_idx)
-            enc_query = []
-            template = []
-            for chunk in input_text_chunks:
-                chunk_name = chunk[0]
-                chunk_tokens = self.tokenizer.text_to_ids(chunk[1])
-                if chunk_name == TEMPLATE_CHUNK_NAME and self.split_template:
-                    remain = max(0, self.prompt_seq_len - len(template) - len(chunk_tokens))
-                    template.extend(chunk_tokens[:remain])
-                    enc_query.extend([self.prompt_token_id] * len(chunk_tokens[:remain]))
-                else:
-                    max_length = self.max_query_length + (0 if self.split_template else self.prompt_seq_len)
-                    remain = max(0, max_length - len(enc_query) - len(chunk_tokens))
-                    enc_query.extend(chunk_tokens[:remain])  # only reduce original chunk
-            dec_query = (
-                    [self.tokenizer.cls_id]
-                    + self.tokenizer.text_to_ids(example.label)
-                    + [self.tokenizer.eos_id]
-            )
-            if len(dec_query) > self.max_query_length_decoder + 1:
-                dec_query = dec_query[: self.max_query_length_decoder + 1]
-            dec_input = dec_query[:-1]
-            labels = dec_query[1:]
-            if not template:
-                template = [self.tokenizer.pad_id]
-        task_id = [example.task_id]
-        prompt_id = [example.prompt_id]
-        return {
-            'text_enc': enc_query,
-            'template': template,
-            'text_dec': dec_input,
-            'labels': labels,
-            'task_id': task_id,
-            'prompt_id': prompt_id
-        }
-
-    def collate_fn2(self, batch):
-        enc_query = [item['text_enc'] for item in batch]
-        template = [item['template'] for item in batch]
-        dec_input = [item['text_dec'] for item in batch]
-        labels = [item['labels'] for item in batch]
-        task_ids = [item['task_id'] for item in batch]
-        prompt_ids = [item['prompt_id'] for item in batch]
-
-        if self.split_template:
-            max_template_length = max(self.prompt_seq_len, max([len(item) for item in template]))
-            enc_query = [item_q + [self.prompt_token_id] * (max_template_length - len(item_t)) for item_q, item_t in zip(enc_query, template)]
-
-        max_dec_input_length = max([len(item) for item in dec_input])
-        max_enc_query_length = max([len(item) for item in enc_query])
-        max_label_length = max([len(item) for item in labels])
-
-        loss_mask = [([1] * (len(item))) + ([0] * (max_label_length - len(item))) for item in labels]
-        enc_query = [item + [self.tokenizer.pad_id] * (max_enc_query_length - len(item)) for item in enc_query]
-        template = [item[:self.prompt_seq_len] + [self.tokenizer.pad_id] * (self.prompt_seq_len - len(item)) for item in template]
-        dec_input = [item + [self.tokenizer.pad_id] * (max_dec_input_length - len(item)) for item in dec_input]
-        labels = [item + [self.tokenizer.pad_id] * (max_label_length - len(item)) for item in labels]
-
-        enc_query = torch.LongTensor(enc_query)
-        template = torch.LongTensor(template)
-        dec_input = torch.LongTensor(dec_input)
-        labels = torch.LongTensor(labels)
-        task_ids = torch.LongTensor(task_ids)
-        prompt_ids = torch.LongTensor(prompt_ids)
-        loss_mask = torch.LongTensor(loss_mask)
-
-        if self.split_template:
-            index = (enc_query == self.prompt_token_id).nonzero()
-            index = index.reshape((enc_query.size(0), -1, 2))[:, :, 1].squeeze(-1)
-            enc_query = enc_query.scatter_(1, index, template)
-
-        enc_mask = (enc_query != self.tokenizer.pad_id).long()
-        dec_mask = (dec_input != self.tokenizer.pad_id).long()
-
-        return {
-            'text_enc': enc_query[:, :self.max_query_length],
-            'text_dec': dec_input[:, :self.max_query_length_decoder],
-            'template': template[:, :self.prompt_seq_len],
-            'labels': labels[:, :self.max_query_length_decoder],
-            'loss_mask': loss_mask[:, :self.max_query_length_decoder],
-            'enc_mask': enc_mask[:, :self.max_query_length],
-            'dec_mask': dec_mask[:, :self.max_query_length_decoder],
-            'task_ids': task_ids,
-            'prompt_ids': prompt_ids
-        }
 
 
 class T0SSLPrimeHFDatasetBuilder(T0PrimeHFDatasetBuilder):
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
-    def collate_fn(self, batch):
-        new_batch = []
-        for features in batch:
-            feature = self.choose_template(features)
-            new_batch.append(feature)
-        return self.collate_fn2(new_batch)
+        self.choose_template = T0SSLPrimeDatasetBuilder.choose_template
+        self.get_chosen_features = T0SSLPrimeDatasetBuilder.get_chosen_features
+        self.collate_fn2 = T0SSLPrimeDatasetBuilder.collate_fn2
+        self.add_in_context_examples = T0SSLPrimeDatasetBuilder.add_in_context_examples

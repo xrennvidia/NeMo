@@ -32,7 +32,7 @@ from nemo.utils.exp_manager import StatelessTimer, exp_manager
 
 #os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
-@hydra_runner(config_path="conf", config_name="megatron_t0_contrastive_prime_config")
+@hydra_runner(config_path="conf", config_name="megatron_t0_ssl_prime_config")
 def main(cfg) -> None:
     logging.info("\n\n************** Experiment configuration ***********")
     logging.info(f'\n{OmegaConf.to_yaml(cfg)}')
@@ -71,7 +71,7 @@ def main(cfg) -> None:
         cfg.model.data.num_data_shards = cfg.trainer.max_epochs
 
     trainer = Trainer(
-        plugins=plugins, num_sanity_val_steps=2,
+        plugins=plugins,
         reload_dataloaders_every_n_epochs=1 if cfg.model.data.num_data_shards > 1 else 0,
         **cfg.trainer, callbacks=[ModelSummary(max_depth=3)],
     )

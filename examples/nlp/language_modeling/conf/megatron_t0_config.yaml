@@ -28,7 +28,7 @@ exp_manager:
   create_checkpoint_callback: True
   checkpoint_callback_params:
     monitor: val_acc
-    save_top_k: 10
+    save_top_k: 2
     mode: max
     always_save_nemo: False # TODO: add support
     filename: 'megatron_t0--{val_acc:.3f}-{step}'
@@ -51,19 +51,19 @@ model:
     num_workers: 24
     num_data_shards: 1
     train_ds:
-      batch_size: 2
+      batch_size: 8
       shuffle: True
       pin_memory: False
       max_seq_length: 512
 
     validation_ds:
-      batch_size: 4
+      batch_size: 16
       shuffle: False
       pin_memory: False
       max_seq_length: 512
 
     test_ds:
-      batch_size: 4
+      batch_size: 16
       shuffle: False
       pin_memory: False
       max_seq_length: 512
