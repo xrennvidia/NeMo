@@ -29,7 +29,7 @@ name: "Conformer-CTC-BPE"
 do_training: True
 model:
   speaker_embeddings:
-    feature_dim: &feature_dim 192
+    feature_dim: 192
     model_path: titanet_large # .nemo local model path or pretrained model name (titanet_large, ecapa_tdnn or speakerverification_speakernet)
     parameters:
       window_length_in_sec: 1.5 # Window length(s) in sec (floating-point number). Either a number or a list. Ex) 1.5 or [1.5,1.0,0.5]
@@ -112,7 +112,7 @@ model:
     window_size: 0.025
     window_stride: 0.01
     window: "hann"
-    features: &n_mels 80
+    features: 80
     n_fft: 512
     log: true
     frame_splicing: 1
@@ -130,14 +130,14 @@ model:
 
   speaker_beam:
     _target_: nemo.collections.asr.modules.SpeakerBeam
-    feat_in: *n_mels
+    feat_in: ${model.preprocessor.features}
     activation: tanh
     n_layers: 3
     d_model: 256
-    feat_in_adapt: *feature_dim
+    feat_in_adapt: ${model.speaker_embeddings.feature_dim}
     n_layers_adapt: 1
     d_models_adapt: 128
-    activation_adapt: sigmoid
+    activation_adapt: relu
 
   encoder:
     _target_: nemo.collections.asr.modules.ConformerEncoder

@@ -1,6 +1,4 @@
 #!/bin/bash
-
-
 python speech_to_text_ctc_bpe_ts.py \
 model.tokenizer.type=bpe \
 model.sample_rate=16000 \

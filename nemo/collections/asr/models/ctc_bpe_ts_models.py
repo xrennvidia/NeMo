@@ -128,7 +128,8 @@ class TSEncDecCTCModelBPE(EncDecCTCModelBPE):
                 )
                 speaker_embedding = speaker_embedding.detach()
                 
-        encoded = self.speaker_beam(audio_signal=processed_signal, features =speaker_embedding)
+        mask = self.speaker_beam(audio_signal=processed_signal, features =speaker_embedding)
+        processed_signal = mask * processed_signal
         encoded, encoded_len = self.encoder(audio_signal=processed_signal, length=processed_signal_length)
                 # emb_shape = speaker_embedding.shape[-1]
                 # embs = speaker_embedding.view(-1, emb_shape)
