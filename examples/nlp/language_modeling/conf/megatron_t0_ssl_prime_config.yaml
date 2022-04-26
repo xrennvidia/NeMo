@@ -93,7 +93,12 @@ model:
   optim:
     name: fused_adam
     lr: 1e-4
-    weight_decay: 0.0
+    weight_decay: 0.01
+    sched:
+      name: WarmupAnnealing
+      min_lr: 1e-5
+      last_epoch: -1
+      warmup_ratio: 0.01
 
   optim_model:
     name: fused_adam
