@@ -51,8 +51,8 @@ class TSEncDecCTCModelBPE(EncDecCTCModelBPE):
         self, *args, **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self.f1 = torch.nn.Linear(self._cfg.speaker_embeddings.feature_dim, self._cfg.encoder.d_model)
-        self.speaker_model = None
+        
+        self.speaker_beam = EncDecCTCModelBPE.from_config_dict(self._cfg.speaker_beam)
         if self._cfg.speaker_embeddings.model_path:
             self.speaker_model = EncDecSpeakerLabelModel.from_pretrained(self._cfg.speaker_embeddings.model_path)
 
@@ -119,7 +119,7 @@ class TSEncDecCTCModelBPE(EncDecCTCModelBPE):
 
         if self.spec_augmentation is not None and self.training:
             processed_signal = self.spec_augmentation(input_spec=processed_signal, length=processed_signal_length)
-        encoded, encoded_len = self.encoder(audio_signal=processed_signal, length=processed_signal_length)
+        
         if self.speaker_model:
             with torch.no_grad():
                 self.speaker_model.eval()
@@ -127,11 +127,14 @@ class TSEncDecCTCModelBPE(EncDecCTCModelBPE):
                     input_signal=speaker_embedding, input_signal_length=embedding_lengths
                 )
                 speaker_embedding = speaker_embedding.detach()
+                
+        encoded = self.speaker_beam(audio_signal=processed_signal, features =speaker_embedding)
+        encoded, encoded_len = self.encoder(audio_signal=processed_signal, length=processed_signal_length)
                 # emb_shape = speaker_embedding.shape[-1]
                 # embs = speaker_embedding.view(-1, emb_shape)
                 # all_embs.extend(embs.cpu().detach().numpy())
-        speaker_embedding = self.f1(speaker_embedding).unsqueeze(-1).repeat(1, 1, encoded.shape[2])
-        encoded += speaker_embedding
+        # speaker_embedding = self.f1(speaker_embedding).unsqueeze(-1).repeat(1, 1, encoded.shape[2])
+        # encoded += speaker_embedding
         log_probs = self.decoder(encoder_output=encoded)
         greedy_predictions = log_probs.argmax(dim=-1, keepdim=False)
 
