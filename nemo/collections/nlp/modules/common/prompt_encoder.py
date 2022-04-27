@@ -149,6 +149,8 @@ class SeqPromptGenerator(NeuralModule, Exportable):
 
     @typecheck()
     def forward(self, prompt_embeds) -> torch.Tensor:
+        # TODO: am I taking the representation of padded inputs?
+        # TODO: do I need to add dropout on the prompt encoder?
         prompt_embeds = self.mlp_head(self.lstm_head(prompt_embeds)[0][:, -self.prompt_seq_len:, :])
         return prompt_embeds
 
