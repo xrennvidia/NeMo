@@ -76,9 +76,6 @@ def process_row(row):
         min_snr_db = snr
         max_snr_db = snr
         global att_factor
-        perturber = NoisePerturbation(
-            manifest_path=row['noise_manifest'], min_snr_db=min_snr_db, max_snr_db=max_snr_db, rng=rng
-        )
         out_dir = get_out_dir_name(
             row['out_dir'],
             os.path.splitext(os.path.basename(row['input_manifest']))[0],
@@ -90,7 +87,13 @@ def process_row(row):
         if os.path.exists(out_f):
             continue
         data = copy.deepcopy(data_orig)
-        perturber.perturb(data)
+        if row['noise_type'] == 'random':
+            perturber = NoisePerturbation(
+                manifest_path=row['noise_manifest'], min_snr_db=min_snr_db, max_snr_db=max_snr_db, rng=rng
+            )
+            perturber.perturb(data)
+        else:
+            add_full_noise(data, row['noise_manifest'], min_snr_db=min_snr_db, max_snr_db=max_snr_db, rng=rng)
 
         max_level = np.max(np.abs(data.samples))
 
