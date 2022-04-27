@@ -30,8 +30,9 @@ import random
 import numpy as np
 import soundfile as sf
 
-from nemo.collections.asr.parts.preprocessing.perturb import NoisePerturbation
+from nemo.collections.asr.parts.preprocessing.perturb import NoisePerturbation, read_one_audiosegment
 from nemo.collections.asr.parts.preprocessing.segment import AudioSegment
+from nemo.collections.common.parts.preprocessing import collections, parsers
 
 rng = None
 att_factor = 0.8
@@ -67,6 +68,35 @@ def create_manifest(input_manifest, noise_manifest, snrs, out_path):
                 row['audio_filepath'] = os.path.join(out_dir, os.path.basename(row['audio_filepath']))
                 outf.write(json.dumps(row) + "\n")
 
+def add_full_noise(data, noise_manifest, snr_db=0):
+
+    manifest = collections.ASRAudioText(noise_manifest, parser=parsers.make_parser([]), index_by_file_id=True)
+    noise = read_one_audiosegment(
+        manifest,
+        data.sample_rate,
+        rng
+    )
+    noise_gain_db = data.rms_db - noise.rms_db - snr_db
+
+    # logging.debug("noise: %s %s %s", snr_db, noise_gain_db, noise_record.audio_file)
+
+    # calculate noise segment to use
+    if noise.duration > data.duration:
+        noise.subsegment(start_time=0, end_time= data.duration)
+
+    # adjust gain for snr purposes and superimpose
+    noise.gain_db(noise_gain_db)
+
+    if noise._samples.shape[0] < data._samples.shape[0]:
+        noise_idx = 0
+        while noise_idx < data._samples.shape[0] - 1:
+            end_sample = min(noise_idx + noise._samples.shape[0], data._samples.shape[0])
+            data._samples[noise_idx: end_sample] += \
+                noise._samples[0:end_sample - noise_idx ]
+            noise_idx += noise._samples.shape[0]
+    else:
+        data._samples += noise._samples
+
 
 def process_row(row):
     audio_file = row['audio_filepath']
@@ -87,13 +117,13 @@ def process_row(row):
         if os.path.exists(out_f):
             continue
         data = copy.deepcopy(data_orig)
-        if row['noise_type'] == 'random':
+        if row['add_type'] == 'random':
             perturber = NoisePerturbation(
                 manifest_path=row['noise_manifest'], min_snr_db=min_snr_db, max_snr_db=max_snr_db, rng=rng
             )
             perturber.perturb(data)
         else:
-            add_full_noise(data, row['noise_manifest'], min_snr_db=min_snr_db, max_snr_db=max_snr_db, rng=rng)
+            add_full_noise(data, row['noise_manifest'], min_snr_db)
 
         max_level = np.max(np.abs(data.samples))
 
@@ -102,7 +132,7 @@ def process_row(row):
         sf.write(out_f, new_samples.transpose(), sample_rate)
 
 
-def add_noise(infile, snrs, noise_manifest, out_dir, num_workers=1):
+def add_noise(infile, snrs, noise_manifest, out_dir, add_type, num_workers=1):
     allrows = []
 
     with open(infile, "r") as inf:
@@ -112,6 +142,7 @@ def add_noise(infile, snrs, noise_manifest, out_dir, num_workers=1):
             row['out_dir'] = out_dir
             row['noise_manifest'] = noise_manifest
             row['input_manifest'] = infile
+            row['add_type'] = add_type
             allrows.append(row)
     pool = multiprocessing.Pool(num_workers)
     pool.map(process_row, allrows)
@@ -136,6 +167,8 @@ def main():
         type=float,
         help="Attenuation factor applied on the noise added samples before writing to wave",
     )
+    parser.add_argument("--noise_add_loc", type=str, default="full",
+                        help="Must be one of full, random, prepend or append.  ")
     args = parser.parse_args()
     global sample_rate
     sample_rate = args.sample_rate
@@ -145,7 +178,8 @@ def main():
     rng = random.Random(args.seed)
     num_workers = args.num_workers
 
-    add_noise(args.input_manifest, args.snrs, args.noise_manifest, args.out_dir, num_workers=num_workers)
+    add_noise(args.input_manifest, args.snrs, args.noise_manifest, args.out_dir,
+              args.noise_add_loc, num_workers=num_workers)
     create_manifest(args.input_manifest, args.noise_manifest, args.snrs, args.out_dir)
 
 
