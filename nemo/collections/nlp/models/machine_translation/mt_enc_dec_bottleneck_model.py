@@ -29,7 +29,7 @@ from pytorch_lightning.utilities import rank_zero_only
 from sacrebleu import corpus_bleu
 
 from nemo.collections.common.losses import NLLLoss
-from nemo.collections.nlp.models.machine_translation.mt_enc_dec_config import MTBottleneckModelConfig
+from nemo.collections.nlp.models.machine_translation.mt_enc_dec_config import MTBottleneckModelConfig, MTBlockBottleneckModelConfig
 from nemo.collections.nlp.models.machine_translation.mt_enc_dec_model import MTEncDecModel
 from nemo.collections.nlp.modules.common.transformer import AttentionBridge, TopKSequenceGenerator
 from nemo.core.classes.common import typecheck
@@ -468,3 +468,10 @@ class MTBottleneckModel(MTEncDecModel):
             'num_non_pad_tokens': num_non_pad_tokens,
             'log': log_dict,
         }
+
+
+class MTBlockBottleneckModel(MTBottleneckModel):
+    def __init__(self, cfg: MTBlockBottleneckModelConfig, trainer: Trainer = None):
+        super().__init__(cfg=cfg, trainer=trainer)
+        decoders = [self.decoder]
+        encoders = [self.encoder]

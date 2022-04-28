@@ -51,7 +51,6 @@ class NeMoTransformerBottleneckEncoderConfig(NeMoTransformerBottleneckConfig):
     # change return_mask to False to return hidden states only (default for non-bottleneck encoder)
     return_mask: bool = True
 
-
 @dataclass
 class NeMoTransformerBottleneckDecoderConfig(NeMoTransformerBottleneckConfig):
     r2l: bool = False
@@ -59,7 +58,7 @@ class NeMoTransformerBottleneckDecoderConfig(NeMoTransformerBottleneckConfig):
 
 class TransformerBottleneckEncoderNM(TransformerEncoderNM):
 
-    _SUPPORTED_ARCH = ["seq2seq", "bridge", "perceiver", "max_pool", "avg_pool"]  #TODO: add hierarchal
+    _SUPPORTED_ARCH = ["seq2seq", "bridge", "perceiver", "max_pool", "avg_pool"]
 
     def __init__(
         self,
@@ -207,7 +206,6 @@ class TransformerBottleneckEncoderNM(TransformerEncoderNM):
                 hidden_init_method=kwargs["hidden_init_method"],
                 pooling_type="avg",
             )
-        # elif "hierarchical"
         else:
             raise ValueError(f"Unknown arch = {self.arch}, supported arch = {self.supported_arch}")
 

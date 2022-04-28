@@ -1,0 +1,11 @@
+defaults:
+  - aayn_bottleneck
+
+name: BlockBottleneck
+
+model:
+  seq_reduction_factor: 16  # seq is divided by this number at each hiearchy level
+  num_hierar_levels: 2
+
+exp_manager:
+  name: AAYNBlockBottleneck

@@ -27,7 +27,7 @@ from nemo.collections.nlp.modules.common.transformer.transformer import (
 )
 from nemo.collections.nlp.modules.common.transformer.transformer_bottleneck import (
     NeMoTransformerBottleneckDecoderConfig,
-    NeMoTransformerBottleneckEncoderConfig,
+    NeMoTransformerBottleneckEncoderConfig
 )
 from nemo.core.config.modelPT import OptimConfig, SchedConfig
 
@@ -180,3 +180,9 @@ class MTBottleneckModelConfig(AAYNBaseConfig):
         attn_layer_dropout=0.1,
         arch='seq2seq',
     )
+
+
+@dataclass
+class MTBlockBottleneckModelConfig(MTBottleneckModelConfig):
+    seq_reduction_factor: int = 16
+    num_hierar_levels: int = 2
