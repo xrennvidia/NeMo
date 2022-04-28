@@ -39,6 +39,7 @@ model:
     hidden_steps: 32 # fixed number of hidden steps
     hidden_blocks: 1 # number of repeat blocks (see classes for description)
     hidden_init_method: default # see classes for available values
+    enc_num_layers: 0
 
   decoder:
     arch: seq2seq # currently only seq2seq is supported

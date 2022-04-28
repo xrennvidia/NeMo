@@ -42,6 +42,7 @@ class NeMoTransformerBottleneckConfig(NeMoTransformerConfig):
     hidden_steps: int = -1
     hidden_blocks: int = 1
     hidden_init_method: str = "params"
+    enc_num_layers: int = 0
 
 
 @dataclass
@@ -58,7 +59,7 @@ class NeMoTransformerBottleneckDecoderConfig(NeMoTransformerBottleneckConfig):
 
 class TransformerBottleneckEncoderNM(TransformerEncoderNM):
 
-    _SUPPORTED_ARCH = ["seq2seq", "bridge", "perceiver", "max_pool", "avg_pool"]
+    _SUPPORTED_ARCH = ["seq2seq", "bridge", "perceiver", "max_pool", "avg_pool"]  #TODO: add hierarchal
 
     def __init__(
         self,
@@ -82,6 +83,7 @@ class TransformerBottleneckEncoderNM(TransformerEncoderNM):
         hidden_steps: int = -1,
         hidden_blocks: int = 1,
         hidden_init_method: str = "default",
+        enc_num_layers: int = 0,
         # default whether forward() method returns hidden or (hidden, mask)
         return_mask=True,
     ):
@@ -124,6 +126,7 @@ class TransformerBottleneckEncoderNM(TransformerEncoderNM):
             mask_future=mask_future,
             pre_ln=pre_ln,
             pre_ln_final_layer_norm=pre_ln_final_layer_norm,
+            enc_num_layers=enc_num_layers,
         )
 
     def _build_encoder(self, arch, **kwargs):
@@ -166,6 +169,7 @@ class TransformerBottleneckEncoderNM(TransformerEncoderNM):
                 hidden_steps=kwargs["hidden_steps"],
                 hidden_blocks=kwargs["hidden_blocks"],
                 hidden_init_method=kwargs["hidden_init_method"],
+                enc_num_layers=kwargs["enc_num_layers"]
             )
         elif arch == "max_pool":
             encoder = PoolingEncoder(
@@ -203,6 +207,7 @@ class TransformerBottleneckEncoderNM(TransformerEncoderNM):
                 hidden_init_method=kwargs["hidden_init_method"],
                 pooling_type="avg",
             )
+        # elif "hierarchical"
         else:
             raise ValueError(f"Unknown arch = {self.arch}, supported arch = {self.supported_arch}")
 

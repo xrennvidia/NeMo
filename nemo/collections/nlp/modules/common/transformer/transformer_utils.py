@@ -108,6 +108,7 @@ def get_nemo_transformer(
                 hidden_steps=cfg.get('hidden_steps', -1),
                 hidden_blocks=cfg.get('hidden_blocks', 1),
                 hidden_init_method=cfg.get('hidden_init_method', 'default'),
+                enc_num_layers=cfg.get('enc_num_layers', 0),
                 return_mask=cfg.get('return_mask', True),
             )
         else:

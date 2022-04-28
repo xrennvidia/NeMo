@@ -161,7 +161,6 @@ class MTBottleneckModel(MTEncDecModel):
             z_logv = torch.zeros_like(z)
         else:
             # mim or vae
-
             # sample posterior q(z|x) for MIM and VAE
             z_logv = self.hidden2latent_logv(hidden)
             # avoid numerical instability for MIM

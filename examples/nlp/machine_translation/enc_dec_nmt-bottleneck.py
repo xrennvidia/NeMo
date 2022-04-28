@@ -17,6 +17,7 @@ from typing import Optional
 
 from omegaconf import OmegaConf
 from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import ModelSummary
 
 from nemo.collections.nlp.data.machine_translation.preproc_mt_data import MTDataPreproc
 from nemo.collections.nlp.models.machine_translation.mt_enc_dec_bottleneck_model import MTBottleneckModel
@@ -117,7 +118,8 @@ def main(cfg: MTBottleneckConfig) -> None:
     # training is managed by PyTorch Lightning
     trainer_cfg = OmegaConf.to_container(cfg.trainer)
     trainer_cfg.pop('plugins', None)
-    trainer = Trainer(plugins=[NLPDDPPlugin()], **trainer_cfg)
+    trainer_cfg.pop('callbacks', None)
+    trainer = Trainer(plugins=[NLPDDPPlugin()], **trainer_cfg, callbacks=[ModelSummary(max_depth=3)])
 
     # tokenizers will be trained and and tarred training data will be created if needed
     # model config is then updated

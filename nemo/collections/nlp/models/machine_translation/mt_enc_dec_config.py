@@ -165,6 +165,7 @@ class MTBottleneckModelConfig(AAYNBaseConfig):
         hidden_steps=32,
         hidden_blocks=1,
         hidden_init_method='params',
+        enc_num_layers=0,
     )
 
     decoder: NeMoTransformerBottleneckDecoderConfig = NeMoTransformerBottleneckDecoderConfig(
