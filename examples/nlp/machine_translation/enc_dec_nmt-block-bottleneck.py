@@ -123,13 +123,13 @@ def main(cfg: MTBlockBottleneckConfig) -> None:
 
     # tokenizers will be trained and and tarred training data will be created if needed
     # model config is then updated
-    seq_red = cfg.model.seq_reduction_factor
+    num_blocks = cfg.model.num_blocks
     for ds_name in ['train_ds', 'validation_ds', 'test_ds']:
         ds = getattr(cfg.model, ds_name, None)
         if ds is not None:
             max_seq_length = getattr(ds, 'max_seq_length')
-            if max_seq_length // seq_red != 0:
-                max_seq_length = max_seq_length // seq_red * seq_red
+            if max_seq_length // num_blocks != 0:
+                max_seq_length = max_seq_length // num_blocks * num_blocks
                 logging.info(
                     f"{ds_name}.max_seq_length is not divisible by seq_reduction_factor."
                     f"{ds_name}.max_seq_length set to {max_seq_length}"
@@ -144,17 +144,7 @@ def main(cfg: MTBlockBottleneckConfig) -> None:
 
     assert cfg.model.num_hierar_levels > 0
     assert cfg.model.encoder.arch == 'perceiver'
-    if cfg.model.seq_reduction_factor ** cfg.model.num_hierar_levels > cfg.model.train_ds.max_seq_length:
-        last_lvl_seq_reduction_factor = cfg.model.train_ds.max_seq_length // (cfg.model.seq_reduction_factor ** (cfg.model.num_hierar_levels-1))
-        logging.info(
-            "Input sequence is divided into too many sub-chunks. Last level of hierarchy will default"
-            f"to seq_reduction_factor={last_lvl_seq_reduction_factor}."
-        )
-    if cfg.model.encoder.hidden_steps != cfg.model.train_ds.max_seq_length // cfg.model.seq_reduction_factor:
-        logging.info(
-            "Input sequence is divided into too many sub-chunks. Last level of hierarchy will default"
-            f"to seq_reduction_factor={last_lvl_seq_reduction_factor}."
-        )
+    cfg.model.encoder.hidden_steps = 1
     # everything needed to train translation models is encapsulated in the NeMo MTEncdDecModel
     mt_model = MTBlockBottleneckModel(cfg.model, trainer=trainer)
 

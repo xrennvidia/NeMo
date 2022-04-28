@@ -14,6 +14,7 @@
 
 import itertools
 import json
+import copy
 import random
 from multiprocessing import Value
 from pathlib import Path
@@ -32,6 +33,7 @@ from nemo.collections.common.losses import NLLLoss
 from nemo.collections.nlp.models.machine_translation.mt_enc_dec_config import MTBottleneckModelConfig, MTBlockBottleneckModelConfig
 from nemo.collections.nlp.models.machine_translation.mt_enc_dec_model import MTEncDecModel
 from nemo.collections.nlp.modules.common.transformer import AttentionBridge, TopKSequenceGenerator
+from nemo.collections.nlp.modules.common.lm_utils import get_transformer
 from nemo.core.classes.common import typecheck
 from nemo.utils import logging, model_utils, timers
 
@@ -473,5 +475,23 @@ class MTBottleneckModel(MTEncDecModel):
 class MTBlockBottleneckModel(MTBottleneckModel):
     def __init__(self, cfg: MTBlockBottleneckModelConfig, trainer: Trainer = None):
         super().__init__(cfg=cfg, trainer=trainer)
-        decoders = [self.decoder]
-        encoders = [self.encoder]
+
+        encoders = [copy.deepcopy(self.encoder.encoder) for _ in range(cfg.num_hierar_levels-1)]
+        decoders = [copy.deepcopy(self.decoder.decoder) for _ in range(cfg.num_hierar_levels-1)]
+        encoders.insert(0, self.encoder)
+        decoders.insert(0, self.decoder)
+        self.encoder = torch.nn.ModuleList(encoders)
+        self.decoder = torch.nn.ModuleList(decoders)
+
+        @typecheck()
+        def forward(self, src, src_mask, tgt, tgt_mask, timer=None):
+
+            if self.validate_input_ids:
+                # test src/tgt for id range (i.e., hellp in catching wrong tokenizer)
+                self.test_encoder_ids(src, raise_error=True)
+                self.test_decoder_ids(tgt, raise_error=True)
+
+            if timer is not None:
+                timer.start("encoder")
+            for encoder in self.encoder:
+                enc_hiddens, enc_mask = encoder(input_ids=src, encoder_mask=src_mask, return_mask=True, )
