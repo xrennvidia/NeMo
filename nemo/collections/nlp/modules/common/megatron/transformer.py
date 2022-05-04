@@ -1017,8 +1017,10 @@ class ParallelTransformer(MegatronModule):
                 encoder_output = inputs[2]
                 enc_dec_attn_mask = inputs[3]
                 for index in range(start, end):
+                    torch.cuda.nvtx.range_push("ckpt_fwd_layer_{}".format(index))
                     layer = self._get_layer(index)
                     x_ = layer(x_, attention_mask, encoder_output, enc_dec_attn_mask)
+                    torch.cuda.nvtx.range_pop()
                 return x_
 
             return custom_forward
@@ -1111,6 +1113,7 @@ class ParallelTransformer(MegatronModule):
             if get_key_value:
                 presents = []
             for index in range(self.num_layers):
+                torch.cuda.nvtx.range_push("fwd_layer_{}".format(index))
                 layer = self._get_layer(index)
                 past = None
                 if layer_past is not None:
@@ -1128,6 +1131,7 @@ class ParallelTransformer(MegatronModule):
                 if get_key_value:
                     hidden_states, present = hidden_states
                     presents.append(present)
+                torch.cuda.nvtx.range_pop()
 
         # Final layer norm.
         if self.post_process:

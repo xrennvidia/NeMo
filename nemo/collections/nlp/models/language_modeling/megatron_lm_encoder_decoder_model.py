@@ -222,6 +222,7 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
             Microbatches are then moved to GPU during the pipeline.
             The list of microbatches is then piped through the pipeline using Apex fwd/bwd functions.
         """
+        torch.cuda.nvtx.range_push("training_step")
         # we zero grads here because we also call backward in the apex fwd/bwd functions
         self._optimizer.zero_grad()
 
@@ -231,6 +232,7 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
         decoder_seq_length = batch_for_pipeline[1].size(1)
         tensor_shape = [encoder_seq_length, get_micro_batch_size(), self.cfg.hidden_size]
 
+        torch.cuda.nvtx.range_push("fwd_bwd")
         if self.cfg.get('pipeline_model_parallel_size', 1) > 1:
             losses_reduced_per_micro_batch = forward_backward_pipelining_without_interleaving(
                 forward_step_func=self.get_forward_output_and_loss_func(),
@@ -253,6 +255,7 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
                 dtype=self.autocast_dtype,
                 grad_scaler=self.trainer.precision_plugin.scaler if self.cfg.precision == 16 else None,
             )
+        torch.cuda.nvtx.range_pop()
 
         # only the last stages of the pipeline return losses
         if losses_reduced_per_micro_batch:
@@ -263,6 +266,7 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
         else:
             loss_mean = torch.tensor(0.0).cuda()
 
+        torch.cuda.nvtx.range_push("grad_ar")
         # TODO: if we're not using pipeline, then we should do async allreduce (better perf)
         # in order to do this with O2, we need the async handler to be added to apex fwd/bwd function
         if self.megatron_amp_o2:
@@ -275,6 +279,7 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
             self.allreduce_gradients()  # @sangkug we think this is causing memory to blow up (hurts perf)
 
             self.allreduce_word_and_position_embeddings()
+        torch.cuda.nvtx.range_pop()
 
         ## logging
         # we can only log on one rank if it is rank zero so we broadcast from last rank
@@ -297,6 +302,7 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
             prog_bar=True,
             rank_zero_only=True,
         )
+        torch.cuda.nvtx.range_pop()
         return loss_mean
 
     def on_train_batch_end(self, outputs, batch, batch_idx: int, unused: Optional[int] = 0) -> None:
@@ -355,6 +361,7 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
            Modified from megatron-lm: https://github.com/NVIDIA/Megatron-LM/blob/d41696840ed0a7edb7e0499eb82a48ae112d9bb3/megatron/model/distributed.py#L188
         """
         # Bucketize and all-reduce
+        torch.cuda.nvtx.range_push("main_grads_ar")
         buckets = {}
         # Pack the buckets.
         for param in self.parameters():
@@ -374,6 +381,7 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
             torch.distributed.all_reduce(coalesced, group=parallel_state.get_data_parallel_group())
             for buf, synced in zip(grads, torch._utils._unflatten_dense_tensors(coalesced, grads)):
                 buf.copy_(synced)
+        torch.cuda.nvtx.range_pop()
 
     def allreduce_word_and_position_embeddings(self):
 
@@ -382,6 +390,7 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
         # that word_embeddings parameters stay in sync.
         # This should only run for models that support pipelined model parallelism
         # (BERT and GPT-2).
+        torch.cuda.nvtx.range_push("embedding_grads_ar")
         if parallel_state.get_pipeline_model_parallel_world_size() > 1 and (
             parallel_state.is_rank_in_embedding_group()
         ):
@@ -406,10 +415,14 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
                     else:
                         grad = position_embeddings_weight.grad
                     torch.distributed.all_reduce(grad, group=parallel_state.get_position_embedding_group())
+        torch.cuda.nvtx.range_pop()
 
     def get_forward_output_and_loss_func(self):
         def fwd_output_and_loss_func(batch, model):
+            torch.cuda.nvtx.range_push("input_load")
             batch = [x.cuda(non_blocking=True) for x in batch]
+            torch.cuda.nvtx.range_pop()
+            torch.cuda.nvtx.range_push("fwd")
             encoder_input_ids, decoder_input_ids, loss_mask, lm_labels, encoder_attn_mask, decoder_attn_mask = batch
             output = model(
                 encoder_input_ids,  # enc_input_ids
@@ -420,9 +433,12 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
                 lm_labels,  # labels
                 None,  # enc_hidden_states
             )
+            torch.cuda.nvtx.range_pop()
 
             def loss_func(output_tensor):
+                torch.cuda.nvtx.range_push("loss")
                 loss = self.loss_func(loss_mask, output_tensor)
+                torch.cuda.nvtx.range_pop()
                 reduced_loss = average_losses_across_data_parallel_group([loss])
                 return loss, {'avg': reduced_loss}
 
