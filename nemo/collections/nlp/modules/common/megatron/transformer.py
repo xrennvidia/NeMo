@@ -195,9 +195,11 @@ class ParallelMLP(MegatronModule):
 
     def forward(self, hidden_states):
 
+        torch.cuda.nvtx.range_push("mlp")
         # [s, b, 4hp]
         intermediate_parallel, bias_parallel = self.dense_h_to_4h(hidden_states)
 
+        torch.cuda.nvtx.range_push("hto4h")
         if self.activation in ['geglu', 'reglu', 'swiglu']:
             intermediate_parallel_2, bias_parallel_2 = self.dense_h_to_4h_2(hidden_states)
 
@@ -221,9 +223,13 @@ class ParallelMLP(MegatronModule):
                 intermediate_parallel = self.activation_func(intermediate_parallel + bias_parallel)
             else:
                 intermediate_parallel = self.activation_func(intermediate_parallel)
+        torch.cuda.nvtx.range_pop()
 
         # [s, b, h]
+        torch.cuda.nvtx.range_push("4htoh")
         output, output_bias = self.dense_4h_to_h(intermediate_parallel)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_pop()
         return output, output_bias
 
 
@@ -387,6 +393,7 @@ class ParallelAttention(MegatronModule):
         set_inference_key_value_memory=False,
         inference_max_sequence_len=None,
     ):
+        torch.cuda.nvtx.range_push("self_attn")
         # hidden_states: [sq, b, h]
 
         # =================================================
@@ -415,6 +422,8 @@ class ParallelAttention(MegatronModule):
         # Query, Key, and Value
         # =====================
 
+        torch.cuda.nvtx.range_push("mha")
+        torch.cuda.nvtx.range_push("qkv")
         if self.attention_type == AttnType.self_attn:
             # Attention heads [sq, b, h] --> [sq, b, (np * 3 * hn)]
             mixed_x_layer, _ = self.query_key_value(hidden_states)
@@ -452,6 +461,7 @@ class ParallelAttention(MegatronModule):
                 self.hidden_size_per_attention_head,
             )
             query_layer = query_layer.view(*new_tensor_shape)
+        torch.cuda.nvtx.range_pop()
 
         # ===================================================
         # Adjust key, value, and attention mask for inference
@@ -498,6 +508,7 @@ class ParallelAttention(MegatronModule):
             device=torch.cuda.current_device(),
         )
 
+        torch.cuda.nvtx.range_push("dot_procduct_attn")
         # Raw attention scores. [b * np, sq, sk]
         matmul_result = torch.baddbmm(
             matmul_result,
@@ -563,16 +574,21 @@ class ParallelAttention(MegatronModule):
         # [sq, b, np, hn] --> [sq, b, hp]
         new_context_layer_shape = context_layer.size()[:-2] + (self.hidden_size_per_partition,)
         context_layer = context_layer.view(*new_context_layer_shape)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_pop()
 
         # =================
         # Output. [sq, b, h]
         # =================
 
+        torch.cuda.nvtx.range_push("self_dense")
         output, bias = self.dense(context_layer)
+        torch.cuda.nvtx.range_pop()
 
         if get_key_value:
             output = [output, present]
 
+        torch.cuda.nvtx.range_pop()
         return output, bias
 
 
