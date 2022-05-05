@@ -143,7 +143,6 @@ class MegatronPretrainingBatchSampler(BaseMegatronBatchSampler):
         return start_idx, end_idx
 
     def __iter__(self):
-        torch.cuda.nvtx.range_push("batch_sampler_iter")
         batch = []
         # Last batch will be dropped if drop_last is not set False
         for idx in range(self.consumed_samples, self.total_samples):
@@ -164,7 +163,6 @@ class MegatronPretrainingBatchSampler(BaseMegatronBatchSampler):
             indices = [batch[i] for i in range(self.data_parallel_rank, len(batch), self.data_parallel_size)]
             # yield batch[start_idx:end_idx]
             yield indices
-        torch.cuda.nvtx.range_pop()
 
 
 @experimental
@@ -197,7 +195,6 @@ class MegatronPretrainingRandomBatchSampler(BaseMegatronBatchSampler):
         self.last_batch_size = self.total_samples % self._global_batch_size
 
     def __iter__(self):
-        torch.cuda.nvtx.range_push("batch_sampler_iter")
         active_total_samples = self.total_samples - self.last_batch_size
         self.epoch = self.consumed_samples // active_total_samples
         current_epoch_samples = self.consumed_samples % active_total_samples
@@ -224,4 +221,3 @@ class MegatronPretrainingRandomBatchSampler(BaseMegatronBatchSampler):
         # Check the last partial batch and see drop_last is set
         if len(batch) > 0 and not self.drop_last:
             yield batch
-        torch.cuda.nvtx.range_pop()
