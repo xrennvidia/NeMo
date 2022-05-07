@@ -197,9 +197,11 @@ class ParallelMLP(MegatronModule):
 
         torch.cuda.nvtx.range_push("mlp")
         # [s, b, 4hp]
-        intermediate_parallel, bias_parallel = self.dense_h_to_4h(hidden_states)
-
         torch.cuda.nvtx.range_push("hto4h")
+        intermediate_parallel, bias_parallel = self.dense_h_to_4h(hidden_states)
+        torch.cuda.nvtx.range_pop()
+
+        torch.cuda.nvtx.range_push("activation")
         if self.activation in ['geglu', 'reglu', 'swiglu']:
             intermediate_parallel_2, bias_parallel_2 = self.dense_h_to_4h_2(hidden_states)
 
@@ -734,7 +736,9 @@ class ParallelTransformerLayer_(MegatronModule):
         # hidden_states: [b, s, h]
 
         # Layer norm at the beginning of the transformer layer.
+        torch.cuda.nvtx.range_push("input_layernorm")
         layernorm_output = self.input_layernorm(hidden_states)
+        torch.cuda.nvtx.range_pop()
         # Self attention.
         attention_output, attention_bias = self.self_attention(
             layernorm_output,
@@ -771,10 +775,14 @@ class ParallelTransformerLayer_(MegatronModule):
         if attention_bias is not None:
             attention_bias = attention_bias.expand_as(residual)
 
+        torch.cuda.nvtx.range_push("bias_dropout_add")
         layernorm_input = bias_dropout_add_func(attention_output, attention_bias, residual, self.hidden_dropout)
+        torch.cuda.nvtx.range_pop()
 
         # Layer norm post the self attention.
+        torch.cuda.nvtx.range_push("post_attn_layernorm")
         layernorm_output = self.post_attention_layernorm(layernorm_input)
+        torch.cuda.nvtx.range_pop()
 
         if self.layer_type == LayerType.decoder:
             attention_output, attention_bias = self.inter_attention(
@@ -789,10 +797,14 @@ class ParallelTransformerLayer_(MegatronModule):
             if attention_bias is not None:
                 attention_bias = attention_bias.expand_as(residual)
 
+            torch.cuda.nvtx.range_push("bias_dropout_add")
             layernorm_input = bias_dropout_add_func(attention_output, attention_bias, residual, self.hidden_dropout)
+            torch.cuda.nvtx.range_pop()
 
             # Layer norm post the decoder attention
+            torch.cuda.nvtx.range_push("post_inter_attn_layernorm")
             layernorm_output = self.post_inter_attention_layernorm(layernorm_input)
+            torch.cuda.nvtx.range_pop()
 
         # MLP.
         mlp_output, mlp_bias = self.mlp(layernorm_output)
@@ -806,7 +818,9 @@ class ParallelTransformerLayer_(MegatronModule):
         if mlp_bias is not None:
             mlp_bias = mlp_bias.expand_as(residual)
 
+        torch.cuda.nvtx.range_push("bias_dropout_add")
         output = bias_dropout_add_func(mlp_output, mlp_bias, residual, self.hidden_dropout)
+        torch.cuda.nvtx.range_pop()
 
         if get_key_value:
             output = [output, presents]
