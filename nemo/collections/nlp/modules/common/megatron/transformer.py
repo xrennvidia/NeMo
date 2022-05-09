@@ -1167,7 +1167,9 @@ class ParallelTransformer(MegatronModule):
         if self.post_process:
             # Reverting data format change [s b h] --> [b s h].
             hidden_states = hidden_states.transpose(0, 1).contiguous()
+            torch.cuda.nvtx.range_push("final_layernorm")
             output = self.final_layernorm(hidden_states)
+            torch.cuda.nvtx.range_pop()
         else:
             output = hidden_states
         if get_key_value:

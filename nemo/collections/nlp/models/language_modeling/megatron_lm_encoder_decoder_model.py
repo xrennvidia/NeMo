@@ -224,7 +224,9 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
         """
         torch.cuda.nvtx.range_push("training_step")
         # we zero grads here because we also call backward in the apex fwd/bwd functions
+        torch.cuda.nvtx.range_push("zero_grad")
         self._optimizer.zero_grad()
+        torch.cuda.nvtx.range_pop()
 
         # we prepare the micro batches for the apex fwd/bwd function
         batch_for_pipeline = self.process_global_batch(batch)

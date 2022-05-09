@@ -259,12 +259,14 @@ def build_attention_mask_3d(source_mask, target_mask, attn_mask_type):
     :param target_mask - < 0.5 for non-masked, else masked [batch, tgt length]
     :param attn_mask_type - AttnMaskType enum
     """
+    torch.cuda.nvtx.range_push("build_attn_mask_3d")
     if attn_mask_type == AttnMaskType.padding:
         mask = build_attention_mask_3d_padding(source_mask, target_mask)
     elif attn_mask_type == AttnMaskType.causal:
         mask = build_attention_mask_3d_causal(source_mask, target_mask)
     else:
         raise ValueError(f"Unsupported attention mask attn_mask_type = {attn_mask_type}")
+    torch.cuda.nvtx.range_pop()
 
     return mask
 

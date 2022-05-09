@@ -292,8 +292,12 @@ class MegatronTokenLevelEncoderDecoderModule(MegatronModule):
         if enc_input is None:
             if self.pre_process and self.add_encoder:
                 # encoder embeddings
+                torch.cuda.nvtx.range_push("enc_pos_ids")
                 enc_position_ids = build_position_ids(enc_input_ids)
+                torch.cuda.nvtx.range_pop()
+                torch.cuda.nvtx.range_push("enc_embedding")
                 enc_input = self.encoder_embedding(enc_input_ids, enc_position_ids, token_type_ids=token_type_ids)
+                torch.cuda.nvtx.range_pop()
             else:
                 enc_input = None
 
@@ -304,12 +308,17 @@ class MegatronTokenLevelEncoderDecoderModule(MegatronModule):
             return enc_output
         else:
             if self.pre_process and self.add_decoder:
+                torch.cuda.nvtx.range_push("dec_pos_ids")
                 dec_position_ids = build_position_ids(dec_input_ids)
+                torch.cuda.nvtx.range_pop()
+                torch.cuda.nvtx.range_push("dec_embedding")
                 dec_input = self.decoder_embedding(dec_input_ids, dec_position_ids, token_type_ids=token_type_ids)
+                torch.cuda.nvtx.range_pop()
             else:
                 # Note: This is when the decoder itself is split across PP ranks.
                 dec_input = None
 
+            torch.cuda.nvtx.range_push("enc_dec_layers")
             output = self.enc_dec_model(
                 enc_input=enc_input,
                 enc_attn_mask=enc_attn_mask,
@@ -321,19 +330,24 @@ class MegatronTokenLevelEncoderDecoderModule(MegatronModule):
                 dec_layer_past=None,
                 dec_get_key_value=False,
             )
+            torch.cuda.nvtx.range_pop()
 
             if self.post_process and self.add_decoder:
                 dec_output, enc_output = output
                 # project decoder output to vocabulary-size dimensions
+                torch.cuda.nvtx.range_push("token_head")
                 token_logits = self.tokens_head(dec_output, self.word_embeddings_weight())
+                torch.cuda.nvtx.range_pop()
 
                 if labels is not None:
                     # tensor_parallel.vocab_parallel_cross_entropy performs log_softmax and return log p(x_i|z) per token i
+                    torch.cuda.nvtx.range_push("vocab_cross_entropy")
                     if self.fp16_cross_entropy:
                         assert token_logits.dtype == torch.half
                         tokens_loss = tensor_parallel.vocab_parallel_cross_entropy(token_logits, labels)
                     else:
                         tokens_loss = tensor_parallel.vocab_parallel_cross_entropy(token_logits.float(), labels)
+                    torch.cuda.nvtx.range_pop()
                     return tokens_loss
                 else:
                     return token_logits
