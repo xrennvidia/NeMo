@@ -227,9 +227,13 @@ class ParallelMLP(MegatronModule):
         intermediate_parallel, bias_parallel = self.dense_h_to_4h(hidden_states)
         torch.cuda.nvtx.range_pop()
 
+        if self.activation in ['geglu', 'reglu', 'swiglu']:
+            torch.cuda.nvtx.range_push("hto4h_2")
+            intermediate_parallel_2, bias_parallel_2 = self.dense_h_to_4h_2(hidden_states)
+            torch.cuda.nvtx.range_pop()
+
         torch.cuda.nvtx.range_push("activation")
         if self.activation in ['geglu', 'reglu', 'swiglu']:
-            intermediate_parallel_2, bias_parallel_2 = self.dense_h_to_4h_2(hidden_states)
             if bias_parallel is not None:
                 intermediate_parallel = self.activation_func(intermediate_parallel + bias_parallel) * (
                     intermediate_parallel_2 + bias_parallel_2
