@@ -310,8 +310,16 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
         torch.cuda.nvtx.range_pop()
         return loss_mean
 
+    def on_train_batch_start(self, batch, batch_idx, unused: Optional[int] = 0) -> None:
+        if torch.cuda.current_device() == 0 and batch_idx == 5:
+            print("====== Start nsys profiling ======")
+            torch.cuda.cudart().cudaProfilerStart()
+
     def on_train_batch_end(self, outputs, batch, batch_idx: int, unused: Optional[int] = 0) -> None:
         super().on_train_batch_end(outputs, batch, batch_idx)
+        if torch.cuda.current_device() == 0 and batch_idx == 6:
+            print("====== End nsys profiling ======")
+            torch.cuda.cudart().cudaProfilerStop()
 
         # TODO: Replace with newer override for scheduler.step() instead of
         # search for plugins for fp16 GradScalar
