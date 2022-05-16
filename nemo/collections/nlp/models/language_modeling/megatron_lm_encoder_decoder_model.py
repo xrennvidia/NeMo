@@ -290,6 +290,7 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
         if torch.cuda.current_device() == 0 and batch_idx == 6:
             print("====== End nsys profiling ======")
             torch.cuda.cudart().cudaProfilerStop()
+            raise SystemExit
 
         # TODO: Replace with newer override for scheduler.step() instead of
         # search for plugins for fp16 GradScalar
