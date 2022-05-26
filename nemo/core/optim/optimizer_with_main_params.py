@@ -311,11 +311,15 @@ class MainParamsOptimizerWrapper(torch.optim.Optimizer):
                         allreduce_tensor = self._main_grad_buffers[i].get_allreduce_tensor()
                         if allreduce_tensor is None:
                             break
+                        torch.cuda.nvtx.range_push("main_grad_ar")
                         allreduce_tensor.div_(get_data_parallel_world_size())
                         torch.distributed.all_reduce(allreduce_tensor, group=get_data_parallel_group(), async_op=True)
+                        torch.cuda.nvtx.range_pop()
                 else:
+                    torch.cuda.nvtx.range_push("main_grad_ar")
                     main_param.grad.div_(get_data_parallel_world_size())
                     torch.distributed.all_reduce(main_param.grad, group=get_data_parallel_group(), async_op=True)
+                    torch.cuda.nvtx.range_pop()
 
         return param_hook
 
