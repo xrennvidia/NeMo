@@ -1288,6 +1288,7 @@ class ParallelTransformerLayer_(MegatronModule):
                 torch.cuda.nvtx.range_push("input_layernorm")
                 normalization_output = self.input_layernorm(layernorm_input)
                 torch.cuda.nvtx.range_pop()
+                layernorm_input = normalization_output
             elif self.transformer_block_type in ['pre_ln', 'normformer']:
                 # Layer norm post the self attention.
                 torch.cuda.nvtx.range_push("post_attn_layernorm")
@@ -1351,7 +1352,9 @@ class ParallelTransformerLayer_(MegatronModule):
             torch.cuda.nvtx.range_push("post_inter_attn_layernorm")
             normalization_output = self.post_inter_attention_layernorm(layernorm_input)
             torch.cuda.nvtx.range_pop()
-
+            # Post-LN normalization after residual
+            if self.transformer_block_type == 'post_ln':
+                layernorm_input = normalization_output
         # MLP.
         mlp_output, mlp_bias = self.mlp(normalization_output)
 
