@@ -412,6 +412,7 @@ class MainParamsOptimizerWrapper(torch.optim.Optimizer):
 
     @torch.no_grad()
     def step(self, **kwargs):
+        torch.cuda.nvtx.range_push("optimizer_step")
         # Step the optimizer.
         self.optimizer.step(closure=None, **kwargs)
 
@@ -419,6 +420,7 @@ class MainParamsOptimizerWrapper(torch.optim.Optimizer):
         with torch.no_grad():
             self._copy_main_params_to_model_params()
 
+        torch.cuda.nvtx.range_pop()
         # Successful update.
         return True
 
