@@ -175,6 +175,7 @@ class MegatronBaseModel(NLPModel):
         """PTL hook to configure gradients.
            We use gradient clipping implementation from megatron-lm.
         """
+        torch.cuda.nvtx.range_push("config_grad_clipping")
         clip_val = self.trainer.gradient_clip_val
         if clip_val is None:
             return
@@ -195,6 +196,7 @@ class MegatronBaseModel(NLPModel):
         grad_norm = clip_grad_norm_fp32(parameters=parameters, max_norm=clip_val)
 
         self.log('grad_norm', grad_norm, rank_zero_only=True)
+        torch.cuda.nvtx.range_pop()
 
     def allreduce_gradients(self):
         """Reduce gradients across data parallel ranks.
