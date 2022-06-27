@@ -310,7 +310,7 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
 
     def on_train_batch_end(self, outputs, batch, batch_idx: int, unused: Optional[int] = 0) -> None:
         super().on_train_batch_end(outputs, batch, batch_idx)
-        if torch.cuda.current_device() == 0 and batch_idx == 6 and \
+        if torch.cuda.current_device() == 0 and batch_idx == 16 and \
            torch.distributed.get_rank(parallel_state.get_data_parallel_group()) == 0 and \
            torch.distributed.get_rank(parallel_state.get_model_parallel_group()) == 0 :
             print("====== End nsys profiling ======")
