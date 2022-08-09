@@ -351,7 +351,7 @@ class CoreAttention(MegatronModule):
             attention_mask_func,
             self.attention_softmax_in_fp32,
             coeff,
-
+        )
 
         # Dropout. Note that for a single iteration, this layer will generate
         # different outputs on different number of parallel partitions but
@@ -485,6 +485,7 @@ class CoreAttention(MegatronModule):
         # [sq, b, np, hn] --> [sq, b, hp]
         new_context_layer_shape = context_layer.size()[:-2] + (self.hidden_size_per_partition,)
         context_layer = context_layer.view(*new_context_layer_shape)
+
         return context_layer
 
 
