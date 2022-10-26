@@ -453,10 +453,10 @@ class FastPitchModel(SpectrogramGenerator, Exportable):
         mel_loss = collect("mel_loss")
         dur_loss = collect("dur_loss")
         pitch_loss = collect("pitch_loss")
-        self.log("v_loss", val_loss)
-        self.log("v_mel_loss", mel_loss)
-        self.log("v_dur_loss", dur_loss)
-        self.log("v_pitch_loss", pitch_loss)
+        self.log("val_loss", val_loss)
+        self.log("val_mel_loss", mel_loss)
+        self.log("val_dur_loss", dur_loss)
+        self.log("val_pitch_loss", pitch_loss)
 
         _, _, _, _, spec_target, spec_predict = outputs[0].values()
 
@@ -527,11 +527,20 @@ class FastPitchModel(SpectrogramGenerator, Exportable):
         """
         list_of_models = []
 
-        # en-US, single speaker, 22050Hz, LJSpeech.
+        # en-US, single speaker, 22050Hz, LJSpeech (ARPABET).
         model = PretrainedModelInfo(
             pretrained_model_name="tts_en_fastpitch",
             location="https://api.ngc.nvidia.com/v2/models/nvidia/nemo/tts_en_fastpitch/versions/1.8.1/files/tts_en_fastpitch_align.nemo",
-            description="This model is trained on LJSpeech sampled at 22050Hz with and can be used to generate female English voices with an American accent.",
+            description="This model is trained on LJSpeech sampled at 22050Hz with and can be used to generate female English voices with an American accent. It is ARPABET-based.",
+            class_=cls,
+        )
+        list_of_models.append(model)
+
+        # en-US, single speaker, 22050Hz, LJSpeech (IPA).
+        model = PretrainedModelInfo(
+            pretrained_model_name="tts_en_fastpitch_ipa",
+            location="https://api.ngc.nvidia.com/v2/models/nvidia/nemo/tts_en_fastpitch/versions/IPA_1.13.0/files/tts_en_fastpitch_align_ipa.nemo",
+            description="This model is trained on LJSpeech sampled at 22050Hz with and can be used to generate female English voices with an American accent. It is IPA-based.",
             class_=cls,
         )
         list_of_models.append(model)
@@ -671,6 +680,7 @@ class FastPitchModel(SpectrogramGenerator, Exportable):
     ):
         """
         This method performs speaker interpolation between two original speakers the model is trained on.
+
         Inputs:
             original_speaker_1: Integer speaker ID of first existing speaker in the model
             original_speaker_2: Integer speaker ID of second existing speaker in the model
