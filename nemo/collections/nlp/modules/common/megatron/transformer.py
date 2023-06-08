@@ -961,6 +961,9 @@ class ParallelTransformer(MegatronModule):
         self.position_embedding_type = position_embedding_type
         self.multi_query_attention = multi_query_attention
 
+        self.inference_current_sequence_len = 0
+        self.inference_params = None
+
         self.activations_checkpoint_method = activations_checkpoint_method
         self.activations_checkpoint_num_layers = activations_checkpoint_num_layers
         self.activations_checkpoint_granularity = activations_checkpoint_granularity
@@ -1471,6 +1474,20 @@ class ParallelTransformer(MegatronModule):
                     if get_key_value:
                         presents = []
 
+                    if self.transformer_engine:
+                        # Pass key value information to TE through inference_params to pre-allocate memory
+                        if set_inference_key_value_memory:
+                            self.inference_params = type('', (), {})()
+                            self.inference_params.max_sequence_len = inference_max_sequence_len
+                            self.inference_params.max_batch_size = hidden_states.size(1)
+                            self.inference_params.batch_size_offset = 0
+                            self.inference_params.key_value_memory_dict = {}
+                            self.inference_params.sequence_len_offset = 0
+                            self.inference_current_sequence_len = 0
+
+                        if self.inference_params != None:
+                            self.inference_params.sequence_len_offset = self.inference_current_sequence_len
+
                     for index in range(self.num_layers):
                         torch.cuda.nvtx.range_push("fwd_layer_{}".format(index))
                         layer = self._get_layer(index)
@@ -1500,19 +1517,15 @@ class ParallelTransformer(MegatronModule):
                             checkpoint_core_attention = False
 
                         if self.transformer_engine:
-
-                            inference_params = None
-
                             hidden_states = layer(
                                 hidden_states,
                                 attention_mask,
                                 encoder_output=encoder_output,
                                 enc_dec_attn_mask=enc_dec_attn_mask,
-                                inference_params=inference_params,
+                                inference_params=self.inference_params,
                                 is_first_microbatch=self.is_first_microbatch,
                                 checkpoint_core_attention=checkpoint_core_attention,
                             )
-
                         else:
                             hidden_states = layer(
                                 hidden_states,
@@ -1529,6 +1542,9 @@ class ParallelTransformer(MegatronModule):
                                 checkpoint_core_attention=checkpoint_core_attention,
                             )
                         torch.cuda.nvtx.range_pop()
+                    # Update current sequence length outside of the loops
+                    if self.transformer_engine:
+                        self.inference_current_sequence_len += hidden_states.size(0)
 
         # Skip counter update for eval and activation checkpointing
         if torch.is_grad_enabled() and self.training:
