@@ -750,17 +750,29 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
 
     def get_batch_on_this_context_parallel_rank(self, batch):
         cp_size = self.cfg.get('context_parallel_size', 1)
-        loss_mask_sum = None if 'loss_mask' not in batch else batch['loss_mask'].sum()
+        cp_split_dim = self.cfg.get('context_parallel_split_dim', 'sequence')
+
         if cp_size > 1:
             cp_rank = parallel_state.get_context_parallel_rank()
             for key, val in batch.items():
                 if val is not None:
                     seq_dim = 1 if key != 'attnetion_mask' else 2
-                    val = val.view(*val.shape[0:seq_dim], 2*cp_size, val.shape[seq_dim]//(2*cp_size), *val.shape[(seq_dim+1):])
-                    index = torch.tensor([cp_rank, (2*cp_size-cp_rank-1)], device=val.device)
-                    val = val.index_select(seq_dim, index)
-                    val = val.view(*val.shape[0:seq_dim], len(index)*val.shape[seq_dim+1], *val.shape[(seq_dim+2):])
+
+                    if cp_split_dim == 'sequence':
+                        val = val.view(*val.shape[0:seq_dim], 2*cp_size, val.shape[seq_dim]//(2*cp_size), *val.shape[(seq_dim+1):])
+                        index = torch.tensor([cp_rank, (2*cp_size-cp_rank-1)], device=val.device)
+                        val = val.index_select(seq_dim, index)
+                        val = val.view(*val.shape[0:seq_dim], len(index)*val.shape[seq_dim+1], *val.shape[(seq_dim+2):])
+                    elif cp_split_dim == 'head':
+                        val = val.view(*val.shape[0:seq_dim], cp_size, val.shape[seq_dim]//cp_size, *val.shape[(seq_dim+1):])
+                        index = torch.tensor([cp_rank], device=val.device)
+                        val = val.index_select(seq_dim, index).squeeze(seq_dim)
+                    else:
+                        assert(Flase), f"Context parallel implementation does not split_dim of {cp_split_dim}"
+
                     batch[key] = val
+
+        loss_mask_sum = None if 'loss_mask' not in batch else batch['loss_mask'].sum()
         batch['loss_mask_sum'] = loss_mask_sum
 
         return batch
@@ -1212,18 +1224,21 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
         if self.cfg.get('transformer_engine', False):
             logging.info(f'Setting up transformer engine modules for context parallelism.')
             cp_stream = torch.cuda.Stream()
+            cp_split_dim = self.cfg.get('context_parallel_split_dim', 'sequence')
             if self.cfg.get('megatron_amp_O2', 'False'):
                 # when using O2 additional module key is added that casts the weights
                 for layer in module.module.language_model.encoder.layers:
                     layer.set_context_parallel_running(parallel_state.get_context_parallel_group(),
                                                        parallel_state.get_context_parallel_global_ranks(),
-                                                       cp_stream)
+                                                       cp_stream,
+                                                       cp_split_dim)
 
             else:
                 for layer in module.language_model.encoder.layers:
                     layer.set_context_parallel_running(parallel_state.get_context_parallel_group(),
                                                        parallel_state.get_context_parallel_global_ranks(),
-                                                       cp_stream)
+                                                       cp_stream,
+                                                       cp_split_dim)
 
     def setup_transformer_engine_cp_running(self):
         """ This should be called after context parallel groups have been initialized
