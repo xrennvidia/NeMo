@@ -1227,6 +1227,7 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
             cp_split_dim = self.cfg.get('context_parallel_split_dim', 'sequence')
             cp_lossless_out = self.cfg.get('context_parallel_lossless_out', False)
             cp_lossless_lse = self.cfg.get('context_parallel_lossless_lse', False)
+            cp_lossless_dqkv = self.cfg.get('context_parallel_lossless_dqkv', False)
             if self.cfg.get('megatron_amp_O2', 'False'):
                 # when using O2 additional module key is added that casts the weights
                 for layer in module.module.language_model.encoder.layers:
@@ -1235,7 +1236,8 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
                                                        cp_stream,
                                                        cp_split_dim,
                                                        cp_lossless_out,
-                                                       cp_lossless_lse)
+                                                       cp_lossless_lse,
+                                                       cp_lossless_dqkv)
 
             else:
                 for layer in module.language_model.encoder.layers:
@@ -1244,7 +1246,8 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
                                                        cp_stream,
                                                        cp_split_dim,
                                                        cp_lossless_out,
-                                                       cp_lossless_lse)
+                                                       cp_lossless_lse,
+                                                       cp_lossless_dqkv)
 
     def setup_transformer_engine_cp_running(self):
         """ This should be called after context parallel groups have been initialized
