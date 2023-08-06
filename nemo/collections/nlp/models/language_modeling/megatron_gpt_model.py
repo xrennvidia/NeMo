@@ -460,7 +460,11 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
         return output_tensor
 
     def fwd_bwd_step(self, dataloader_iter, batch_idx, forward_only):
-        tensor_shape = [self.cfg.encoder_seq_length // self.cfg.get('context_parallel_size', 1), self.cfg.micro_batch_size, self.cfg.hidden_size]
+        tensor_shape = [
+            self.cfg.encoder_seq_length // self.cfg.get('context_parallel_size', 1),
+            self.cfg.micro_batch_size,
+            self.cfg.hidden_size,
+        ]
 
         # handle asynchronous grad reduction
         no_sync_func = None
@@ -799,10 +803,15 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
                 if val is not None:
                     seq_dim = 1 if key != 'attnetion_mask' else 2
                     if cp_split_dim == 'sequence':
-                        val = val.view(*val.shape[0:seq_dim], 2*cp_size, val.shape[seq_dim]//(2*cp_size), *val.shape[(seq_dim+1):])
-                        index = torch.tensor([cp_rank, (2*cp_size-cp_rank-1)], device=val.device)
+                        val = val.view(
+                            *val.shape[0:seq_dim],
+                            2 * cp_size,
+                            val.shape[seq_dim] // (2 * cp_size),
+                            *val.shape[(seq_dim + 1) :],
+                        )
+                        index = torch.tensor([cp_rank, (2 * cp_size - cp_rank - 1)], device=val.device)
                         val = val.index_select(seq_dim, index)
-                        val = val.view(*val.shape[0:seq_dim], -1, *val.shape[(seq_dim+2):])
+                        val = val.view(*val.shape[0:seq_dim], -1, *val.shape[(seq_dim + 2) :])
                     elif cp_split_dim == 'head':
                         val = val.view(*val.shape[0:seq_dim], cp_size, val.shape[seq_dim]//cp_size, *val.shape[(seq_dim+1):])
                         index = torch.tensor([cp_rank], device=val.device)
@@ -872,7 +881,7 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
                     return loss_for_ub, {'loss_sum_and_ub_size': loss_sum_and_ub_size_all_gpu}
                 else:
                     reduced_loss = average_losses_across_data_parallel_group([loss_for_ub])
-                    return loss_for_ub*cp_size, {'avg': reduced_loss}
+                    return loss_for_ub * cp_size, {'avg': reduced_loss}
 
             return output_tensor, loss_func
 
@@ -1287,23 +1296,25 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
             if self.cfg.get('megatron_amp_O2', 'False'):
                 # when using O2 additional module key is added that casts the weights
                 for layer in module.module.language_model.encoder.layers:
-                    layer.set_context_parallel_running(parallel_state.get_context_parallel_group(),
-                                                       parallel_state.get_context_parallel_global_ranks(),
-                                                       cp_stream,
-                                                       cp_split_dim,
-                                                       cp_lossless_out,
-                                                       cp_lossless_lse,
-                                                       cp_lossless_dqkv)
+                    layer.set_context_parallel_running(
+                        parallel_state.get_context_parallel_group(),
+                        parallel_state.get_context_parallel_global_ranks(),
+                        cp_stream,
+                        cp_split_dim,
+                        cp_lossless_out,
+                        cp_lossless_lse,
+                        cp_lossless_dqkv)
 
             else:
                 for layer in module.language_model.encoder.layers:
-                    layer.set_context_parallel_running(parallel_state.get_context_parallel_group(),
-                                                       parallel_state.get_context_parallel_global_ranks(),
-                                                       cp_stream,
-                                                       cp_split_dim,
-                                                       cp_lossless_out,
-                                                       cp_lossless_lse,
-                                                       cp_lossless_dqkv)
+                    layer.set_context_parallel_running(
+                        parallel_state.get_context_parallel_group(),
+                        parallel_state.get_context_parallel_global_ranks(),
+                        cp_stream,
+                        cp_split_dim,
+                        cp_lossless_out,
+                        cp_lossless_lse,
+                        cp_lossless_dqkv)
 
     def setup_transformer_engine_cp_running(self):
         """ This should be called after context parallel groups have been initialized
