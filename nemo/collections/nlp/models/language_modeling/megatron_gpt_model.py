@@ -813,11 +813,13 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
                         val = val.index_select(seq_dim, index)
                         val = val.view(*val.shape[0:seq_dim], -1, *val.shape[(seq_dim + 2) :])
                     elif cp_split_dim == 'head':
-                        val = val.view(*val.shape[0:seq_dim], cp_size, val.shape[seq_dim]//cp_size, *val.shape[(seq_dim+1):])
+                        val = val.view(
+                            *val.shape[0:seq_dim], cp_size, val.shape[seq_dim] // cp_size, *val.shape[(seq_dim + 1) :]
+                        )
                         index = torch.tensor([cp_rank], device=val.device)
                         val = val.index_select(seq_dim, index).squeeze(seq_dim)
                     else:
-                        assert(Flase), f"Context parallel implementation does not split_dim of {cp_split_dim}"
+                        assert Flase, f"Context parallel implementation does not split_dim of {cp_split_dim}"
 
                     batch[key] = val
 
@@ -1303,7 +1305,8 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
                         cp_split_dim,
                         cp_lossless_out,
                         cp_lossless_lse,
-                        cp_lossless_dqkv)
+                        cp_lossless_dqkv,
+                    )
 
             else:
                 for layer in module.language_model.encoder.layers:
@@ -1314,7 +1317,8 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
                         cp_split_dim,
                         cp_lossless_out,
                         cp_lossless_lse,
-                        cp_lossless_dqkv)
+                        cp_lossless_dqkv,
+                    )
 
     def setup_transformer_engine_cp_running(self):
         """ This should be called after context parallel groups have been initialized
