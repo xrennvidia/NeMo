@@ -1360,55 +1360,26 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
                     tp_group = parallel_state.get_tensor_model_parallel_group()
                     child.set_tensor_parallel_group(tp_group)
 
-    def _set_cp_running(self, module, cp_stream):
-        """ Helper method to set cp running for transformer engine"""
-
-        if self.cfg.get('transformer_engine', False):
-            logging.info(f'Setting up transformer engine modules for context parallelism.')
-            cp_split_dim = self.cfg.get('context_parallel_split_dim', 'sequence')
-            cp_lossless_out = self.cfg.get('context_parallel_lossless_out', False)
-            cp_lossless_lse = self.cfg.get('context_parallel_lossless_lse', False)
-            cp_lossless_dqkv = self.cfg.get('context_parallel_lossless_dqkv', False)
-            if self.cfg.get('megatron_amp_O2', 'False'):
-                # when using O2 additional module key is added that casts the weights
-                for layer in module.module.language_model.encoder.layers:
-                    layer.set_context_parallel_running(
-                        parallel_state.get_context_parallel_group(),
-                        parallel_state.get_context_parallel_global_ranks(),
-                        cp_stream,
-                        cp_split_dim,
-                        cp_lossless_out,
-                        cp_lossless_lse,
-                        cp_lossless_dqkv,
-                    )
-
-            else:
-                for layer in module.language_model.encoder.layers:
-                    layer.set_context_parallel_running(
-                        parallel_state.get_context_parallel_group(),
-                        parallel_state.get_context_parallel_global_ranks(),
-                        cp_stream,
-                        cp_split_dim,
-                        cp_lossless_out,
-                        cp_lossless_lse,
-                        cp_lossless_dqkv,
-                    )
-
     def setup_transformer_engine_cp_running(self):
         """ This should be called after context parallel groups have been initialized
             and only needs to be called when using Transformer Engine.
         """
-        cp_size = self.cfg.get('context_parallel_size', 1)
-        if cp_size == 1:
-            return
-
         cp_stream = torch.cuda.Stream()
 
-        if isinstance(self.model, list):
-            for module in self.model:
-                self._set_cp_running(module, cp_stream)
-        else:
-            self._set_cp_running(self.model, cp_stream)
+        for module in self.get_gpt_module_list():
+            """Set context parallel running
+               Copied from: https://github.com/NVIDIA/TransformerEngine/blob/main/transformer_engine/pytorch/transformer.py
+            """
+            # Deep iterate but skip self to avoid infinite recursion.
+            for index, child in enumerate(module.modules()):
+                if index == 0:
+                    continue
+                if hasattr(child, "set_context_parallel_running"):
+                    child.set_context_parallel_running(
+                        parallel_state.get_context_parallel_group(),
+                        parallel_state.get_context_parallel_global_ranks(),
+                        cp_stream,
+                    )
 
     def on_save_checkpoint(self, checkpoint) -> None:
         """LightningModule hook:
