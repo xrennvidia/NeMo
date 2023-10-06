@@ -1365,6 +1365,10 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
             and only needs to be called when using Transformer Engine.
         """
         cp_stream = torch.cuda.Stream()
+        cp_split_dim = self.cfg.get('context_parallel_split_dim', 'sequence')
+        cp_lossless_out = self.cfg.get('context_parallel_lossless_out', False)
+        cp_lossless_lse = self.cfg.get('context_parallel_lossless_lse', False)
+        cp_lossless_dqkv = self.cfg.get('context_parallel_lossless_dqkv', False)
 
         for module in self.get_gpt_module_list():
             """Set context parallel running
@@ -1379,6 +1383,10 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
                         parallel_state.get_context_parallel_group(),
                         parallel_state.get_context_parallel_global_ranks(),
                         cp_stream,
+                        cp_split_dim,
+                        cp_lossless_out,
+                        cp_lossless_lse,
+                        cp_lossless_dqkv,
                     )
 
     def on_save_checkpoint(self, checkpoint) -> None:
