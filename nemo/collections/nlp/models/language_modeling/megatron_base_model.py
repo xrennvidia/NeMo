@@ -242,7 +242,7 @@ class MegatronBaseModel(NLPModel):
         cp_lossless_lse = self.cfg.get('context_parallel_lossless_lse', False)
         cp_lossless_dqkv = self.cfg.get('context_parallel_lossless_dqkv', False)
 
-        for module in self.get_gpt_module_list():
+        for module in self.get_model_module_list():
             """Set context parallel running
                Copied from: https://github.com/NVIDIA/TransformerEngine/blob/main/transformer_engine/pytorch/transformer.py
             """
