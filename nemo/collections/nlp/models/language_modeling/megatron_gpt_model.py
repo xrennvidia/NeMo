@@ -313,7 +313,7 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
 
         # configuration used for inference
         self._inference_config = None
-        
+
         self.cp_split_dim = cfg.get('context_parallel_split_dim', 'sequence')
 
         # Convert the global-batch-based profile index to micro-batch index
