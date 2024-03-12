@@ -970,18 +970,16 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
                             val.shape[seq_dim] // (2 * cp_size),
                             *val.shape[(seq_dim + 1) :],
                         )
-                        index = torch.tensor([cp_rank, (2 * cp_size - cp_rank - 1)], device="cpu", pin_memory=True).cuda(
-                            non_blocking=True
-                        )
+                        index = torch.tensor(
+                            [cp_rank, (2 * cp_size - cp_rank - 1)], device="cpu", pin_memory=True
+                        ).cuda(non_blocking=True)
                         val = val.index_select(seq_dim, index)
                         val = val.view(*val.shape[0:seq_dim], -1, *val.shape[(seq_dim + 2) :])
                     elif self.cp_split_dim == 'head':
                         val = val.view(
                             *val.shape[0:seq_dim], cp_size, val.shape[seq_dim] // cp_size, *val.shape[(seq_dim + 1) :]
                         )
-                        index = torch.tensor([cp_rank], device="cpu", pin_memory=True).cuda(
-                            non_blocking=True
-                        )
+                        index = torch.tensor([cp_rank], device="cpu", pin_memory=True).cuda(non_blocking=True)
                         val = val.index_select(seq_dim, index).squeeze(seq_dim)
                     else:
                         assert Flase, f"Context parallel implementation does not split_dim of {self.cp_split_dim}"
