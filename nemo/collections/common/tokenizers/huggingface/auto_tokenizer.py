@@ -122,9 +122,6 @@ class AutoTokenizer(TokenizerSpec):
             if token is not None and token not in self.tokenizer.get_vocab():
                 new_tokens_in_vocab.append(token)
 
-        # value is required for megatron-core
-        self.unique_identifiers = OrderedDict()
-
         if len(new_tokens_in_vocab) > 0:
             """
             Special tokens that were not previously included in the tokenizer's vocabulary file will be added to 
@@ -221,14 +218,20 @@ class AutoTokenizer(TokenizerSpec):
 
     @property
     def pad_id(self):
+        if getattr(self, 'pad_token') is None:
+            return None
         return self.tokens_to_ids([getattr(self, 'pad_token')])[0]
 
     @property
     def bos_id(self):
+        if getattr(self, 'bos_token') is None:
+            return None
         return self.tokens_to_ids([getattr(self, 'bos_token')])[0]
 
     @property
     def eos_id(self):
+        if getattr(self, 'eos_token') is None:
+            return None
         return self.tokens_to_ids([getattr(self, 'eos_token')])[0]
 
     @property
@@ -238,18 +241,26 @@ class AutoTokenizer(TokenizerSpec):
 
     @property
     def sep_id(self):
+        if getattr(self, 'sep_token') is None:
+            return None
         return self.tokens_to_ids([getattr(self, 'sep_token')])[0]
 
     @property
     def cls_id(self):
+        if getattr(self, 'cls_token') is None:
+            return None
         return self.tokens_to_ids([getattr(self, 'cls_token')])[0]
 
     @property
     def unk_id(self):
+        if getattr(self, 'unk_token') is None:
+            return None
         return self.tokens_to_ids([getattr(self, 'unk_token')])[0]
 
     @property
     def mask_id(self):
+        if getattr(self, 'mask_token') is None:
+            return None
         return self.tokens_to_ids([getattr(self, 'mask_token')])[0]
 
     @property
