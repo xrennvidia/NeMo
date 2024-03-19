@@ -580,13 +580,10 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
     def get_forward_output_and_loss_func(self):
         def fwd_output_and_loss_func(dataloader_iter, model):
             torch.cuda.nvtx.range_push("input_load")
-            # Check if instance of PTL's _DataFetcherWrapper or not, since sometimes (batch, batch_idx, dataloader_idx) as a tuple
-            # from the dataloader_iter are already extracted in the child class or previous functions. In that case extact only the batch
-            # from the data_iterator
-            if isinstance(dataloader_iter, _DataFetcherWrapper):
-                batch, _, _ = next(dataloader_iter)
-            else:
-                batch = next(dataloader_iter)
+            # If tuple, 1st element in it is the batch since dataloader_iter returns batch, batch_idx, dataloader_idx
+            batch = next(dataloader_iter)
+            if isinstance(batch, tuple):
+                batch = batch[0]
             # convert to list if not already converted.
             if isinstance(batch, dict):
                 # convert to list if not already converted.
@@ -725,8 +722,6 @@ class MegatronLMEncoderDecoderModel(MegatronBaseModel):
             return output, id_func
 
         return fwd_output_only_func
-
-    ##########
 
     def _test_validation_step(self, dataloader_iter):
         """
