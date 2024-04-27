@@ -9,6 +9,7 @@ from megatron.core.transformer.spec_utils import ModuleSpec, build_module
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.utils import make_viewless_tensor
 from torch import Tensor, nn
+import torch
 
 
 @dataclass
@@ -64,27 +65,39 @@ class RecurrentBlock(MegatronModule):
         residual = hidden_states
 
         # Optional Input Layer norm
+        torch.cuda.nvtx.range_push("input_ln")
         input_layernorm_output = self.input_layernorm(hidden_states)
+        torch.cuda.nvtx.range_pop()
 
         # Reccurent block.
+        torch.cuda.nvtx.range_push("recurrent")
         recurrent_output_with_bias = self.recurrent_layer(input_layernorm_output)
+        torch.cuda.nvtx.range_pop()
 
+        torch.cuda.nvtx.range_push("recurrent_bda")
         hidden_states = self.recurrent_bda(self.training, self.config.bias_dropout_fusion)(
             recurrent_output_with_bias, residual, self.hidden_dropout
         )
+        torch.cuda.nvtx.range_pop()
 
         # Residual connection.
         residual = hidden_states
 
         # Optional Layer norm post the cross-attention.
+        torch.cuda.nvtx.range_push("pre_mlp_ln")
         pre_mlp_layernorm_output = self.pre_mlp_layernorm(hidden_states)
+        torch.cuda.nvtx.range_pop()
 
         # MLP.
+        torch.cuda.nvtx.range_push("mlp")
         mlp_output_with_bias = self.mlp(pre_mlp_layernorm_output)
+        torch.cuda.nvtx.range_pop()
 
+        torch.cuda.nvtx.range_push("mlp_bda")
         hidden_states = self.mlp_bda(self.training, self.config.bias_dropout_fusion)(
             mlp_output_with_bias, residual, self.hidden_dropout
         )
+        torch.cuda.nvtx.range_pop()
 
         output = make_viewless_tensor(inp=hidden_states, requires_grad=hidden_states.requires_grad, keep_graph=True)
 

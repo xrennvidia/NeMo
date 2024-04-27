@@ -177,12 +177,18 @@ class RGLRU(nn.Module):
         prev_h = torch.zeros(size=(bs, d)) if prev_h is None else prev_h
         prev_h = prev_h.cuda()
         # Gates for x and a.
+        torch.cuda.nvtx.range_push("gate_x")
         gate_x = torch.sigmoid(self.input_gate(x))
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("gate_a")
         gate_a = torch.sigmoid(self.a_gate(x))
+        torch.cuda.nvtx.range_pop()
 
         # Compute the parameter `A` of the recurrence.
+        torch.cuda.nvtx.range_push("softplus_exp")
         log_a = -8.0 * gate_a * nn.functional.softplus(self.a_param)
         a = torch.exp(log_a)
+        torch.cuda.nvtx.range_pop()
 
         # Gate the input.
         gated_x = x * gate_x
@@ -192,7 +198,9 @@ class RGLRU(nn.Module):
         multiplier = reset[..., None] + (1 - reset)[..., None] * multiplier
         normalized_x = gated_x * multiplier.type(x.dtype)
 
+        torch.cuda.nvtx.range_push("rnn_scan")
         y, last_h = rnn_scan(x=normalized_x, a=a, reset=reset, h0=prev_h,)
+        torch.cuda.nvtx.range_pop()
 
         return y, last_h
 
@@ -299,22 +307,42 @@ class RecurrentLayer(MegatronModule):
     def forward(self, hidden_states, attention_mask=None, rotary_pos_emb=None):
 
         segment_pos = torch.arange(hidden_states.shape[0]).unsqueeze(0).repeat(hidden_states.shape[1], 1).cuda()
+        torch.cuda.nvtx.range_push("linear_y")
         y_intermidiate_parallel, y_bias_parallel = self.linear_y(hidden_states)
+        torch.cuda.nvtx.range_pop()
 
         if self.config.bias_activation_fusion:
+            torch.cuda.nvtx.range_push("linear_y_bias_gelu")
             y = bias_gelu_impl(y_intermidiate_parallel, y_bias_parallel)
+            torch.cuda.nvtx.range_pop()
 
+        torch.cuda.nvtx.range_push("linear_x")
         x_intermidiate_parallel, x_bias_parallel = self.linear_x(hidden_states)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("linear_x_bias")
         x = x_intermidiate_parallel + x_bias_parallel
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("x_permute_1")
         x = x.permute(1, 0, 2)
+        torch.cuda.nvtx.range_pop()
 
+        torch.cuda.nvtx.range_push("conv1d")
         x, conv1d_state = self.conv_1d(x=x, segment_pos=segment_pos, prev_x=None)
+        torch.cuda.nvtx.range_pop()
 
+        torch.cuda.nvtx.range_push("rglru")
         x, rg_lru_state = self.rg_lru(x=x, segment_pos=segment_pos, prev_h=None,)
+        torch.cuda.nvtx.range_pop()
 
+        torch.cuda.nvtx.range_push("x_permute_2")
         x = x.permute(1, 0, 2)
+        torch.cuda.nvtx.range_pop()
 
+        torch.cuda.nvtx.range_push("x_mul_y")
         x = x * y
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("linear_out")
         x_intermidiate_parallel, x_bias_parallel = self.linear_out(x)
+        torch.cuda.nvtx.range_pop()
 
         return x_intermidiate_parallel, x_bias_parallel

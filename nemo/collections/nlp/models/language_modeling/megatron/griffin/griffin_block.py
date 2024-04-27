@@ -5,6 +5,7 @@ from megatron.core.transformer.custom_layers.transformer_engine import TENorm
 from megatron.core.transformer.spec_utils import build_module
 from megatron.core.transformer.transformer_config import TransformerConfig
 from torch import nn
+import torch
 
 from nemo.collections.nlp.models.language_modeling.megatron.griffin.griffin_layer_spec import (
     griffin_mqa_layer_with_transformer_engine_spec,
@@ -55,9 +56,12 @@ class GriffinStack(LanguageModule):
     def forward(self, hidden_states, attention_mask, rotary_pos_emb):
 
         for layer in self.layers:
-
+            torch.cuda.nvtx.range_push(f"layer_{layer.layer_number}")
             hidden_states, _ = layer(hidden_states, attention_mask=attention_mask, rotary_pos_emb=rotary_pos_emb)
+            torch.cuda.nvtx.range_pop()
 
+        torch.cuda.nvtx.range_push("final_ln")
         hidden_states = self.final_layernorm(hidden_states)
+        torch.cuda.nvtx.range_pop()
 
         return hidden_states
