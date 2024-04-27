@@ -1,13 +1,24 @@
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import math
 from dataclasses import dataclass
 from typing import Union
 
 import einops
 import torch
-from accelerated_scan.ref import scan as scan_torch  # reference torch implementation
-
-# from accelerated_scan.warp import scan as scan_fast # a pure c++ kernel, faster than cub
-from accelerated_scan.triton import scan as scan_triton  # uses tl.associative_scan
+from accelerated_scan.triton import scan as scan_triton
 from causal_conv1d import causal_conv1d_fn
 from einops import rearrange
 from megatron.core.fusions.fused_bias_gelu import bias_gelu_impl
@@ -232,8 +243,7 @@ class Conv1D(MegatronModule):
 
 @dataclass
 class RecurrentLayerSubmodules:
-    linear_y: Union[ModuleSpec, type] = IdentityOp
-    linear_x: Union[ModuleSpec, type] = IdentityOp
+    linear_in: Union[ModuleSpec, type] = IdentityOp
     linear_out: Union[ModuleSpec, type] = IdentityOp
     conv_1d: Union[ModuleSpec, type] = IdentityOp
     rg_lru: Union[ModuleSpec, type] = IdentityOp
@@ -260,22 +270,10 @@ class RecurrentLayer(MegatronModule):
         self.config = config
         self.residual_in_fp32 = residual_in_fp32
 
-        self.linear_y = build_module(
-            submodules.linear_y,
+        self.linear_in = build_module(
+            submodules.linear_in,
             self.config.hidden_size,
-            self.config.hidden_size,
-            config=self.config,
-            init_method=self.config.init_method,
-            gather_output=False,
-            bias=self.config.add_bias_linear,
-            skip_bias_add=True,
-            is_expert=False,
-        )
-
-        self.linear_x = build_module(
-            submodules.linear_x,
-            self.config.hidden_size,
-            self.config.hidden_size,
+            self.config.hidden_size * 2,
             config=self.config,
             init_method=self.config.init_method,
             gather_output=False,
@@ -307,19 +305,18 @@ class RecurrentLayer(MegatronModule):
     def forward(self, hidden_states, attention_mask=None, rotary_pos_emb=None):
 
         segment_pos = torch.arange(hidden_states.shape[0]).unsqueeze(0).repeat(hidden_states.shape[1], 1).cuda()
-        torch.cuda.nvtx.range_push("linear_y")
-        y_intermidiate_parallel, y_bias_parallel = self.linear_y(hidden_states)
+        torch.cuda.nvtx.range_push("linear_in")
+        in_intermidiate_parallel, in_bias_parallel = self.linear_in(hidden_states)
         torch.cuda.nvtx.range_pop()
 
-        if self.config.bias_activation_fusion:
-            torch.cuda.nvtx.range_push("linear_y_bias_gelu")
-            y = bias_gelu_impl(y_intermidiate_parallel, y_bias_parallel)
-            torch.cuda.nvtx.range_pop()
+        x_bias_parallel, y_bias_parallel = in_bias_parallel.chunk(2, dim=-1)
+        x_intermidiate_parallel, y_intermidiate_parallel = in_intermidiate_parallel.chunk(2, dim=-1)
 
-        torch.cuda.nvtx.range_push("linear_x")
-        x_intermidiate_parallel, x_bias_parallel = self.linear_x(hidden_states)
+        torch.cuda.nvtx.range_push("y_bias_gelu")
+        y = bias_gelu_impl(y_intermidiate_parallel, y_bias_parallel)
         torch.cuda.nvtx.range_pop()
-        torch.cuda.nvtx.range_push("linear_x_bias")
+
+        torch.cuda.nvtx.range_push("x_bias")
         x = x_intermidiate_parallel + x_bias_parallel
         torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_push("x_permute_1")
@@ -327,11 +324,11 @@ class RecurrentLayer(MegatronModule):
         torch.cuda.nvtx.range_pop()
 
         torch.cuda.nvtx.range_push("conv1d")
-        x, conv1d_state = self.conv_1d(x=x, segment_pos=segment_pos, prev_x=None)
+        x, _ = self.conv_1d(x=x, segment_pos=segment_pos, prev_x=None)
         torch.cuda.nvtx.range_pop()
 
         torch.cuda.nvtx.range_push("rglru")
-        x, rg_lru_state = self.rg_lru(x=x, segment_pos=segment_pos, prev_h=None,)
+        x, _ = self.rg_lru(x=x, segment_pos=segment_pos, prev_h=None,)
         torch.cuda.nvtx.range_pop()
 
         torch.cuda.nvtx.range_push("x_permute_2")

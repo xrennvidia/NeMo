@@ -2,7 +2,7 @@ name: megatron_griffin
 restore_from_path: null # used when starting from a .nemo file
 
 trainer:
-  devices: 8
+  devices: 1
   num_nodes: 1
   accelerator: gpu
   precision: 16
@@ -43,7 +43,7 @@ model:
   restore_from_path: null
   # model parallelism 
   micro_batch_size: 2
-  global_batch_size: 16
+  global_batch_size: 2
   tensor_model_parallel_size: 1
   pipeline_model_parallel_size: 1
   virtual_pipeline_model_parallel_size: null
@@ -70,6 +70,7 @@ model:
   normalization: RMSNorm
   layernorm_epsilon: 1e-6
   rotary_interleaved: False
+  layernorm_zero_centered_gamma: True
   make_vocab_size_divisible_by: 128 # Pad the vocab size to be divisible by this value for computation efficiency.
   pre_process: True # add embedding
   post_process: True # add pooler
@@ -151,6 +152,7 @@ model:
     eod_mask_loss: False # Mask loss for the end of document tokens
     masked_lm_prob: 0.15 # Probability of replacing a token with mask.
     short_seq_prob: 0.1 # Probability of producing a short sequence.
+    ceil_to_power_2: True
   
   optim:
     name: fused_adam
