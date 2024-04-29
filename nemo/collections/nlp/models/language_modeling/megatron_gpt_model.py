@@ -1139,7 +1139,9 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
 
             def loss_func(output_tensor):
                 # Loss for a micro-batch (ub)
+                torch.cuda.nvtx.range_push("ub_loss_func")
                 loss_for_ub = self.loss_func(batch['loss_mask'], batch['num_valid_tokens_in_ub'], output_tensor)
+                torch.cuda.nvtx.range_pop()
                 cp_size = parallel_state.get_context_parallel_world_size()
                 if self.return_output_tensors:
                     # TODO: need a better way to check if loss_func is returning more stuff than just loss... (@adithyare)
@@ -1182,7 +1184,9 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
                     )
                     return loss_for_ub * cp_size, {'loss_sum_and_ub_size': loss_sum_and_ub_size_all_gpu}
                 else:
+                    torch.cuda.nvtx.range_push("reduced_loss")
                     reduced_loss = average_losses_across_data_parallel_group([loss_for_ub])
+                    torch.cuda.nvtx.range_pop()
                     return loss_for_ub * cp_size, {'avg': reduced_loss}
 
             return output_tensor, loss_func
