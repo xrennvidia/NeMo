@@ -137,7 +137,9 @@ class GriffinModel(LanguageModule):
 
         hidden_states = self.decoder(hidden_states, attention_mask=attention_mask, rotary_pos_emb=rotary_pos_emb)
 
+        torch.cuda.nvtx.range_push("embedding_decode")
         logits = self.embedding_decode(hidden_states)
+        torch.cuda.nvtx.range_pop()
 
         if labels is None:
             # [b s h]
