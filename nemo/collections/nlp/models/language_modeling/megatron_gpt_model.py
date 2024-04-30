@@ -1135,7 +1135,9 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
                         qkv_format='thd',
                     )
 
+            torch.cuda.nvtx.range_push("fwd_output")
             output_tensor = model(**forward_args)
+            torch.cuda.nvtx.range_pop()
 
             def loss_func(output_tensor):
                 # Loss for a micro-batch (ub)

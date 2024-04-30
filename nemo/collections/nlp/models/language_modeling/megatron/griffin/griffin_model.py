@@ -144,6 +144,8 @@ class GriffinModel(LanguageModule):
             return logits.contiguous()
 
         logits = logits.transpose(0, 1).contiguous()
+        torch.cuda.nvtx.range_push("compute_lm_loss")
         loss = self.compute_language_model_loss(labels, logits)
+        torch.cuda.nvtx.range_pop()
 
         return loss
