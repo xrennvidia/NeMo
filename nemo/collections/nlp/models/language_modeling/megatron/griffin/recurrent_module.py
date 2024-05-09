@@ -62,7 +62,6 @@ class BlockDiagonalLinear(nn.Module):
         std = math.sqrt(self.w_init_variance_scale / self.block_width)
         torch.nn.init.normal_(w, mean=0.0, std=std)
 
-    @jit_fuser
     def forward(self, x):
         """Calls the BlockDiagonalLinear."""
         # Split x to blocks.
@@ -251,6 +250,7 @@ class RecurrentLayerSubmodules:
 def gelu(x: torch.Tensor) -> torch.Tensor:
     """Returns the GELU activation function with the same approximation as JAX."""
     return nn.functional.gelu(x, approximate="tanh")
+
 
 @jit_fuser
 def _fused_permute_add_(x, b):
