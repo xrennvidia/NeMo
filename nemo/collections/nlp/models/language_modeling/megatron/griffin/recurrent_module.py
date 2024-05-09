@@ -230,7 +230,6 @@ class RGLRU(nn.Module):
         assert segment_pos.shape == (bs, l)
         reset = (segment_pos == 0).type(torch.int32).unsqueeze(-1)
 
-        # Gates for x and a.
         torch.cuda.nvtx.range_push("gate_x")
         gate_x = self.input_gate(x)
         torch.cuda.nvtx.range_pop()
