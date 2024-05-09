@@ -171,9 +171,6 @@ class RGLRU(nn.Module):
     def a_param_init(self) -> torch.Tensor:
         """Initializes the `A` parameter of the RG-LRU."""
         return rnn_param_init(width=self.width, min_rad=0.9, max_rad=0.999)
-    
-    @jit_fuser
-    def _fused_pst_gates_(self, x, gate_a, gate_x, reset):
 
     @jit_fuser
     def _fused_pst_gates_(self, x, gate_a, gate_x, reset):
@@ -199,8 +196,7 @@ class RGLRU(nn.Module):
 
     Returns:
       Output of the block together with the updated hidden state.
-    """ 
-
+    """
         for param in self.parameters():
             param.data_ptr()
 
@@ -255,18 +251,6 @@ class RecurrentLayerSubmodules:
 def gelu(x: torch.Tensor) -> torch.Tensor:
     """Returns the GELU activation function with the same approximation as JAX."""
     return nn.functional.gelu(x, approximate="tanh")
-
-@jit_fuser
-def _fused_permute_add_(x,b):
-    x = x + b
-    x = x.permute(1, 0, 2)
-    return x
-
-@jit_fuser
-def _fused_permute_mult_(x,y):
-    x = x.permute(1, 0, 2)
-    x = x * y
-    return x
 
 @jit_fuser
 def _fused_permute_add_(x, b):
