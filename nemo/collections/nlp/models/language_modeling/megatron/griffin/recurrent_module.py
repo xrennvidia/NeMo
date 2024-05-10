@@ -15,7 +15,7 @@
 import math
 from dataclasses import dataclass
 from typing import Union
-
+from megatron.core import tensor_parallel
 import torch
 from accelerated_scan.triton import scan
 from causal_conv1d import causal_conv1d_fn
@@ -29,7 +29,6 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 from torch import nn
 import torch._dynamo
 torch._dynamo.config.suppress_errors = True
-# import torch.utils.checkpoint as checkpoint
 
 # Class copied from https://github.com/google-deepmind/recurrentgemma
 class BlockDiagonalLinear(nn.Module):
@@ -92,7 +91,6 @@ class BlockDiagonalLinear(nn.Module):
 
 
 @jit_fuser
-# def _scan_preprocess_(a, x, reset):
 def _scan_preprocess_(x, gate_a, gate_x, reset, a_params):
 
     log_a = -8.0 * gate_a * nn.functional.softplus(a_params)
@@ -238,7 +236,7 @@ class RGLRU(nn.Module):
         torch.cuda.nvtx.range_pop()
 
         torch.cuda.nvtx.range_push("rnn_scan")
-        y, last_h = rnn_scan(x, gate_a, gate_x, reset, x)
+        y, last_h = rnn_scan(x, gate_a, gate_x, reset, self.a_param)
         torch.cuda.nvtx.range_pop()
 
         return y, last_h
@@ -344,12 +342,15 @@ class RecurrentLayer(MegatronModule):
             submodules.rg_lru, width=self.config.hidden_size, num_heads=self.config.num_attention_heads
         )
 
-    # def custom(self, module):
-    #     def custom_forward(*inputs):
-    #         inputs = module(inputs[0])
-    #         return inputs
-    #     return custom_forward
-    
+    def checkpoint_handler(self, forward_func, x, segment_pos, prev_x):
+        return tensor_parallel.checkpoint(
+            forward_func,
+            self.config.distribute_saved_activations,
+            x, 
+            segment_pos, 
+            prev_x
+            )
+            
     def forward(self, hidden_states, attention_mask=None, rotary_pos_emb=None):
 
         segment_pos = torch.arange(hidden_states.shape[0]).unsqueeze(0).repeat(hidden_states.shape[1], 1).cuda()
@@ -368,14 +369,21 @@ class RecurrentLayer(MegatronModule):
         x = _fused_permute_add_(x_intermidiate_parallel, x_bias_parallel)
         torch.cuda.nvtx.range_pop()
 
-        torch.cuda.nvtx.range_push("conv1d")
-        x, _ = self.conv_1d(x=x, segment_pos=segment_pos, prev_x=None)
-        torch.cuda.nvtx.range_pop()
-        # x, _ = checkpoint.checkpoint(self.custom(self.conv_1d), x, use_reentrant=True)
-
-        torch.cuda.nvtx.range_push("rglru")
-        x, _ = self.rg_lru(x=x, segment_pos=segment_pos, prev_h=None,)
-        torch.cuda.nvtx.range_pop()
+        if self.config.recompute_granularity == 'recurrent' and self.training:
+            torch.cuda.nvtx.range_push("conv1d")
+            x, _ = self.checkpoint_handler(self.conv_1d, x=x, segment_pos=segment_pos, prev_x=None)
+            torch.cuda.nvtx.range_pop()
+            torch.cuda.nvtx.range_push("rglru")
+            x, _ = self.checkpoint_handler(self.rg_lru, x=x, segment_pos=segment_pos, prev_x=None)
+            torch.cuda.nvtx.range_pop()
+            
+        else:
+            torch.cuda.nvtx.range_push("conv1d")
+            x, _ = self.conv_1d(x=x, segment_pos=segment_pos, prev_x=None)
+            torch.cuda.nvtx.range_pop()
+            torch.cuda.nvtx.range_push("rglru")
+            x, _ = self.rg_lru(x=x, segment_pos=segment_pos, prev_h=None)
+            torch.cuda.nvtx.range_pop()
 
         torch.cuda.nvtx.range_push("x_mul_y")
         x = _fused_permute_mult_(x, y)
