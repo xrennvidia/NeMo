@@ -1,11 +1,11 @@
-name: megatron_jamba
+name: megatron_mamba
 restore_from_path: null # used when starting from a .nemo file
 
 trainer:
   devices: 1
   num_nodes: 1
   accelerator: gpu
-  precision: 16
+  precision: bf16
   logger: False # logger provided by exp_manager
   enable_checkpointing: False
   use_distributed_sampler: False
@@ -22,7 +22,7 @@ trainer:
 exp_manager:
   explicit_log_dir: null
   exp_dir: null
-  name: megatron_jamba
+  name: megatron_mamba
   create_wandb_logger: False
   wandb_logger_kwargs:
     project: null
@@ -35,7 +35,7 @@ exp_manager:
     save_top_k: 10
     mode: min
     always_save_nemo: False # saves nemo file during validation, not implemented for model parallel
-    filename: 'megatron_jamba--{val_loss:.2f}-{step}-{consumed_samples}'
+    filename: 'megatron_mamba--{val_loss:.2f}-{step}-{consumed_samples}'
     model_parallel_size: ${multiply:${model.tensor_model_parallel_size}, ${model.pipeline_model_parallel_size}}
 
 
@@ -59,6 +59,7 @@ model:
   gated_linear_unit: False
   add_bias_linear: False
   num_query_groups: 8
+  ngroups_mamba: 8
   attention_dropout: 0.0
   hidden_dropout: 0.0
   hidden_size: 4096
@@ -69,7 +70,7 @@ model:
   kv_channels: null # Projection weights dimension in multi-head attention. Set to hidden_size // num_attention_heads if null
   apply_query_key_layer_scaling: True # scale Q * K^T by 1 / layer-number.
   normalization: RMSNorm
-  layernorm_epsilon: 1e-6
+  layernorm_epsilon: 1e-5
   num_moe_experts: 16
   moe_router_topk: 2
   moe_aux_loss_coeff: 0.001
@@ -80,9 +81,9 @@ model:
   persist_layer_norm: True
 
   tokenizer:
-    library: 'megatron'
-    type: null
-    model: /home/ataghibakhsh/adlr_mamba2/mamba2-hybrid-8b-3t-4k/mt_nlg_plus_multilingual_ja_zh_the_stack_frac_015_256k.model 
+    library: 'huggingface'
+    type: ai21labs/Jamba-v0.1
+    model: 
     vocab_file: null
     merge_file: null 
     sentencepiece_legacy: False

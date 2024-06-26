@@ -1,4 +1,4 @@
-name: megatron_jamba
+name: megatron_mamba
 restore_from_path: ${model.restore_from_path} # used when starting from a .nemo file
 
 trainer:
@@ -68,6 +68,7 @@ model:
   gated_linear_unit: False
   add_bias_linear: False
   num_query_groups: 8
+  ngroups_mamba: 8
   attention_dropout: 0.0
   hidden_dropout: 0.0
   hidden_size: 4096
@@ -78,7 +79,7 @@ model:
   kv_channels: null # Projection weights dimension in multi-head attention. Set to hidden_size // num_attention_heads if null
   apply_query_key_layer_scaling: True # scale Q * K^T by 1 / layer-number.
   normalization: RMSNorm
-  layernorm_epsilon: 1e-6
+  layernorm_epsilon: 1e-5
   num_moe_experts: 16
   moe_router_topk: 2
   moe_aux_loss_coeff: 0.001
@@ -96,7 +97,7 @@ model:
 
   tokenizer:
     library: 'huggingface'
-    type: null
+    type: 'EleutherAI/gpt-neox-20b'
     model: null 
     vocab_file: null
     merge_file: null 
