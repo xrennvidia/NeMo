@@ -1,9 +1,24 @@
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from unittest.mock import MagicMock, call, patch
 
 import torch.nn as nn
 from pytorch_lightning.trainer.states import TrainerFn
 from nemo.collections.llm import fn
 from nemo.lightning.pytorch.callbacks.peft import PEFT, WrappedAdapterIO
+from nemo.utils.callbacks.dist_ckpt_io import AsyncFinalizableCheckpointIO
 
 
 class TestPEFT:
@@ -34,7 +49,8 @@ class TestPEFT:
         pl_module.model_transform = peft
         peft.setup(trainer, pl_module, "fit")
 
-        assert isinstance(trainer.strategy._checkpoint_io, WrappedAdapterIO)
+        assert isinstance(trainer.strategy._checkpoint_io, AsyncFinalizableCheckpointIO)
+        assert isinstance(trainer.strategy._checkpoint_io._checkpoint_io, WrappedAdapterIO)
         assert peft.model_transform is not None
         assert peft._needs_to_call is True
 
