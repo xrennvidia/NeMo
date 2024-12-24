@@ -1240,27 +1240,28 @@ class MegatronGPTModel(MegatronBaseModel, TextGeneration):
                 for key, val in batch.items():
                     if val is not None and key != "context_lengths":
                         seq_dim = 1 if key != 'attention_mask' else 2
-                    if self.cp_split_dim == 'sequence':
-                        val = val.view(
-                            *val.shape[0:seq_dim],
-                            2 * cp_size,
-                            val.shape[seq_dim] // (2 * cp_size),
-                            *val.shape[(seq_dim + 1) :],
-                        )
-                        index = torch.tensor(
-                            [cp_rank, (2 * cp_size - cp_rank - 1)], device="cpu", pin_memory=True
-                        ).cuda(non_blocking=True)
-                        val = val.index_select(seq_dim, index)
-                        val = val.view(*val.shape[0:seq_dim], -1, *val.shape[(seq_dim + 2) :])
-                    elif self.cp_split_dim == 'head':
-                        val = val.view(
-                            *val.shape[0:seq_dim], cp_size, val.shape[seq_dim] // cp_size, *val.shape[(seq_dim + 1) :]
-                        )
-                        index = torch.tensor([cp_rank], device="cpu", pin_memory=True).cuda(non_blocking=True)
-                        val = val.index_select(seq_dim, index).squeeze(seq_dim)
-                    else:
-                        assert Flase, f"Context parallel implementation does not split_dim of {self.cp_split_dim}"
-                    batch[key] = val
+                        if self.cp_split_dim == 'sequence':
+                            val = val.view(
+                                *val.shape[0:seq_dim],
+                                2 * cp_size,
+                                val.shape[seq_dim] // (2 * cp_size),
+                                *val.shape[(seq_dim + 1) :],
+                            )
+                            index = torch.tensor(
+                                [cp_rank, (2 * cp_size - cp_rank - 1)], device="cpu", pin_memory=True
+                            ).cuda(non_blocking=True)
+                            val = val.index_select(seq_dim, index)
+                            val = val.view(*val.shape[0:seq_dim], -1, *val.shape[(seq_dim + 2) :])
+                        elif self.cp_split_dim == 'head':
+                            val = val.view(
+                                *val.shape[0:seq_dim], cp_size, val.shape[seq_dim] // cp_size, *val.shape[(seq_dim + 1) :]
+                            )
+                            index = torch.tensor([cp_rank], device="cpu", pin_memory=True).cuda(non_blocking=True)
+                            val = val.index_select(seq_dim, index).squeeze(seq_dim)
+                        else:
+                            assert Flase, f"Context parallel implementation does not split_dim of {self.cp_split_dim}"
+
+                        batch[key] = val
 
         batch['num_valid_tokens_in_ub'] = num_valid_tokens_in_ub
 
