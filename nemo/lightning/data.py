@@ -380,6 +380,7 @@ class MegatronPretrainingSampler(BaseMegatronSampler):
                 if self.global_batch_split_range[0] <= (idx % self.global_batch_size) < self.global_batch_split_range[1]:
                     batch.append(idx)
                     if len(batch) == self.micro_batch_times_data_parallel_size:
+                        print(f"MegatronPretrainingSampler: rank: {torch.distributed.get_rank()}, data_parallel_rank: {self.data_parallel_rank}, micro_batch_size: {self.micro_batch_size},  micro_batch_times_data_parallel_size: {self.micro_batch_times_data_parallel_size}, global_batch_size: {self.global_batch_size}, global_batch_split_range: {self.global_batch_split_range}, batch: {batch}")
                         start_idx, end_idx = self.get_start_end_idx()
                         yield batch[start_idx:end_idx]
                         batch = []

@@ -109,6 +109,8 @@ class MegatronDataSampler(DataSampler):
                 self.cu_global_batch_splits[world_size_split_range_id+1],
             )
 
+        print(f"MegatronDataSampler setup: rank: {torch.distributed.get_rank()}, global_rank: {global_rank}, data_parallel_size: {self.data_parallel_size}, data_parallel_rank: {self.data_parallel_rank}, micro_batch_size: {self.micro_batch_size}, global_batch_size: {self.global_batch_size}, global_batch_split_range: {self.global_batch_split_range}")
+
         setup_microbatch_calculator(
             global_rank,
             self.data_parallel_size,

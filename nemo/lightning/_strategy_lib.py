@@ -113,6 +113,8 @@ def init_model_parallel(model: Optional[nn.Module] = None) -> None:
 
     app_state = AppState()
 
+    print(f"init_model_parallel: rank: {torch.distributed.get_rank()}, app_state.global_rank: {app_state.global_rank}, app_state.local_rank: {app_state.local_rank}, app_state.num_distributed_optimizer_instances: {app_state.num_distributed_optimizer_instances}")
+
     # we initialize megatron-lm model parallel and data parallel groups
     # after initializing DDP with PTL.
     if app_state.model_parallel_size is not None:
