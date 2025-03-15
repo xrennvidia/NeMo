@@ -114,6 +114,7 @@ def setup_microbatch_calculator(
                 rampup_batch_size=rampup_batch_size,
                 decrease_batch_size_if_needed=False,
             )
+            print(f"setup_microbatch_calculator: rank: {torch.distributed.get_rank()}, global_rank: {init_global_rank}, global_batch_size: {get_current_global_batch_size()}, global_batch_size_for_local_world_split: {global_batch_size_for_local_world_split}, micro_batch_size: {get_micro_batch_size()}, num_microbatches: {get_num_microbatches()}")
         else:
             if isinstance(_GLOBAL_NUM_MICROBATCHES_CALCULATOR, ConstantNumMicroBatchesCalculator):
                 assert get_current_global_batch_size() == global_batch_size
