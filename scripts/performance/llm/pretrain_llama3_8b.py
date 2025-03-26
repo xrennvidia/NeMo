@@ -102,7 +102,6 @@ if __name__ == "__main__":
     exp_name = f"{splitext(basename(__file__))[0]}_{args.compute_dtype}_{exp_config}"
     custom_env_vars = {}
     #custom_env_vars = {
-    #    "TORCH_DISTRIBUTED_DEBUG": "DETAIL",
     #    "TORCH_SHOW_CPP_STACKTRACES": "1",
     #    "NCCL_DEBUG": "INFO",
     #}
