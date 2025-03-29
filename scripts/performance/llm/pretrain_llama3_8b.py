@@ -80,6 +80,9 @@ def override_recipe_configs(
         recipe.trainer.plugins = bf16_with_fp8_mixed()
         recipe.trainer.plugins.grad_reduce_in_fp32 = False
 
+    recipe.model.config.num_layers = 8
+    recipe.trainer.strategy.ddp.check_for_nan_in_grad = False
+
     return recipe
 
 
@@ -99,7 +102,7 @@ if __name__ == "__main__":
         exp_config += f"_{'-'.join(str(mbs) for mbs in mbs)}mbs"
     else:
         exp_config += f"_{mbs}mbs"
-    exp_name = f"{splitext(basename(__file__))[0]}_{args.compute_dtype}_{exp_config}"
+    exp_name = f"{splitext(basename(__file__))[0]}_8layers_{args.compute_dtype}_{exp_config}"
     custom_env_vars = {}
     #custom_env_vars = {
     #    "TORCH_SHOW_CPP_STACKTRACES": "1",
