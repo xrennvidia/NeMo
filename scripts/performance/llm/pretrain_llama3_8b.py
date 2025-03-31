@@ -103,11 +103,11 @@ if __name__ == "__main__":
     else:
         exp_config += f"_{mbs}mbs"
     exp_name = f"{splitext(basename(__file__))[0]}_8layers_{args.compute_dtype}_{exp_config}"
-    custom_env_vars = {}
-    #custom_env_vars = {
-    #    "TORCH_SHOW_CPP_STACKTRACES": "1",
-    #    "NCCL_DEBUG": "INFO",
-    #}
+    custom_env_vars = {
+        "TORCH_DISTRIBUTED_DEBUG" : "DETAIL",
+        "TORCH_SHOW_CPP_STACKTRACES" : "1",
+        "NCCL_DEBUG" : "INFO",
+    }
 
     executor = slurm_executor(
         args.account,
