@@ -678,6 +678,7 @@ class MegatronParallel(nn.ModuleList, Generic[ModelT]):
                         disable_bucketing=disable_bucketing,
                     )
                 elif not isinstance(unwrapped_module, DDP):
+                    print(f"init_ddp: rank: {torch.distributed.get_rank()}, model_chunk_idx: {model_chunk_idx}, disable_bucketing: {disable_bucketing}")
                     dist_module = DDP(
                         module.config,
                         self.ddp_config,
