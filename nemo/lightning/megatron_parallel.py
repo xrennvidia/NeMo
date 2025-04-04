@@ -1783,6 +1783,7 @@ class MaskedTokenLossReduction(MegatronLossReduction):
                 from nemo.collections.nlp.modules.common.megatron.utils import (
                     average_losses_across_data_parallel_group,
                 )
+                print(f"loss_reduce: rank: {torch.distributed.get_rank()} losses_reduced_per_micro_batch: {len(losses_reduced_per_micro_batch)}")
 
                 loss_tensors_list = [loss_reduced["avg"] for loss_reduced in losses_reduced_per_micro_batch]
                 loss_tensor = torch.concat(loss_tensors_list).mean()
