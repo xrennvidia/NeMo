@@ -326,6 +326,7 @@ class MegatronParallel(nn.ModuleList, Generic[ModelT]):
             data = _data_step(data, cache_num_batches=teacher_step.num_microbatches)
             teacher_step.data = data
 
+        print(f"MegatronParallel before step infer: rank: {torch.distributed.get_rank()}, seq_length: {seq_length}, micro_batch_size: {micro_batch_size}, num_microbatches: {num_microbatches}")
         step = MegatronStep.infer(
             self,
             data,
@@ -336,6 +337,7 @@ class MegatronParallel(nn.ModuleList, Generic[ModelT]):
             seq_length=seq_length,
             step_i=step_i,
         )
+        print(f"MegatronParallel after step infer: rank: {torch.distributed.get_rank()}, seq_length: {step.seq_length}, micro_batch_size: {step.micro_batch_size}, num_microbatches: {step.num_microbatches}")
         _forward_context["step"] = step
         step = self.callbacks.transform_event("on_megatron_step_start", step)
 
@@ -347,6 +349,7 @@ class MegatronParallel(nn.ModuleList, Generic[ModelT]):
             with self.unwrapped_model.only_student_forward():
                 microbatch_outputs = step()
         else:
+            print(f"MegatronParallel before step call: rank: {torch.distributed.get_rank()}, seq_length: {step.seq_length}, micro_batch_size: {step.micro_batch_size}, num_microbatches: {step.num_microbatches}")
             microbatch_outputs = step()
         self.callbacks.event("on_megatron_microbatches_end", step=step, microbatch_outputs=microbatch_outputs)
 
@@ -496,8 +499,6 @@ class MegatronParallel(nn.ModuleList, Generic[ModelT]):
         _data_step = data_step or _ModuleStepFunction.from_data_step(self.module, step_type)
         _forward_step = forward_step or _ModuleStepFunction.from_forward_step(self.module, step_type)
         _loss_reduction = loss_reduction or _ModuleStepFunction.from_loss_reduction(self.module, step_type)
-
-        print(f"MegatronParallel _step: rank: {torch.distributed.get_rank()}, step_type: {step_type}, seq_length: {seq_length}, micro_batch_size: {micro_batch_size}, num_microbatches: {num_microbatches}")
 
         return self.forward(
             data=data,
@@ -1224,8 +1225,6 @@ class MegatronStep(Generic[ModelT, DataT]):
         if step_i is None and pipeline.trainer:
             step_i = pipeline.trainer.global_step
 
-        print(f"MegatronStep infer: rank: {torch.distributed.get_rank()}, data: {data}, micro_batch_size: {micro_batch_size}, infer_micro_batch_size: {cls.infer_micro_batch_size(data)}, seq_length: {seq_length}, infer_seq_length: {cls.infer_seq_length(data)}, num_microbatches: {num_microbatches}, infer_num_microbatches: {cls.infer_num_microbatches(data)}")
-
         return cls(
             pipeline=pipeline,
             data=data,
@@ -1261,10 +1260,10 @@ class MegatronStep(Generic[ModelT, DataT]):
         if self.micro_batch_size is None:
             raise ValueError("micro_batch_size is not set")
 
+        print(f"MegatronStep call: rank: {torch.distributed.get_rank()}, step_i: {self.step_i}, micro_batch_size: {self.micro_batch_size}, seq_length: {seq_length} {self.seq_length}, num_microbatches: {self.num_microbatches}")
+
         data_iterator, seq_length = self.get_data_iterator_and_seq_length()
         seq_length = seq_length or self.seq_length
-
-        print(f"MegatronStep call: rank: {torch.distributed.get_rank()}, micro_batch_size: {self.micro_batch_size}, seq_length: {seq_length}, num_microbatches: {self.num_microbatches}")
 
         return self.forward_backward_func(
             forward_step_func=self.forward_step_func,
@@ -1319,11 +1318,14 @@ class MegatronStep(Generic[ModelT, DataT]):
             Optional[int]: The inferred micro-batch size, or None if it cannot be determined.
         """
         if isinstance(data, Tensor):
+            print(f"infer_micro_batch_size tensor: rank: {torch.distributed.get_rank()}, data: {data}, size: {data.size(0)}")
             return data.size(0)
         elif isinstance(data, dict):
+            print(f"infer_micro_batch_size dict: rank: {torch.distributed.get_rank()}, data: {data}")
             return cls.infer_micro_batch_size(next(iter(data.values())))
         elif isinstance(data, (list, tuple)) and len(data) > 0:
             _tensor: Tensor = data[0]
+            print(f"infer_micro_batch_size list: rank: {torch.distributed.get_rank()}, data: {_tensor}")
             return cls.infer_micro_batch_size(_tensor)
 
         return None
@@ -1801,7 +1803,6 @@ class MaskedTokenLossReduction(MegatronLossReduction):
                 from nemo.collections.nlp.modules.common.megatron.utils import (
                     average_losses_across_data_parallel_group,
                 )
-                print(f"loss_reduce: rank: {torch.distributed.get_rank()} losses_reduced_per_micro_batch: {len(losses_reduced_per_micro_batch)}")
 
                 loss_tensors_list = [loss_reduced["avg"] for loss_reduced in losses_reduced_per_micro_batch]
                 loss_tensor = torch.concat(loss_tensors_list).mean()
