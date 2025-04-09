@@ -1224,7 +1224,7 @@ class MegatronStep(Generic[ModelT, DataT]):
         if step_i is None and pipeline.trainer:
             step_i = pipeline.trainer.global_step
 
-        print(f"MegatronStep infer: rank: {torch.distributed.get_rank()}, micro_batch_size: {micro_batch_size}, infer_micro_batch_size: {cls.infer_micro_batch_size(data)}, seq_length: {seq_length}, infer_seq_length: {cls.infer_seq_length(data)}, num_microbatches: {num_microbatches}, infer_num_microbatches: {cls.infer_num_microbatches(data)}")
+        print(f"MegatronStep infer: rank: {torch.distributed.get_rank()}, data: {data}, micro_batch_size: {micro_batch_size}, infer_micro_batch_size: {cls.infer_micro_batch_size(data)}, seq_length: {seq_length}, infer_seq_length: {cls.infer_seq_length(data)}, num_microbatches: {num_microbatches}, infer_num_microbatches: {cls.infer_num_microbatches(data)}")
 
         return cls(
             pipeline=pipeline,
