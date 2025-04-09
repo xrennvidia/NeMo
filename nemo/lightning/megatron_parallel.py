@@ -1264,6 +1264,8 @@ class MegatronStep(Generic[ModelT, DataT]):
         data_iterator, seq_length = self.get_data_iterator_and_seq_length()
         seq_length = seq_length or self.seq_length
 
+        print(f"MegatronStep call: rank: {torch.distributed.get_rank()}, micro_batch_size: {self.micro_batch_size}, seq_length: {seq_length}, num_microbatches: {self.num_microbatches}")
+
         return self.forward_backward_func(
             forward_step_func=self.forward_step_func,
             data_iterator=data_iterator,
