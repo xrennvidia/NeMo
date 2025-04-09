@@ -326,7 +326,6 @@ class MegatronParallel(nn.ModuleList, Generic[ModelT]):
             data = _data_step(data, cache_num_batches=teacher_step.num_microbatches)
             teacher_step.data = data
 
-        print(f"MegatronParallel before step infer: rank: {torch.distributed.get_rank()}, seq_length: {seq_length}, micro_batch_size: {micro_batch_size}, num_microbatches: {num_microbatches}")
         step = MegatronStep.infer(
             self,
             data,
@@ -337,7 +336,6 @@ class MegatronParallel(nn.ModuleList, Generic[ModelT]):
             seq_length=seq_length,
             step_i=step_i,
         )
-        print(f"MegatronParallel after step infer: rank: {torch.distributed.get_rank()}, seq_length: {step.seq_length}, micro_batch_size: {step.micro_batch_size}, num_microbatches: {step.num_microbatches}")
         _forward_context["step"] = step
         step = self.callbacks.transform_event("on_megatron_step_start", step)
 
@@ -349,7 +347,6 @@ class MegatronParallel(nn.ModuleList, Generic[ModelT]):
             with self.unwrapped_model.only_student_forward():
                 microbatch_outputs = step()
         else:
-            print(f"MegatronParallel before step call: rank: {torch.distributed.get_rank()}, seq_length: {step.seq_length}, micro_batch_size: {step.micro_batch_size}, num_microbatches: {step.num_microbatches}")
             microbatch_outputs = step()
         self.callbacks.event("on_megatron_microbatches_end", step=step, microbatch_outputs=microbatch_outputs)
 
@@ -1261,7 +1258,6 @@ class MegatronStep(Generic[ModelT, DataT]):
             raise ValueError("micro_batch_size is not set")
 
         data_iterator, seq_length = self.get_data_iterator_and_seq_length()
-        print(f"MegatronStep call: rank: {torch.distributed.get_rank()}, step_i: {self.step_i}, micro_batch_size: {self.micro_batch_size}, seq_length: {seq_length} {self.seq_length}, num_microbatches: {self.num_microbatches}")
         seq_length = seq_length or self.seq_length
 
         return self.forward_backward_func(
@@ -1317,14 +1313,11 @@ class MegatronStep(Generic[ModelT, DataT]):
             Optional[int]: The inferred micro-batch size, or None if it cannot be determined.
         """
         if isinstance(data, Tensor):
-            print(f"infer_micro_batch_size tensor: rank: {torch.distributed.get_rank()}, data: {data}, size: {data.size(0)}")
             return data.size(0)
         elif isinstance(data, dict):
-            print(f"infer_micro_batch_size dict: rank: {torch.distributed.get_rank()}, data: {data}")
             return cls.infer_micro_batch_size(next(iter(data.values())))
         elif isinstance(data, (list, tuple)) and len(data) > 0:
             _tensor: Tensor = data[0]
-            print(f"infer_micro_batch_size list: rank: {torch.distributed.get_rank()}, data: {_tensor}")
             return cls.infer_micro_batch_size(_tensor)
 
         return None

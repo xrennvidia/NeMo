@@ -80,6 +80,8 @@ def override_recipe_configs(
         recipe.trainer.plugins = bf16_with_fp8_mixed()
         recipe.trainer.plugins.grad_reduce_in_fp32 = False
 
+    recipe.model.config.num_layers = 4
+
     return recipe
 
 
@@ -99,7 +101,7 @@ if __name__ == "__main__":
         exp_config += f"_{'-'.join(str(mbs) for mbs in mbs)}mbs"
     else:
         exp_config += f"_{mbs}mbs"
-    exp_name = f"{splitext(basename(__file__))[0]}_{args.compute_dtype}_{exp_config}"
+    exp_name = f"{splitext(basename(__file__))[0]}_4layers_{args.compute_dtype}_{exp_config}"
 
     executor = slurm_executor(
         args.account,
@@ -124,7 +126,7 @@ if __name__ == "__main__":
         ),
     ]
     if args.enable_nsys:
-        plugins.append(NsysPlugin(start_step=10, end_step=12, ranks=[0, 8]))
+        plugins.append(NsysPlugin(start_step=10, end_step=12, ranks=[0, 1]))
 
     with run.Experiment(exp_name) as exp:
         exp.add(
