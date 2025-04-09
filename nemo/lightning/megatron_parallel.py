@@ -1260,9 +1260,8 @@ class MegatronStep(Generic[ModelT, DataT]):
         if self.micro_batch_size is None:
             raise ValueError("micro_batch_size is not set")
 
-        print(f"MegatronStep call: rank: {torch.distributed.get_rank()}, step_i: {self.step_i}, micro_batch_size: {self.micro_batch_size}, seq_length: {seq_length} {self.seq_length}, num_microbatches: {self.num_microbatches}")
-
         data_iterator, seq_length = self.get_data_iterator_and_seq_length()
+        print(f"MegatronStep call: rank: {torch.distributed.get_rank()}, step_i: {self.step_i}, micro_batch_size: {self.micro_batch_size}, seq_length: {seq_length} {self.seq_length}, num_microbatches: {self.num_microbatches}")
         seq_length = seq_length or self.seq_length
 
         return self.forward_backward_func(
