@@ -497,6 +497,8 @@ class MegatronParallel(nn.ModuleList, Generic[ModelT]):
         _forward_step = forward_step or _ModuleStepFunction.from_forward_step(self.module, step_type)
         _loss_reduction = loss_reduction or _ModuleStepFunction.from_loss_reduction(self.module, step_type)
 
+        print(f"MegatronParallel _step: rank: {torch.distributed.get_rank()}, step_type: {step_type}, seq_length: {seq_length}, micro_batch_size: {micro_batch_size}, num_microbatches: {num_microbatches}")
+
         return self.forward(
             data=data,
             data_step=_data_step,
@@ -1221,6 +1223,8 @@ class MegatronStep(Generic[ModelT, DataT]):
         """
         if step_i is None and pipeline.trainer:
             step_i = pipeline.trainer.global_step
+
+        print(f"MegatronStep infer: rank: {torch.distributed.get_rank()}, micro_batch_size: {micro_batch_size}, infer_micro_batch_size: {cls.infer_micro_batch_size(data)}, seq_length: {seq_length}, infer_seq_length: {cls.infer_seq_length(data)}, num_microbatches: {num_microbatches}, infer_num_microbatches: {cls.infer_num_microbatches(data)}")
 
         return cls(
             pipeline=pipeline,
