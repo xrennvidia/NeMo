@@ -16,6 +16,7 @@ import dataclasses
 import logging
 from typing import List, Literal, Optional, Union
 
+import torch
 import lightning.pytorch as pl
 from torch.utils.data import DataLoader
 
