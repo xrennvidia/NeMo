@@ -207,7 +207,10 @@ def set_precision_configs(recipe, compute_dtype: str, fp8_recipe: str | None = N
     if compute_dtype.lower() == "bf16":
         recipe.optim.config.use_precision_aware_optimizer = True
 
-    if compute_dtype is not None and compute_dtype.lower() == "fp8":
+    if compute_dtype.lower() in ["fp8", "nvfp4"]:
+        if compute_dtype.lower() == "nvfp4":
+            assert fp8_recipe is not None and fp8_recipe.lower() == "mxfp8"
+
         if fp8_recipe is None:
             fp8_recipe = "ds"
         if fp8_recipe.lower() == "ds":
@@ -218,21 +221,23 @@ def set_precision_configs(recipe, compute_dtype: str, fp8_recipe: str | None = N
             recipe.trainer.plugins.first_last_layers_bf16 = False
         elif fp8_recipe.lower() == "mxfp8":
             recipe.trainer.plugins = bf16_with_mxfp8_mixed()
+            recipe.trainer.plugins.fp8_param_gather = False
+            recipe.trainer.plugins.reuse_grad_buf_for_mxfp8_param_ag = False
         elif fp8_recipe.lower() == "ss":
             recipe.trainer.plugins = bf16_with_fp8_subchannel_scaling_mixed()
 
-    recipe.trainer.plugins.grad_reduce_in_fp32 = False
+    #recipe.trainer.plugins.grad_reduce_in_fp32 = False
 
     # Enable reuse_grad_buf_for_mxfp8_param_ag for MXFP8 and disable AG overlap
     # because it is not supported with reuse_grad_buf_for_mxfp8_param_ag
-    if compute_dtype.lower() == "fp8" and fp8_recipe.lower() == "mxfp8":
-        comm_overlap_callback_idx = get_comm_overlap_callback_idx(recipe.trainer.callbacks)
-        if comm_overlap_callback_idx is not None:
-            recipe.trainer.callbacks[comm_overlap_callback_idx].overlap_param_gather = False
-        logging.warning(
-            "When using MXFP8, to reduce memory usage, we use reuse_grad_buf_for_mxfp8_param_ag. "
-            "Disabling AG overlap because it is not supported with reuse_grad_buf_for_mxfp8_param_ag."
-        )
+    #if compute_dtype.lower() == "fp8" and fp8_recipe.lower() == "mxfp8":
+    #    comm_overlap_callback_idx = get_comm_overlap_callback_idx(recipe.trainer.callbacks)
+    #    if comm_overlap_callback_idx is not None:
+    #        recipe.trainer.callbacks[comm_overlap_callback_idx].overlap_param_gather = False
+    #    logging.warning(
+    #        "When using MXFP8, to reduce memory usage, we use reuse_grad_buf_for_mxfp8_param_ag. "
+    #        "Disabling AG overlap because it is not supported with reuse_grad_buf_for_mxfp8_param_ag."
+    #    )
 
     return recipe
 

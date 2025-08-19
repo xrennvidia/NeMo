@@ -80,8 +80,8 @@ def parse_cli_args():
         "-c",
         "--compute_dtype",
         type=str,
-        choices=["bf16", "fp8"],
-        help="Compute precision. Options- bf16 or fp8. Defaults to bf16",
+        choices=["bf16", "fp8", "nvfp4"],
+        help="Compute precision. Options- bf16, fp8, or nvfp4. Defaults to bf16",
         required=False,
         default="bf16",
     )
