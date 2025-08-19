@@ -53,6 +53,7 @@ def slurm_executor(
     wandb_key: str = None,
     network: str = None,
     custom_bash_cmds: List[str] = None,
+    enable_cuda_graphs: bool = None,
 ) -> run.SlurmExecutor:
     """
     Slurm cluster definition with appropriate cluster params and NeMo container params needed for pre-training
@@ -79,7 +80,7 @@ def slurm_executor(
         logging.error("\n".join(err_msgs))
         sys.exit(1)
 
-    if gpu.lower() not in ['b200']:
+    if not (gpu.lower() == 'b200' or enable_cuda_graphs):
         # TODO: we currently disable PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
         # on B200 as it causes an unexpected error. Add back when issue is debugged and fixed.
         PERF_ENV_VARS["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"

@@ -221,8 +221,9 @@ def set_precision_configs(recipe, compute_dtype: str, fp8_recipe: str | None = N
             recipe.trainer.plugins.first_last_layers_bf16 = False
         elif fp8_recipe.lower() == "mxfp8":
             recipe.trainer.plugins = bf16_with_mxfp8_mixed()
-            recipe.trainer.plugins.fp8_param_gather = False
-            recipe.trainer.plugins.reuse_grad_buf_for_mxfp8_param_ag = False
+            if compute_dtype.lower() == "nvfp4":
+                recipe.trainer.plugins.fp8_param_gather = False
+                recipe.trainer.plugins.reuse_grad_buf_for_mxfp8_param_ag = False
         elif fp8_recipe.lower() == "ss":
             recipe.trainer.plugins = bf16_with_fp8_subchannel_scaling_mixed()
 
@@ -230,14 +231,14 @@ def set_precision_configs(recipe, compute_dtype: str, fp8_recipe: str | None = N
 
     # Enable reuse_grad_buf_for_mxfp8_param_ag for MXFP8 and disable AG overlap
     # because it is not supported with reuse_grad_buf_for_mxfp8_param_ag
-    #if compute_dtype.lower() == "fp8" and fp8_recipe.lower() == "mxfp8":
-    #    comm_overlap_callback_idx = get_comm_overlap_callback_idx(recipe.trainer.callbacks)
-    #    if comm_overlap_callback_idx is not None:
-    #        recipe.trainer.callbacks[comm_overlap_callback_idx].overlap_param_gather = False
-    #    logging.warning(
-    #        "When using MXFP8, to reduce memory usage, we use reuse_grad_buf_for_mxfp8_param_ag. "
-    #        "Disabling AG overlap because it is not supported with reuse_grad_buf_for_mxfp8_param_ag."
-    #    )
+    if compute_dtype.lower() == "fp8" and fp8_recipe.lower() == "mxfp8":
+        comm_overlap_callback_idx = get_comm_overlap_callback_idx(recipe.trainer.callbacks)
+        if comm_overlap_callback_idx is not None:
+            recipe.trainer.callbacks[comm_overlap_callback_idx].overlap_param_gather = False
+        logging.warning(
+            "When using MXFP8, to reduce memory usage, we use reuse_grad_buf_for_mxfp8_param_ag. "
+            "Disabling AG overlap because it is not supported with reuse_grad_buf_for_mxfp8_param_ag."
+        )
 
     return recipe
 

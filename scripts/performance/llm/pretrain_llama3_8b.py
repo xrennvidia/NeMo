@@ -143,7 +143,7 @@ if __name__ == "__main__":
     )
 
     exp_config = f"{num_nodes}nodes_tp{tp_size}_pp{pp_size}_cp{cp_size}_vp{vp_size}_{mbs}mbs_{gbs}gbs"
-    exp_name = f"{splitext(basename(__file__))[0]}_{args.compute_dtype}_{exp_config}"
+    exp_name = f"{splitext(basename(__file__))[0]}_{args.compute_dtype}_{args.fp8_recipe}_{exp_config}"
 
     executor = slurm_executor(
         args.gpu.lower(),
@@ -160,6 +160,7 @@ if __name__ == "__main__":
         nemo_home=args.nemo_home,
         wandb_key=args.wandb_key,
         network='sharp' if use_sharp else None,
+        enable_cuda_graphs=enable_cuda_graphs,
     )
 
     plugins = [build_perf_env_plugin(args, pp_size=pp_size, user_buffer_registration=use_user_buffer_registration)]
