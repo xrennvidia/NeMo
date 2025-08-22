@@ -160,6 +160,7 @@ if __name__ == "__main__":
         nemo_home=args.nemo_home,
         wandb_key=args.wandb_key,
         network='sharp' if use_sharp else None,
+        optional_gpus_per_node=args.gpus_per_node,
         enable_cuda_graphs=enable_cuda_graphs,
     )
 
