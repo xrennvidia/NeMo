@@ -238,9 +238,8 @@ def set_precision_configs(recipe, compute_dtype: str, fp8_recipe: str | None = N
     if compute_dtype.lower() == "fp4":
         assert fp8_recipe is not None and fp8_recipe.lower() == "nvfp4"
         recipe.trainer.plugins = bf16_mixed()
-        recipe.trainer.plugins.fp8 = "hybrid"
-        recipe.trainer.plugins.fp8_recipe = "nvfp4"
-        recipe.trainer.plugins.grad_reduce_in_fp32 = True
+        recipe.trainer.plugins.fp4 = "hybrid"
+        recipe.trainer.plugins.fp4_recipe = "nvfp4"
 
     return recipe
 
